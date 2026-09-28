@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-09-28
+goal: 在 OpenSpec 模板和工作流中加入可执行的 TDD 与独立 review 门禁
+skip_specs: true

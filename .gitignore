@@ -1,0 +1,82 @@
+# Operating-system metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*~
+*.swp
+*.swo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Logs, diagnostics, and temporary files
+*.log
+logs/
+*.pid
+*.pid.lock
+*.seed
+*.stackdump
+hs_err_pid*
+replay_pid*
+.tmp/
+tmp/
+temp/
+.cache/
+
+# Node.js, pnpm, Vite, and frontend tooling
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.eslintcache
+.stylelintcache
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# Java, Kotlin, and Gradle
+.gradle/
+**/build/
+*.class
+
+# Build and test outputs
+**/dist/
+**/out/
+coverage/
+.nyc_output/
+playwright-report/
+blob-report/
+test-results/
+cypress/screenshots/
+cypress/videos/
+cypress/downloads/
+
+# Python helper scripts and local virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local infrastructure state
+*.db
+*.sqlite
+*.sqlite3

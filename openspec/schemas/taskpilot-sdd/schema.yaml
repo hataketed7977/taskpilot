@@ -1,0 +1,255 @@
+# Forked from @fission-ai/openspec 1.13.2 built-in spec-driven schema.
+name: taskpilot-sdd
+version: 1
+description: TaskPilot SDD workflow - proposal → specs/design → test plan → TDD tasks → apply → independent verify
+artifacts:
+- id: proposal
+  generates: proposal.md
+  description: Initial proposal document outlining the change
+  template: proposal.md
+  instruction: |
+    Create the proposal document that establishes WHY this change is needed.
+
+    Sections:
+    - **Why**: 1-2 sentences on the problem or opportunity. What problem does this solve? Why now?
+    - **What Changes**: Bullet list of changes. Be specific about new capabilities, modifications, or removals. Mark breaking changes with **BREAKING**.
+    - **Capabilities**: Identify which specs will be created or modified:
+      - **New Capabilities**: List capabilities being introduced. Each becomes a new `specs/<capability-path>/spec.md`. Use kebab-case for path segments you introduce (e.g., `user-auth` or `identity/user-auth`) and follow the project's existing spec organization.
+      - **Modified Capabilities**: List existing capabilities whose REQUIREMENTS are changing. Only include if spec-level behavior changes (not just implementation details). Each needs a delta spec file. Use the exact existing path under `openspec/specs/`. Leave empty if no requirement changes.
+    - **Impact**: Affected code, APIs, dependencies, or systems.
+
+    IMPORTANT: The Capabilities section is critical. It creates the contract between
+    proposal and specs phases. Research existing specs before filling this in:
+    run `openspec list --specs` for the project's capability inventory, then
+    `openspec show "<spec-id>" --type spec --json --no-scenarios` for any that
+    look related - that returns a capability's purpose and requirement texts
+    without pulling whole spec files into context. Append `--store "<id>"` to
+    both commands only for a registered standalone store, and keep `--type
+    spec`: a change and a spec sharing a name is otherwise an ambiguous-item
+    error. `openspec list` without `--specs` lists in-flight changes, not
+    specs - it never shows what the project already covers. Reuse an existing
+    capability's exact path instead of introducing a near-duplicate name.
+    The filtered read is only an overview. Before deciding what is already
+    covered or what should change, read each relevant spec in full, including
+    scenarios, with `openspec show "<spec-id>" --type spec` (same `--store` rule).
+    Each capability listed here will need a corresponding spec file.
+
+    Every change must either declare at least one capability (new or
+    modified) or explicitly opt out of specs: `openspec validate` rejects a
+    change with zero deltas unless the change's `.openspec.yaml` sets
+    `skip_specs: true`. Use `skip_specs: true` only when no spec-level
+    behavior changes (pure refactor, tooling, docs) - specs describe
+    behavior, so if behavior does not change, no spec should change either.
+    Do not invent a requirement just to satisfy validation.
+
+    Keep it concise (1-2 pages). Focus on the "why" not the "how" -
+    implementation details belong in design.md.
+
+    This is the foundation - specs, design, and tasks all build on this.
+  requires: []
+- id: specs
+  generates: specs/**/*.md
+  description: Detailed specifications for the change
+  template: spec.md
+  instruction: |
+    Create specification files that define WHAT the system should do.
+
+    A spec is a behavior contract, not an implementation plan.
+
+    Good spec content:
+    - Observable behavior users or downstream systems rely on
+    - Inputs, outputs, and error conditions
+    - External constraints (security, privacy, reliability, compatibility)
+    - Scenarios that can be tested or explicitly validated
+
+    Avoid in specs:
+    - Internal class/function names
+    - Library or framework choices
+    - Step-by-step implementation details
+    - Detailed execution plans (those belong in design.md or tasks.md)
+
+    Quick test: if the implementation can change without changing externally
+    visible behavior, it likely does not belong in the spec.
+
+    Create one spec file per capability listed in the proposal's Capabilities section.
+    `<capability-path>` is the spec directory relative to `specs/` (for example,
+    `user-auth` or `identity/user-auth`). Preserve the full path:
+    - New capabilities: use the exact path from the proposal at `specs/<capability-path>/spec.md`. Any path segment newly introduced in the proposal must be kebab-case. Follow the project's existing organization; do not add a new domain level when the project uses a flat layout.
+    - Modified capabilities: use the exact existing path from `openspec/specs/<capability-path>/` when creating the delta at `specs/<capability-path>/spec.md`. Run `openspec list --specs` to confirm that path before writing the delta, appending `--store "<id>"` only for a registered standalone store - a mistyped or invented path targets a capability that does not exist rather than the one you meant. Do not move or rename the capability.
+
+    There must be at least one spec file unless the change's `.openspec.yaml`
+    sets `skip_specs: true` (no spec-level behavior change) - `openspec validate`
+    rejects a zero-delta change without that marker. If the proposal lists no
+    capabilities and `skip_specs` is not set, revisit the proposal first.
+
+    Delta operations (use ## headers):
+    - **ADDED Requirements**: New capabilities
+    - **MODIFIED Requirements**: Changed behavior - MUST include full updated content
+    - **REMOVED Requirements**: Deprecated features - MUST include **Reason** and **Migration**
+    - **RENAMED Requirements**: Name changes only - use FROM:/TO: format
+
+    Format requirements:
+    - Each requirement: `### Requirement: <name>` followed by description
+    - Use SHALL/MUST for normative requirements (avoid should/may)
+    - Each scenario: `#### Scenario: <name>` with WHEN/THEN format
+    - **CRITICAL**: Scenarios MUST use exactly 4 hashtags (`####`). Using 3 hashtags or bullets will fail silently.
+    - Every requirement MUST have at least one scenario.
+
+    New capabilities only: the delta spec's first section is `## Purpose` -
+    one or two sentences (50+ characters, or `openspec validate --strict`
+    reports it as too brief) describing what the capability is for. Archive
+    copies it into the main spec it creates; without it the new main spec is
+    left with a `TBD ... Update Purpose after archive` placeholder to fill in
+    by hand. Do NOT add `## Purpose` to a delta for an existing capability -
+    that spec already has one and the delta's is ignored. To change an
+    existing capability's Purpose - including a leftover `TBD` placeholder -
+    edit `<planningHome.root>/openspec/specs/<capability-path>/spec.md`
+    directly. `planningHome.root` comes from the `openspec instructions ...
+    --json` response. Always use it rather than a repo-relative path: it
+    resolves to the store whenever the change lives in one - whether that
+    came from `--store`, a project `store:` pointer, or a global default
+    store - and to the current repository otherwise. Do not try to work out
+    which case applies; the field already has.
+
+    MODIFIED requirements workflow:
+    1. Locate the existing requirement in `<planningHome.root>/openspec/specs/<capability-path>/spec.md` (the same store-aware root as above)
+    2. Copy the ENTIRE requirement block (from `### Requirement:` through all scenarios)
+    3. Paste under `## MODIFIED Requirements` and edit to reflect new behavior
+    4. Ensure header text matches exactly (whitespace-insensitive)
+
+    Common pitfall: Using MODIFIED with partial content loses detail at archive time.
+    If adding new concerns without changing existing behavior, use ADDED instead.
+
+    Example (a new capability, so its first section is `## Purpose`):
+    ```
+    # Spec Delta
+
+    ## Purpose
+
+    Lets users take their data out of the product in a portable format.
+
+    ## ADDED Requirements
+
+    ### Requirement: User can export data
+    The system SHALL allow users to export their data in CSV format.
+
+    #### Scenario: Successful export
+    - **WHEN** user clicks "Export" button
+    - **THEN** system downloads a CSV file with all user data
+
+    ## REMOVED Requirements
+
+    ### Requirement: Legacy export
+    **Reason**: Replaced by new export system
+    **Migration**: Use new export endpoint at /api/v2/export
+    ```
+
+    Specs should be testable - each scenario is a potential test case.
+  requires:
+  - proposal
+- id: design
+  generates: design.md
+  description: Technical design document with implementation details
+  template: design.md
+  instruction: |
+    Create the design document that explains HOW to implement the change.
+
+    When to include design.md (create only if any apply):
+    - Cross-cutting change (multiple services/modules) or new architectural pattern
+    - New external dependency or significant data model changes
+    - Security, performance, or migration complexity
+    - Ambiguity that benefits from technical decisions before coding
+
+    Sections:
+    - **Context**: Only the current state and constraints needed to explain the approach. Reference the proposal for motivation instead of restating it (e.g., "See proposal.md - Why").
+    - **Goals / Non-Goals**: What this design achieves and explicitly excludes. Don't restate the proposal's scope - add only design-level boundaries.
+    - **Decisions**: Key technical choices with rationale (why X over Y?). Include alternatives considered for each decision.
+    - **Risks / Trade-offs**: Known limitations, things that could go wrong. Format: [Risk] → Mitigation
+    - **Migration Plan**: Steps to deploy, rollback strategy (if applicable)
+    - **Open Questions**: Unknowns that can safely be answered later without
+      changing the specs, the approach, or the task breakdown. Omit if none.
+
+    Open questions are for genuinely deferrable unknowns, not decisions you
+    skipped. If a question would change the specs, the chosen approach, or
+    the task breakdown, resolve it now - ask the user instead of guessing.
+
+    Focus on architecture and approach, not line-by-line implementation.
+    The proposal covers why and what; design covers how. Reference the
+    proposal for motivation and, once written, the specs for requirements -
+    if a section would only restate them, point to them instead.
+
+    Good design docs explain the "why" behind technical decisions.
+
+
+          TaskPilot additions:
+          - Identify the important success, rejection, boundary, and recovery risks that shape the design.
+          - Name the owning test boundary and reference the nearest testing strategy; do not duplicate its full test matrix.
+          - Design seams for deterministic tests at the lowest reliable layer without weakening production boundaries.
+          - Record any behavior for which TDD is not applicable and why. Do not invent tests for documentation-only, generated-file, or pure scaffolding work.
+          - Resolve any question that would change the test plan or task ordering before tasks are authored.
+  requires:
+  - proposal
+- id: test-plan
+  generates: test-plan.md
+  description: Risk-based test plan and Red-Green-Refactor evidence contract
+  template: test-plan.md
+  instruction: |
+    Create the executable test plan before implementation tasks are written.
+
+    Read the proposal, every delta spec, the design, docs/architecture.md, and the nearest affected subproject testing strategies. This artifact maps risks and observable scenarios to the lowest reliable test layer; it does not replace those testing strategies.
+
+    Required sections:
+    - **Scope and Risk**: affected areas, risk class, escaped-defect impact, and explicit non-goals.
+    - **Scenario-to-Test Mapping**: map each important success, rejection, boundary, and recovery scenario to an owning test layer and planned automated test. Include contract, real-infrastructure, browser, or system evidence only when they catch a distinct boundary risk.
+    - **TDD Slices**: for each behavior slice, state the Red test and expected failure reason, the minimum Green behavior, and the Refactor protection suite. A compile, environment, or unrelated failure is not valid Red evidence.
+    - **Verification Commands**: focused commands first, then affected suites and applicable coverage, architecture, contract, database, browser, or system gates. Use commands owned by project documentation; if the toolchain does not exist yet, name the executable gate that the scaffold task must create and validate.
+    - **Exceptions and Manual Evidence**: identify work where TDD or automation is genuinely not applicable, with the reason, alternative automated structural evidence, manual acceptance evidence if needed, owner, and follow-up. Manual checks do not become tasks.md checkboxes.
+
+    Rules:
+    - Prefer meaningful behavior and branch coverage over test count or a mechanical 100% target.
+    - Do not repeat the same behavior at every layer. Use the lowest reliable layer and add broader tests only for distinct integration or browser risk.
+    - Tests and their production behavior must land in the same task group; never defer all tests to a final phase.
+    - Never weaken a requirement, delete an assertion, skip a test, or move production logic into test code merely to obtain Green.
+    - A tooling, documentation, generated-file refresh, or pure scaffolding change may mark behavioral TDD not applicable, but must still define schema, fixture, self-test, lint, build, or other automated evidence appropriate to the change.
+  requires:
+  - specs
+  - design
+- id: tasks
+  generates: tasks.md
+  description: Implementation checklist with trackable tasks
+  template: tasks.md
+  instruction: |
+    Create the implementation checklist from specs, design, and test-plan.md.
+
+    Before writing tasks, resolve any open question that would change behavior, test ownership, implementation approach, or task ordering.
+
+    IMPORTANT: Follow the checkbox template exactly. The apply phase tracks only `- [ ]` and `- [x]` tasks.
+
+    For each executable behavior slice, keep tests and production code in the same numbered group and order the work as:
+    1. **Red** — add or modify the smallest automated test, run the focused command, and confirm it fails for the expected missing behavior. Compile errors, environment failures, and unrelated failures are not valid Red evidence.
+    2. **Green** — implement the smallest clear production behavior that satisfies the contract, then run the focused test and relevant nearby tests.
+    3. **Refactor** — improve structure without changing behavior and rerun the focused/affected protection suite.
+
+    Every task must state its command or automated completion evidence. Do not create a final catch-all group that first adds tests or documentation owed by earlier behavior. A final group may contain only broader integration and release gates that span completed slices.
+
+    For documentation-only, generated-file, tooling, dependency, or pure scaffolding work that test-plan.md marks as not applicable to behavioral TDD, do not invent Red/Green tasks. Use the planned schema validation, fixture, self-test, lint, build, or other automated structural evidence instead. Keep manual acceptance guidance outside tasks.md.
+
+    Tasks must preserve the test layers, coverage policy, and boundary ownership in docs/architecture.md and the nearest subproject testing strategy. Reference those sources rather than copying their full matrices.
+  requires:
+  - test-plan
+  - design
+apply:
+  requires:
+  - tasks
+  tracks: tasks.md
+  instruction: |
+    Read all context files, especially test-plan.md, before editing implementation files. Work on one behavior slice at a time and keep its tests, production code, and documentation together.
+
+    For each behavioral slice:
+    1. Red: add or update the smallest test at the owning layer. Run its focused command and confirm the failure is caused by the specified behavior being absent or incorrect. Record the command and concise expected failure reason in progress reporting. Do not accept compile, environment, flaky, or unrelated failures as Red.
+    2. Green: implement the smallest clear behavior that satisfies the spec. Run the focused test and relevant nearby tests. Never obtain Green by deleting assertions, skipping tests, weakening the approved contract, or moving production logic into tests.
+    3. Refactor: improve structure while preserving observable behavior, then rerun focused and risk-appropriate affected checks.
+
+    For a task explicitly marked TDD-not-applicable by test-plan.md, run its planned automated structural evidence instead of inventing a behavioral test. Mark a checkbox complete only after its stated evidence passes. Manual observation alone does not complete an automatable task.
+
+    If implementation reveals a conflict or missing decision in proposal, specs, design, or test-plan, stop and use openspec-update-change; do not silently rewrite the contract during apply. Run focused checks before broader suites and expand by risk according to repository testing documentation. After all tasks pass, stop and hand off to an independent read-only openspec-verify-change review before archive.
