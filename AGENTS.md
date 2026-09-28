@@ -71,7 +71,7 @@ Use the OpenSpec Skills by phase:
 | Implement or continue the tasks of a selected, planning-complete change | `openspec-apply-change` |
 | Independently and read-only verify implementation against the completed change before archive | `openspec-verify-change` |
 | Merge an active change's delta specs into main specs without archiving it | `openspec-sync-specs` |
-| Finalize a fully implemented and independently verified change | `openspec-archive-change` |
+| Finalize a fully implemented change with current verification or allowed owner acceptance evidence | `openspec-archive-change` |
 
 For Codex CLI or IDE, invoke a Skill with its `$` form, for example
 `$openspec-propose`; in the Codex desktop app, select the corresponding Skill.
@@ -82,30 +82,40 @@ implementation still requires focused automated tests, source review, and any
 owning architecture or contract updates. Proposed change artifacts describe a
 future delta and must not be presented as current behavior.
 
-The mandatory completion sequence is `openspec-apply-change`, a separate
+The default completion sequence is `openspec-apply-change`, a separate
 independent and read-only `openspec-verify-change`, verification receipt
 recording, repository archive preflight, and only then
 `openspec-archive-change`. Prefer a fresh context or reviewer for verification.
 Verification itself never edits code, planning artifacts, or evidence. A
-self-review may find defects but cannot represent itself as the independent
-review or create its receipt.
+self-review may find defects but cannot represent itself as an independent
+review.
 
-After an independent reviewer returns a structured report, the coordinating
-agent records it with
+A Change may opt into owner acceptance only through a committed
+`verification-policy.json` whose risk is `low` or `bootstrap` and whose mode is
+`owner-acceptance-allowed`. Missing policy defaults to independent review;
+`standard`, `high`, and `critical` risk always require it. Owner acceptance must
+identify the owner, reason, and accepted scope, and must remain visibly distinct
+from independent review. It cannot waive failed commands, CRITICAL findings,
+unaccepted WARNING findings, or applicable `Not verified` checks.
+
+The coordinating agent records the attestation with
 [`tools/openspec/record-verification.sh`](tools/openspec/record-verification.sh)
-`<change> <review-report.json>`. CRITICAL findings, failed verification
-commands, unaccepted WARNING findings, and applicable `Not verified` checks are
-blocking. Fix blockers through apply, rerun focused checks, and obtain another
-independent review. Explicitly accepted non-blocking WARNINGs and inapplicable
-checks remain visible in the receipt.
+`<change> <review-report.json-or-markdown>`. A report intended for recording
+must be pure JSON or, when it also contains the human-readable Verify report,
+must append exactly one `verification-report` JSON fenced block. The
+coordinator passes that report through without manually translating findings. Fix blockers through apply and rerun applicable checks;
+independent-review Changes then require another independent review. Explicitly
+accepted non-blocking WARNINGs and inapplicable checks remain visible in the
+receipt.
 
 Immediately before invoking `openspec-archive-change`, run
 [`tools/openspec/archive-preflight.sh`](tools/openspec/archive-preflight.sh)
-`<change>`. It rejects missing or malformed evidence, a non-independent report,
-blocking results, and a workspace fingerprint that no longer matches the
-reviewed state. Any relevant workspace content change after recording requires
-fresh independent verification and a new receipt; never bypass or hand-edit the
-receipt to make it pass.
+`<change>`. It rejects missing or malformed evidence, policy-ineligible
+attestation, blocking results, and a relevant-content fingerprint that no
+longer matches the attested state. The fingerprint always covers the selected
+Change and its policy-declared impact paths and must not be invalidated by an
+unrelated sibling Change. Any relevant content change after recording requires
+fresh attestation; never bypass or hand-edit the receipt to make it pass.
 
 Generated OpenSpec Skills must not be edited manually. Refresh and verify all
 seven repository workflows with `tools/openspec/update-workflows.sh`; run

@@ -14,7 +14,7 @@ OpenSpec schema 描述实施前的 artifact DAG；`apply` 实施代码，官方 
 
 - 让所有受 OpenSpec 管理的行为变更在实现前形成可执行的测试计划。
 - 让 tasks 和 apply 按行为切片落实 Red → Green → Refactor，而不是末尾补测试。
-- 在 archive 前执行独立、只读、可复核的 review/verify，并形成阻断问题的修复回路。
+- 在 archive 前默认执行独立、只读、可复核的 review/verify，并形成阻断问题的修复回路；为低风险和自举型 Change 提供显式、可审计且不能吞掉阻断项的 owner acceptance 出口。
 - 复用现有分层测试策略，不重复维护工具、覆盖率和边界规则。
 - 让 schema、模板、规则和必要 Skill 都保存在仓库内，便于复现和审查。
 
@@ -105,13 +105,15 @@ review 阶段必须：
 
 根 `AGENTS.md` 记录触发顺序和角色边界；`docs/architecture.md` 记录跨项目 TDD/review 质量门禁。具体 artifact 结构只保存在 schema/template，具体子项目测试工具继续由各自 testing strategy 拥有，避免多处复制漂移。
 
-### 7. Review receipt 与 archive preflight 分离
+### 7. Review receipt、风险 policy 与 archive preflight 分离
 
-官方 `openspec-verify-change` 继续保持只读，不直接编辑实现、规划产物或证据。独立 reviewer 输出报告后，由协调阶段使用仓库工具把结构化报告持久化到 `openspec/changes/<change>/evidence/verification-report.json`。receipt 包含 reviewer 声明、时间、执行命令、分级 findings、`Not verified` 项、最终 verdict，以及生成时的保守工作区内容指纹。self-review 不能声明为 independent receipt。
+官方 `openspec-verify-change` 继续保持只读，不直接编辑实现、规划产物或证据。默认路径仍由独立 reviewer 输出人类可读报告和机器报告；机器报告可为纯 JSON，也可嵌入 Markdown 中唯一的 `verification-report` JSON fenced block，由协调阶段原样交给仓库工具，持久化为 `openspec/changes/<change>/evidence/verification-report.json`，不再依赖未定义的人工 Markdown 到 JSON 改写。
 
-`tools/openspec/archive-preflight.sh <change>` 在调用官方 archive Skill 前运行并阻断以下状态：receipt 缺失或格式错误、reviewer 非 independent、verdict 非 ready、存在 CRITICAL、WARNING 未明确接受为非阻断、存在 applicable `Not verified`，或者当前工作区指纹与 review 时不一致。preflight 只检查并退出，不负责归档，也不修改官方生成 Skill。
+每个需要非默认归档策略的 Change 使用受版本控制的 `verification-policy.json` 声明 `riskLevel`、`mode`、理由和 `fingerprintPaths`。缺少 policy 时安全地默认为 `independent-required`。只有 `low` 或 `bootstrap` 风险且 mode 为 `owner-acceptance-allowed` 时，仓库 owner 才能显式记录 owner acceptance；它必须标明接受原因和范围，并明确保留“这不是独立 review”的事实。`standard`、`high` 和 `critical` Change 仍必须独立验证。
 
-工作区指纹覆盖仓库内源码、文档、OpenSpec 配置和 active changes，排除 `.git` 元数据、依赖/构建/覆盖率缓存、归档目录和 verification evidence 自身。该策略有意保守：任何相关工作区内容变化都要求重新 review 和重新记录 receipt，避免在无 Git 仓库中依赖不可用的 commit SHA。
+`tools/openspec/archive-preflight.sh <change>` 在调用官方 archive Skill 前运行。无论是 independent review 还是允许的 owner acceptance，它都拒绝缺失或格式错误的 receipt、verdict 非 ready、失败命令、CRITICAL、未明确接受为非阻断的 WARNING、适用的 `Not verified`，以及相关内容变化。Owner acceptance 是治理出口，不是对失败证据的绕过。
+
+工作区指纹始终覆盖当前 Change（排除 evidence）以及 policy 声明的影响路径；缺少显式路径时才使用保守 fallback，并排除其他 active Change。这样验证后的相关内容变化仍要求重新 review/acceptance，但并行编辑无关 Change 不会使 receipt 活锁。路径必须是仓库内相对路径，不允许越界。
 
 ### 8. 可重复的 workflow 语义回归测试
 
@@ -125,8 +127,9 @@ review 阶段必须：
 - **[TDD 被形式化为勾选框]** → 要求 Red 的失败原因必须对应缺失行为，Green/Refactor 必须有命令证据；review 抽查测试是否能捕获真实缺陷。
 - **[所有变化都被迫写无意义测试]** → 允许明确的“不适用”分类，但必须说明原因和替代自动化证据；review 判断例外是否合理。
 - **[测试重复导致执行过慢]** → 先跑最低可靠层的 focused tests，只按风险扩大到 affected、contract 或 E2E；不以 E2E 重复子项目矩阵。
-- **[同一上下文自审产生确认偏差]** → review 独立调用且只读，优先新上下文/专职 reviewer；self-review 不得生成 independent receipt，所有结论附源码和命令证据。
-- **[receipt 与被审状态脱节]** → receipt 绑定保守工作区指纹；preflight 检测任何内容变化后要求重新 review。
+- **[同一上下文自审产生确认偏差]** → `standard` 及以上风险的 review 独立调用且只读，优先新上下文/专职 reviewer；owner acceptance 仅适用于 policy 明示的 `low`/`bootstrap` Change，且不得表示为 independent。
+- **[receipt 与被审状态脱节]** → receipt 绑定当前 Change 和 policy 声明的影响路径；preflight 检测相关内容变化后要求重新 review 或 acceptance。
+- **[Verify 与 recorder 格式断裂]** → recorder 支持纯 JSON 和 Markdown 内唯一的 `verification-report` JSON block，并用回归测试固定解析和拒绝歧义输入。
 - **[官方 Skill 升级覆盖本地门禁]** → 不手改生成 Skill；稳定门禁保存在根规则和仓库脚本，并用语义 smoke test 验证。
 - **[verify Skill 受用户级 profile 影响]** → 提交仓库本地生成 Skill，并在升级流程中显式检查其存在和 `generatedBy` 版本；不把全局配置当作仓库事实来源。
 
@@ -138,6 +141,6 @@ review 阶段必须：
 4. 更新根 `AGENTS.md` 和 `docs/architecture.md` 的 TDD/review 路由。
 5. 创建临时 smoke change，验证 artifact DAG、模板内容、apply context 和严格校验，再删除临时 change。
 6. 固化 workflow smoke test、verification receipt 和 archive preflight，并加强 Skill 刷新校验。
-7. 对本变更运行严格校验；实施完成后使用新 verify Skill review 本变更，独立 review 后再记录 receipt。
+7. 对本变更运行严格校验；本变更作为门禁自举 Change，使用版本化 `bootstrap` policy 和仓库 owner 的显式 acceptance 完成首次收口。后续 `standard` 及以上风险 Change 使用独立 review。
 
 回滚时将默认 schema 恢复为 `spec-driven`，删除项目级 `taskpilot-sdd` schema 和 verify Skill 路由；已有使用自定义 schema 的 change 保留其 schema 文件直至完成或迁移，不能先删 schema。

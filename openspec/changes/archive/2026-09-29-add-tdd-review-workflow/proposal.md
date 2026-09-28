@@ -12,7 +12,8 @@
 - 调整 apply 指令，要求先运行目标测试并确认其因缺失行为而失败，再写最小实现，最后在保持测试通过的前提下重构；无法合理执行 Red 的例外必须记录具体原因和替代证据。
 - 启用 OpenSpec 官方 `openspec-verify-change` workflow，并在仓库规则中将其定义为 apply 后、archive 前的独立只读 review 门禁。
 - 明确 review 的闭环：阻断问题回到 apply 修复并重新 review；未验证项不能被当作通过；OpenSpec 结构校验不能替代源码、测试和架构一致性检查。
-- 为独立 verify 增加与当前工作区指纹绑定的持久化 verification receipt，并在 archive 前通过仓库脚本拒绝缺失、过期或仍含阻断项的证据。
+- 为 verify 增加与当前 Change 及其声明影响路径绑定的持久化 verification receipt，并在 archive 前通过仓库脚本拒绝缺失、过期或仍含阻断项的证据；独立 review 是默认门禁，但低风险或自举型流程 Change 可通过受版本控制的 policy 和显式 owner acceptance 收口，且不能借此接受失败命令或阻断项。
+- 统一 Verify 与 receipt 的机器接口：recorder 接受纯 JSON 报告，也接受 Markdown 中唯一的 `verification-report` JSON fenced block，避免人工重写 review 结论。
 - 将一次性 schema smoke check 固化为在临时目录运行的可重复回归脚本，并加强 workflow Skill 刷新后的完整性和版本检查。
 - 更新仓库级架构与 Agent 路由，使上述流程成为后续受 OpenSpec 管理变更的默认质量流程。
 
@@ -23,6 +24,7 @@
 - 不强制机械追求 100% 覆盖率，不用低价值测试替代风险与行为覆盖。
 - 不要求纯文档、生成文件刷新或无法体现行为变化的脚手架任务伪造失败测试。
 - 不把 review 发现的问题自动修改；review 阶段保持只读，修复必须显式返回 apply 阶段。
+- 不允许 owner acceptance 冒充独立 review，也不允许它绕过失败命令、CRITICAL、未接受 WARNING 或适用的 `Not verified`。
 
 ## Capabilities
 

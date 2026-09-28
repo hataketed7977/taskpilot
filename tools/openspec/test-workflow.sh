@@ -165,33 +165,43 @@ if output="$(tools/openspec/archive-preflight.sh workflow-smoke 2>&1)"; then
   exit 1
 fi
 grep -q 'malformed verification receipt' <<<"$output"
-printf '[]\n' > "$receipt"
-if output="$(tools/openspec/archive-preflight.sh workflow-smoke 2>&1)"; then
-  echo 'Expected structurally malformed receipt preflight to fail.' >&2
-  exit 1
-fi
-grep -q 'top level must be an object' <<<"$output"
 rm -f "$receipt"
 
 cat > self-review-report.json <<'JSON'
 {
-  "reviewer": {"kind": "self", "identity": "workflow-test-implementer"},
+  "attestation": {"mode": "owner-acceptance", "identity": "workflow-test-owner", "reason": "test", "scope": "fixture"},
   "reviewedAt": "2026-09-28T00:00:00Z",
-  "commands": [{"command": "openspec validate workflow-smoke --strict --no-interactive", "result": "pass"}],
+  "commands": [{"command": "fixture verification", "result": "pass"}],
   "findings": [],
   "notVerified": [],
   "verdict": "ready"
 }
 JSON
 if output="$(tools/openspec/record-verification.sh workflow-smoke self-review-report.json 2>&1)"; then
-  echo 'Expected self-review receipt recording to fail.' >&2
+  echo 'Expected owner acceptance without an eligible policy to fail.' >&2
   exit 1
 fi
-grep -q 'Only an independent reviewer report' <<<"$output"
+grep -q 'does not allow owner acceptance' <<<"$output"
+
+cat > openspec/changes/workflow-smoke/verification-policy.json <<'JSON'
+[]
+JSON
+if output="$(tools/openspec/record-verification.sh workflow-smoke self-review-report.json 2>&1)"; then
+  echo 'Expected malformed policy recording to fail.' >&2
+  exit 1
+fi
+grep -q 'Malformed verification policy' <<<"$output"
+printf '{broken json\n' > "$receipt"
+if output="$(tools/openspec/archive-preflight.sh workflow-smoke 2>&1)"; then
+  echo 'Expected malformed policy preflight to fail.' >&2
+  exit 1
+fi
+grep -Eq 'Malformed verification policy|malformed verification policy' <<<"$output"
+rm -f openspec/changes/workflow-smoke/verification-policy.json "$receipt"
 
 cat > failed-command-report.json <<'JSON'
 {
-  "reviewer": {"kind": "independent", "identity": "workflow-test-reviewer"},
+  "attestation": {"mode": "independent-review", "identity": "workflow-test-reviewer"},
   "reviewedAt": "2026-09-28T00:00:00Z",
   "commands": [{"command": "fixture verification command", "result": "fail"}],
   "findings": [],
@@ -208,9 +218,9 @@ grep -q 'verification commands did not pass' <<<"$output"
 
 cat > blocking-report.json <<'JSON'
 {
-  "reviewer": {"kind": "independent", "identity": "workflow-test-reviewer"},
+  "attestation": {"mode": "independent-review", "identity": "workflow-test-reviewer"},
   "reviewedAt": "2026-09-28T00:00:00Z",
-  "commands": [{"command": "openspec validate workflow-smoke --strict --no-interactive", "result": "pass"}],
+  "commands": [{"command": "fixture verification", "result": "pass"}],
   "findings": [{"severity": "CRITICAL", "message": "fixture blocker"}],
   "notVerified": [],
   "verdict": "not_ready"
@@ -226,9 +236,9 @@ grep -q 'CRITICAL findings remain' <<<"$output"
 
 cat > not-verified-report.json <<'JSON'
 {
-  "reviewer": {"kind": "independent", "identity": "workflow-test-reviewer"},
+  "attestation": {"mode": "independent-review", "identity": "workflow-test-reviewer"},
   "reviewedAt": "2026-09-28T00:00:00Z",
-  "commands": [{"command": "openspec validate workflow-smoke --strict --no-interactive", "result": "pass"}],
+  "commands": [{"command": "fixture verification", "result": "pass"}],
   "findings": [],
   "notVerified": [{"check": "fixture check", "applicable": true, "reason": "fixture evidence intentionally absent"}],
   "verdict": "ready"
@@ -243,9 +253,9 @@ grep -q 'applicable checks remain Not verified' <<<"$output"
 
 cat > warning-report.json <<'JSON'
 {
-  "reviewer": {"kind": "independent", "identity": "workflow-test-reviewer"},
+  "attestation": {"mode": "independent-review", "identity": "workflow-test-reviewer"},
   "reviewedAt": "2026-09-28T00:00:00Z",
-  "commands": [{"command": "openspec validate workflow-smoke --strict --no-interactive", "result": "pass"}],
+  "commands": [{"command": "fixture verification", "result": "pass"}],
   "findings": [{"severity": "WARNING", "message": "unaccepted fixture warning", "acceptedNonBlocking": false}],
   "notVerified": [],
   "verdict": "ready"
@@ -258,26 +268,102 @@ if output="$(tools/openspec/archive-preflight.sh workflow-smoke 2>&1)"; then
 fi
 grep -q 'WARNING findings are not accepted' <<<"$output"
 
-cat > ready-report.json <<'JSON'
+cat > ready-report.md <<'MARKDOWN'
+# Independent verification
+
+All applicable fixture checks passed.
+
+```verification-report
 {
-  "reviewer": {"kind": "independent", "identity": "workflow-test-reviewer"},
+  "attestation": {"mode": "independent-review", "identity": "workflow-test-reviewer"},
   "reviewedAt": "2026-09-28T00:00:00Z",
   "commands": [{"command": "openspec validate workflow-smoke --strict --no-interactive", "result": "pass"}],
   "findings": [{"severity": "SUGGESTION", "message": "non-blocking fixture suggestion"}],
   "notVerified": [{"check": "product behavior", "applicable": false, "reason": "tooling-only fixture"}],
   "verdict": "ready"
 }
-JSON
-tools/openspec/record-verification.sh workflow-smoke ready-report.json > /dev/null
+```
+MARKDOWN
+tools/openspec/record-verification.sh workflow-smoke ready-report.md > /dev/null
 output="$(tools/openspec/archive-preflight.sh workflow-smoke)"
 grep -q 'Archive preflight passed' <<<"$output"
 
-echo 'fingerprint mutation' > tracked-after-review.txt
+mkdir -p openspec/changes/unrelated-change
+printf 'unrelated active change\n' > openspec/changes/unrelated-change/note.md
+output="$(tools/openspec/archive-preflight.sh workflow-smoke)"
+grep -q 'Archive preflight passed' <<<"$output"
+
+printf 'relevant fallback mutation\n' > tracked-after-review.txt
 if output="$(tools/openspec/archive-preflight.sh workflow-smoke 2>&1)"; then
-  echo 'Expected stale-fingerprint preflight to fail.' >&2
+  echo 'Expected relevant fallback fingerprint mutation to fail.' >&2
   exit 1
 fi
-grep -q 'workspace fingerprint changed after review' <<<"$output"
+grep -q 'relevant workspace fingerprint changed after attestation' <<<"$output"
+rm tracked-after-review.txt
+
+cat > openspec/changes/workflow-smoke/verification-policy.json <<'JSON'
+{
+  "schemaVersion": 1,
+  "riskLevel": "bootstrap",
+  "mode": "owner-acceptance-allowed",
+  "rationale": "Fixture exercises the bootstrap path.",
+  "fingerprintPaths": ["tools/openspec"]
+}
+JSON
+cat > owner-report.json <<'JSON'
+{
+  "attestation": {
+    "mode": "owner-acceptance",
+    "identity": "workflow-test-owner",
+    "reason": "Bootstrap gate is being validated by its repository owner.",
+    "scope": "Workflow schema, evidence tools, and archive preflight only."
+  },
+  "reviewedAt": "2026-09-28T00:00:00Z",
+  "commands": [{"command": "tools/openspec/test-workflow.sh", "result": "pass"}],
+  "findings": [],
+  "notVerified": [{"check": "product behavior", "applicable": false, "reason": "tooling-only fixture"}],
+  "verdict": "ready"
+}
+JSON
+tools/openspec/record-verification.sh workflow-smoke owner-report.json > /dev/null
+output="$(tools/openspec/archive-preflight.sh workflow-smoke)"
+grep -q 'Archive preflight passed' <<<"$output"
+
+printf 'another unrelated edit\n' >> openspec/changes/unrelated-change/note.md
+output="$(tools/openspec/archive-preflight.sh workflow-smoke)"
+grep -q 'Archive preflight passed' <<<"$output"
+
+cat > owner-blocked-report.json <<'JSON'
+{
+  "attestation": {
+    "mode": "owner-acceptance",
+    "identity": "workflow-test-owner",
+    "reason": "Exercise blocker handling.",
+    "scope": "Fixture only."
+  },
+  "reviewedAt": "2026-09-28T00:00:00Z",
+  "commands": [{"command": "fixture command", "result": "fail"}],
+  "findings": [{"severity": "CRITICAL", "message": "owner cannot waive this blocker"}],
+  "notVerified": [],
+  "verdict": "ready"
+}
+JSON
+tools/openspec/record-verification.sh workflow-smoke owner-blocked-report.json > /dev/null
+if output="$(tools/openspec/archive-preflight.sh workflow-smoke 2>&1)"; then
+  echo 'Expected owner acceptance with blockers to fail.' >&2
+  exit 1
+fi
+grep -q 'verification commands did not pass' <<<"$output"
+grep -q 'CRITICAL findings remain' <<<"$output"
+
+# Restore a ready owner receipt, then prove a declared relevant path invalidates it.
+tools/openspec/record-verification.sh workflow-smoke owner-report.json > /dev/null
+printf '# relevant mutation\n' >> tools/openspec/archive-preflight.sh
+if output="$(tools/openspec/archive-preflight.sh workflow-smoke 2>&1)"; then
+  echo 'Expected declared relevant-path mutation to fail.' >&2
+  exit 1
+fi
+grep -q 'relevant workspace fingerprint changed after attestation' <<<"$output"
 
 cd "$repo_root"
 after_changes="$(openspec list --json)"
@@ -289,5 +375,8 @@ after_changes="$(openspec list --json)"
 printf '%s\n' \
   'PASS default schema and test-plan graph' \
   'PASS tasks/apply TDD guidance and strict fixture validation' \
-  'PASS missing, malformed, self-review, failed-command, blocking, warning, Not verified, ready, and stale receipt paths' \
+  'PASS JSON and Markdown verification-report recording' \
+  'PASS independent default and eligible owner-acceptance policy' \
+  'PASS failed-command, blocking, warning, Not verified, and malformed paths' \
+  'PASS scoped fingerprint ignores sibling Changes and rejects relevant mutations' \
   'PASS fixture cleanup is armed and active repository changes are unchanged'

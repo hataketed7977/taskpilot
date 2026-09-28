@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "riskLevel": "bootstrap",
+  "mode": "owner-acceptance-allowed",
+  "rationale": "This Change bootstraps the verification gate itself; explicit repository-owner acceptance is allowed only after deterministic workflow checks pass.",
+  "fingerprintPaths": [
+    ".agents/skills",
+    "AGENTS.md",
+    "docs/architecture.md",
+    "openspec/config.yaml",
+    "openspec/schemas/taskpilot-sdd",
+    "tools/openspec"
+  ]
+}

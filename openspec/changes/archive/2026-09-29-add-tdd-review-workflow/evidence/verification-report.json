@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 2,
+  "change": "add-tdd-review-workflow",
+  "workspaceFingerprint": "c82c64faac9b4258daeb8be3275e6d8bc680e2a53cbffe79a0905d015622ba09",
+  "policy": {
+    "riskLevel": "bootstrap",
+    "mode": "owner-acceptance-allowed",
+    "rationale": "This Change bootstraps the verification gate itself; explicit repository-owner acceptance is allowed only after deterministic workflow checks pass."
+  },
+  "attestation": {
+    "mode": "owner-acceptance",
+    "identity": "repository-owner:user-authorized",
+    "reason": "The repository owner explicitly requested repair and completion after the original mandatory independent-review gate caused an archive deadlock.",
+    "scope": "Bootstrap acceptance for the OpenSpec TDD, verification evidence, scoped fingerprint, and archive-preflight workflow only; this is not an independent review."
+  },
+  "reviewedAt": "2026-09-28T17:13:50Z",
+  "recordedAt": "2026-09-28T17:13:50.856980Z",
+  "commands": [
+    {
+      "command": "bash tools/openspec/test-workflow.sh",
+      "result": "pass"
+    },
+    {
+      "command": "openspec schema validate taskpilot-sdd --verbose",
+      "result": "pass"
+    },
+    {
+      "command": "openspec validate --all --strict --no-interactive",
+      "result": "pass"
+    },
+    {
+      "command": "openspec doctor",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "local Markdown link check for changed workflow documents",
+      "result": "pass"
+    }
+  ],
+  "findings": [],
+  "notVerified": [
+    {
+      "check": "TaskPilot product runtime behavior",
+      "applicable": false,
+      "reason": "This Change modifies repository workflow tooling and documentation only; it adds no product runtime."
+    }
+  ],
+  "verdict": "ready"
+}

@@ -27,3 +27,10 @@
 - [x] 4.3 Strengthen `tools/openspec/update-workflows.sh` so all six core Skills plus official verify must exist and report `generatedBy` equal to `openspec --version`; run its syntax and generated-file assertions without changing the user's global profile.
 - [x] 4.4 Update root `AGENTS.md` and `docs/architecture.md` with the receipt-recording and archive-preflight contract while keeping official verify read-only and generated Skills unmodified; verify every new local documentation link resolves.
 - [x] 4.5 Run `tools/openspec/test-workflow.sh`, schema validation, doctor, strict all-change validation, and archive-preflight negative checks for this change before handing off to a new independent review.
+
+## 5. Archive deadlock correction
+
+- [x] 5.1 Revise the completion contract so independent review remains the safe default while a version-controlled policy can allow explicit owner acceptance only for `low` or `bootstrap` changes; owner acceptance must not bypass failed commands or blocking findings.
+- [x] 5.2 Make verification report recording accept either pure JSON or one unambiguous `verification-report` JSON fenced block, preserve the attestation mode in the receipt, and reject malformed or policy-ineligible acceptance.
+- [x] 5.3 Scope workspace fingerprints to the current Change plus policy-declared impact paths, with a conservative fallback that excludes sibling active changes; prove unrelated active Change edits do not stale a receipt while relevant edits do.
+- [x] 5.4 Update root workflow guidance and architecture documentation, add the bootstrap policy for this Change, and run focused workflow tests plus strict OpenSpec validation before archive handoff.

@@ -1,32 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ $# -ne 1 ]]; then
+  printf 'Usage: %s <change-name>\n' "$0" >&2
+  exit 2
+fi
 
-python3 - "$repo_root" <<'PY'
+change_name="$1"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+change_root="$repo_root/openspec/changes/$change_name"
+policy_path="$change_root/verification-policy.json"
+
+[[ -d "$change_root" ]] || {
+  printf 'Change not found: %s\n' "$change_name" >&2
+  exit 1
+}
+
+python3 - "$repo_root" "$change_name" "$policy_path" <<'PY'
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
+change_name = sys.argv[2]
+policy_path = Path(sys.argv[3])
+change_relative = Path("openspec") / "changes" / change_name
 ignored_dirs = {
-    ".git",
-    ".gradle",
-    ".idea",
-    ".pnpm-store",
-    ".pytest_cache",
-    ".turbo",
-    "build",
-    "coverage",
-    "dist",
-    "node_modules",
-    "out",
-    "target",
+    ".git", ".gradle", ".idea", ".pnpm-store", ".pytest_cache", ".turbo",
+    "build", "coverage", "dist", "node_modules", "out", "target",
 }
 ignored_files = {".DS_Store"}
+
 
 def ignored(relative: Path) -> bool:
     parts = relative.parts
@@ -40,30 +48,92 @@ def ignored(relative: Path) -> bool:
         len(parts) >= 4
         and parts[0] == "openspec"
         and parts[1] == "changes"
+        and parts[2] == change_name
         and parts[3] == "evidence"
     ):
         return True
     return False
 
-files: list[Path] = []
-for directory, dirnames, filenames in os.walk(root, topdown=True):
-    base = Path(directory)
-    traversable_dirs: list[str] = []
-    for name in sorted(dirnames):
-        path = base / name
-        relative = path.relative_to(root)
-        if ignored(relative):
+
+def safe_relative(raw: object) -> Path:
+    if not isinstance(raw, str) or not raw.strip():
+        raise SystemExit("verification-policy fingerprintPaths entries must be non-empty strings")
+    candidate = Path(raw)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise SystemExit(f"verification-policy fingerprint path must stay inside the repository: {raw}")
+    resolved = (root / candidate).resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError as error:
+        raise SystemExit(f"verification-policy fingerprint path escapes the repository: {raw}") from error
+    if not resolved.exists() and not resolved.is_symlink():
+        raise SystemExit(f"verification-policy fingerprint path does not exist: {raw}")
+    return relative
+
+
+explicit_paths: list[Path] | None = None
+if policy_path.is_file():
+    try:
+        policy = json.loads(policy_path.read_text())
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"Malformed verification policy: {error}") from error
+    if not isinstance(policy, dict) or policy.get("schemaVersion") != 1:
+        raise SystemExit("Malformed verification policy: schemaVersion must be 1")
+    raw_paths = policy.get("fingerprintPaths")
+    if raw_paths is not None:
+        if not isinstance(raw_paths, list) or not raw_paths:
+            raise SystemExit("verification-policy fingerprintPaths must be a non-empty array when present")
+        explicit_paths = [safe_relative(item) for item in raw_paths]
+
+files: set[Path] = set()
+
+
+def add_path(relative: Path) -> None:
+    path = root / relative
+    if ignored(relative):
+        return
+    if path.is_symlink() or path.is_file():
+        files.add(relative)
+        return
+    if not path.is_dir():
+        return
+    for directory, dirnames, filenames in os.walk(path, topdown=True):
+        base = Path(directory)
+        traversable: list[str] = []
+        for name in sorted(dirnames):
+            child = base / name
+            child_relative = child.relative_to(root)
+            if ignored(child_relative):
+                continue
+            if child.is_symlink():
+                files.add(child_relative)
+            else:
+                traversable.append(name)
+        dirnames[:] = traversable
+        for name in sorted(filenames):
+            child = base / name
+            child_relative = child.relative_to(root)
+            if not ignored(child_relative) and (child.is_file() or child.is_symlink()):
+                files.add(child_relative)
+
+
+# The selected Change is always bound, including its policy and planning artifacts.
+add_path(change_relative)
+if explicit_paths is not None:
+    for relative in explicit_paths:
+        add_path(relative)
+else:
+    # Conservative fallback: bind the repository, but never bind sibling active Changes.
+    for child in sorted(root.iterdir(), key=lambda value: value.name):
+        relative = child.relative_to(root)
+        if relative == Path("openspec"):
+            for openspec_child in sorted(child.iterdir(), key=lambda value: value.name):
+                openspec_relative = openspec_child.relative_to(root)
+                if openspec_relative == Path("openspec/changes"):
+                    continue
+                add_path(openspec_relative)
             continue
-        if path.is_symlink():
-            files.append(relative)
-        else:
-            traversable_dirs.append(name)
-    dirnames[:] = traversable_dirs
-    for name in sorted(filenames):
-        path = base / name
-        relative = path.relative_to(root)
-        if not ignored(relative) and (path.is_file() or path.is_symlink()):
-            files.append(relative)
+        add_path(relative)
 
 fingerprint = hashlib.sha256()
 for relative in sorted(files, key=lambda value: value.as_posix()):

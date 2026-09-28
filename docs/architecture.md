@@ -164,11 +164,15 @@ flowchart LR
     testPlan --> tasks["TDD Tasks"]
     design --> tasks
     tasks --> apply["Apply"]
-    apply --> verify["Independent read-only verify"]
+    apply --> policy{"Verification policy"}
+    policy -->|default / standard+| verify["Independent read-only verify"]
+    policy -->|explicit low / bootstrap| owner["Owner acceptance"]
     verify -->|blocking finding| apply
+    owner -->|blocking evidence| apply
     verify -->|ready report| receipt["Record verification receipt"]
+    owner -->|ready acceptance| receipt
     receipt --> preflight["Archive preflight"]
-    preflight -->|workspace changed| verify
+    preflight -->|relevant content changed| policy
     preflight -->|evidence current and non-blocking| archive["Archive"]
 ```
 
@@ -189,26 +193,30 @@ flowchart LR
   planned automated structural evidence such as schema validation, fixtures, a
   self-test, lint, or build; manual observation does not replace an automatable
   gate.
-- After apply completes, a separate reviewer runs the repository-local
-  `openspec-verify-change` Skill read-only. A self-review is useful for early
-  defect discovery but cannot claim independent verification. Blocking findings
-  return to apply and require another focused verification cycle. An applicable
-  check reported as `Not verified` prevents archive readiness; OpenSpec
-  structural validation alone never proves implementation correctness.
-- The coordinator records the independent structured report with
-  [`record-verification.sh`](../tools/openspec/record-verification.sh). The
-  receipt under the Change's `evidence/` directory records reviewer identity,
+- After apply completes, independent read-only verification is the safe
+  default. A committed `verification-policy.json` may allow explicit owner
+  acceptance only for `low` or `bootstrap` risk; missing policy and every
+  `standard`, `high`, or `critical` Change require an independent reviewer.
+  Owner acceptance records accountable human risk acceptance and never claims
+  independence. Neither path can waive failed commands, CRITICAL findings,
+  unaccepted WARNINGs, or applicable checks reported as `Not verified`.
+- The coordinator records the structured attestation with
+  [`record-verification.sh`](../tools/openspec/record-verification.sh). A report
+  intended for recording is either pure JSON or a human-readable Markdown
+  Verify report with exactly one `verification-report` JSON fenced block; the
+  coordinator does not manually translate findings between formats. The receipt under the
+  Change's `evidence/` directory preserves policy, attestation mode, identity,
   commands, findings, `Not verified` applicability, verdict, timestamps, and a
-  conservative fingerprint of relevant workspace content. Receipt data is
-  evidence of the read-only review, not another planning artifact.
+  fingerprint of the Change plus declared impact paths.
 - Before the Archive Skill is invoked,
   [`archive-preflight.sh`](../tools/openspec/archive-preflight.sh) must pass. It
-  rejects missing or malformed receipts, non-independent reviewers, failed
-  commands, non-ready verdicts, CRITICAL findings, WARNING findings not
+  rejects missing or malformed receipts, policy-ineligible attestations,
+  failed commands, non-ready verdicts, CRITICAL findings, WARNING findings not
   explicitly accepted as non-blocking, applicable `Not verified` checks, and a
-  stale workspace fingerprint. Relevant content changes after review require a
-  fresh independent review and receipt; the preflight is check-only and never
-  archives or edits the workspace.
+  stale relevant-content fingerprint. Edits to unrelated sibling active
+  Changes do not invalidate the receipt; changes to the selected Change or a
+  policy-declared path require fresh attestation. Preflight is check-only and
+  never archives or edits the workspace.
 - The canonical test tools, layer ownership, critical scenarios, and local
   commands remain in the Web, Gateway, and Core API
   [testing strategies](#subproject-documentation). This workflow only requires
@@ -220,8 +228,8 @@ which uses temporary OpenSpec profile state instead of modifying a developer's
 global profile and verifies that all seven generated Skills report the installed
 OpenSpec version. Generated Skill files are never edited manually. The isolated
 [`tools/openspec/test-workflow.sh`](../tools/openspec/test-workflow.sh) is the
-semantic regression gate for the schema graph, TDD guidance, receipt format,
-and archive preflight behavior.
+semantic regression gate for the schema graph, TDD guidance, report parsing,
+policy eligibility, scoped fingerprints, receipt format, and archive preflight behavior.
 
 ## Cross-Project Testing Boundaries
 
