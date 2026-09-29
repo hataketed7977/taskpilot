@@ -10,10 +10,11 @@
 
 ## Owns
 
-- Runtime instance identity plus authenticated user-scoped local and cloud
-  protocol endpoints.
-- Per-profile single-instance lifecycle, signed-binary identity, compatibility
-  handshake, resource bounds, cancellation, and crash recovery.
+- Runtime instance identity plus a Desktop-owned JSON-RPC/JSONL stdio session
+  and authenticated cloud protocol endpoint.
+- One-child-per-Main lifecycle, bundled-binary identity, compatibility and
+  capability handshake, resource bounds, cancellation, shutdown, and crash
+  recovery.
 - Agent CLI/SDK adapters and structured tool intents.
 - Device-local workspace binding identity, canonical path evaluation, and
   revocation for TaskPilot-owned operations.
@@ -36,8 +37,8 @@
 
 | Area | Responsibility |
 | --- | --- |
-| `supervisor` | Runtime lifecycle, protocol sessions, worker registry, reconnect and recovery |
-| `protocol` | Private local endpoint, bootstrap/authentication, versioned schemas, idempotency and compatibility |
+| `supervisor` | Desktop-owned child lifecycle, stdio session, worker registry, cancellation, shutdown and restart recovery |
+| `protocol` | JSON-RPC 2.0 / JSONL framing, bounded queues and messages, Rust-owned schemas and generated TypeScript/JSON Schema, request lifecycle and compatibility |
 | `execution` | Run context, limits, cancellation, structured results |
 | `agents` | Provider/CLI/SDK adaptation to normalized Agent interactions |
 | `tools` | Intent schemas, policy evaluation, local-consent binding, dispatch |
@@ -53,8 +54,11 @@
   directly for side effects.
 - Workspace helpers reject ambiguous or out-of-scope paths but never claim to
   restrict an arbitrary subprocess's OS permissions.
-- Protocol handlers validate and authorize before creating work; workers do not
-  infer business permission from the presence of a message.
+- Protocol handlers validate structure and lifecycle before dispatch, then the
+  execution owner independently authorizes work; workers do not infer business
+  permission from the presence of a message or an inherited stdio channel.
+- Runtime stdout is protocol-only and stderr is log-only. Both streams remain
+  bounded by explicit output and backpressure policies.
 - Journal writes precede externally visible acknowledgements where recovery
   requires durable evidence.
 - Cloud synchronization translates local evidence but cannot rewrite local
@@ -67,8 +71,8 @@
 Environment variables, command lines, workspace contents, logs, Diff, artifacts,
 and provider responses may contain secrets. Owners minimize collection, apply
 explicit redaction/retention/upload policy, and keep raw local evidence outside
-the workspace behind restrictive per-user native ACLs. Provider credentials and
-bootstrap secrets never enter command lines, journals, logs, Diff, or artifacts;
+the workspace behind restrictive per-user native ACLs. Provider credentials
+never enter command lines, journals, logs, Diff, artifacts, or protocol output;
 environment injection is allowed only when an adapter cannot use a safer
 short-lived handle and must be minimized and scrubbed. Security scanning,
 checksums, and OS file permissions are defense in depth, not proof that data is

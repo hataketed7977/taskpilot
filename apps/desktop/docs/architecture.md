@@ -13,9 +13,9 @@
 
 The Desktop application is the first-party Windows and macOS client. It renders
 TaskPilot workflows, communicates with cloud services only through the Gateway,
-and controls the separately supervised
-[`Agent Runtime`](../../agent-runtime/docs/architecture.md) through
-a future authenticated, versioned local protocol.
+and controls the separately supervised Rust
+[`Agent Runtime`](../../agent-runtime/docs/architecture.md) through a versioned
+JSON-RPC 2.0 protocol carried as JSONL over inherited stdio pipes.
 
 The Desktop does not execute Agent tools, directly edit workspace files, own
 business truth, or connect to business databases.
@@ -28,6 +28,8 @@ business truth, or connect to business databases.
 - TanStack Query for remote cloud state
 - Generated types plus a Main-owned typed transport client for the first-party
   Desktop API
+- Generated TypeScript types and JSON Schema derived from Runtime-owned Rust
+  protocol types for the Main-to-Runtime client
 - Renderer query adapters that invoke typed Preload capabilities and never hold
   credentials or call authenticated cloud endpoints directly
 - Platform adapters for OS credential storage, deep-link/single-instance
@@ -49,7 +51,7 @@ flowchart LR
 
     renderer -->|typed capabilities| preload
     preload -->|validated IPC| main
-    main -->|authenticated local protocol| runtime
+    main -->|JSON-RPC 2.0 / JSONL over stdio| runtime
     main -->|HTTPS| gateway
     main -->|secret handles| credential
     runtime -->|managed execution protocol| gateway
@@ -170,26 +172,42 @@ Every application window starts from deny-by-default settings:
 
 ## Agent Runtime Integration
 
-The Runtime is a signed, per-user companion process distributed and versioned
-with the Desktop application, not a system-wide service. Main starts or reconnects
-to the packaged Runtime from a trusted installation path, enforces a single
-instance per product profile, supervises health and termination, and never accepts
-a Runtime executable selected from a project root or mutable user path. Closing a
-Renderer window does not by itself imply full application exit; background and
-active-work behavior remains an explicit product lifecycle decision.
+The Runtime is a signed companion executable distributed, versioned, and updated
+with the Desktop application, not a system-wide service. In the first phase,
+Electron Main starts one Runtime child for its own application lifecycle from a
+fixed packaged path, owns its stdin/stdout/stderr pipes, supervises health and
+termination, and never accepts a Runtime executable selected from a project root,
+configuration value, environment variable, or other mutable user path. A Desktop
+restart starts a new Runtime; it does not attach to an orphan from a previous Main
+process.
 
-Main implements the Desktop side of the authenticated local transport owned by the
-[Agent Runtime architecture](../../agent-runtime/docs/architecture.md#local-transport-and-lifecycle).
-It launches only the signed bundled binary, authenticates and version-negotiates
-before use, revalidates Renderer-originated requests, and fails closed when the
-peer, endpoint, session, or build is not trusted. It never weakens Runtime recovery
-or grant checks merely to reconnect.
+Main implements the Desktop side of the transport owned by the
+[Agent Runtime architecture](../../agent-runtime/docs/architecture.md#local-transport-and-lifecycle):
+JSON-RPC 2.0 envelopes encoded as UTF-8 JSONL, with Runtime stdout reserved for
+protocol messages and stderr reserved for logs. Main performs `initialize` before
+other requests, negotiates protocol version, build identity, and capabilities,
+then uses `runtime/info`, `runtime/health`, and `runtime/shutdown` for the initial
+walking skeleton. Both sides enforce request IDs, cancellation semantics, bounded
+queues, and a maximum message size; malformed output or stdout log contamination
+fails the session closed.
 
-Managed execution follows the root
+The fixed trusted launch path plus inherited anonymous pipes establish the initial
+local process boundary, so phase one adds no bootstrap secret, nonce challenge, or
+reconnect credential. This relationship proves neither that a requested operation
+is safe nor that it is authorized. Main revalidates Renderer-originated requests,
+and managed execution still follows the root
 [identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization).
-Desktop does not mint an execution grant, turn its user session into Runtime
-authority, substitute a raw local path for `LocalWorkspaceBindingId`, or relax a
-grant binding.
+Desktop does not mint an execution grant, turn its user session or stdio channel
+into Runtime authority, substitute a raw local path for
+`LocalWorkspaceBindingId`, or relax a grant binding.
+
+Closing a Renderer window does not by itself imply full application exit. On full
+Main shutdown it first requests bounded graceful shutdown and then closes the
+pipes or terminates the child; Runtime exits on stdin EOF or confirmed parent
+loss. Background and active-work exit behavior remains an explicit future product
+lifecycle decision. A daemon transport is designed only if a real requirement
+appears for work surviving Desktop exit, Desktop restart attachment, shared
+CLI/Desktop clients, a resident scheduler, or an independently managed Runtime.
 
 ## API Contract Integration
 
@@ -206,8 +224,10 @@ grant binding.
 
 Most product, React, IPC-schema, and Runtime-client code is shared. Platform
 adapters isolate only real OS differences: credential storage, deep links,
-single-instance behavior, notifications, paths, process lifecycle integration,
-code signing, installers, and update distribution.
+single-instance behavior, notifications, paths, child-process lifecycle and
+process-tree cleanup, code signing, installers, and update distribution. The
+initial stdio protocol itself is shared and does not require separate Unix Domain
+Socket and Windows Named Pipe implementations.
 
 Electron packages Chromium on both Windows and macOS. Browser-engine matrix
 language therefore does not apply to the Desktop product; release evidence must

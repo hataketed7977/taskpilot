@@ -18,8 +18,9 @@
   defined by the authentication spec.
 - Native dialogs, notifications, credential handles, deep links,
   single-instance behavior, and platform lifecycle integration.
-- Main-owned authenticated Desktop API consumption and Main-to-Runtime
-  process, version, health, and connection supervision.
+- Main-owned authenticated Desktop API consumption and Main-to-Runtime child
+  launch, stdio protocol, version/capability, health, shutdown, and failure
+  supervision.
 
 ## Does Not Own
 
@@ -38,7 +39,7 @@
 | `main/ipc` | IPC sender/origin/session authorization, schema validation, rate/size limits, dispatch |
 | `main/cloud-client` | Credentialed Desktop API requests, token refresh, logout cleanup and transport errors |
 | `main/native` | Credential, dialog, notification, deep-link and platform adapters |
-| `main/runtime-client` | Trusted Runtime launch, authenticated/versioned connection, health and reconnect state |
+| `main/runtime-client` | Fixed-path Runtime launch, JSON-RPC/JSONL stdio client, generated contracts, version/capability negotiation, health, cancellation, shutdown and child failure state |
 | `preload` | Narrow typed capabilities exposed to a sandboxed Renderer |
 | `renderer/app` | Providers, routing, auth boundary, global error handling |
 | `renderer/pages` | Route/window entry and page composition |
@@ -54,7 +55,8 @@
 - Preload APIs are capability-based (`selectWorkspace`, `subscribeRunView`),
   not generic (`send`, `invoke`, `readFile`, `exec`).
 - Main handlers validate identity, schema, scope, and lifecycle before calling
-  their owner; Renderer checks are usability, not authorization.
+  their owner; Renderer checks are usability, not authorization. A live stdio
+  channel is transport reachability, not execution authority.
 - Workspace selection uses a native picker, but authorization enforcement and
   canonical path checks belong to Runtime.
 - High-risk local execution UI explains the immutable evaluated operation and

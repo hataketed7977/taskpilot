@@ -62,7 +62,7 @@ flowchart LR
     gateway --> api
     gateway --> redis
     api --> postgres
-    desktop -->|authenticated local protocol| runtime
+    desktop -->|JSON-RPC 2.0 / JSONL over stdio| runtime
     runtime --> workspace
     runtime --> provider
     runtime -->|managed execution and evidence| edge
@@ -72,10 +72,12 @@ flowchart LR
 The Desktop is the first-party interaction surface. Its sandboxed Renderer uses
 a typed Preload/Main boundary and never owns cloud credentials or sends
 credentialed requests directly. Electron Main owns the authenticated cloud
-client, OS integration, and lifecycle of the separate Agent Runtime companion
-process. The Runtime owns local Agent/tool execution, process/PTY supervision,
-logs, Diff, and artifacts. It does not own business state or write `core-api`
-tables.
+client, OS integration, and lifecycle of a bundled Rust Agent Runtime child
+process. In the first phase, Main launches that child from a fixed trusted path
+and communicates through inherited stdin/stdout pipes using JSON-RPC 2.0 with
+one JSON message per line; Runtime stderr is reserved for logs. The Runtime owns
+local Agent/tool execution, process/PTY supervision, logs, Diff, and artifacts.
+It does not own business state or write `core-api` tables.
 
 `core-api` remains the owner of AgentRun and approval business truth. Managed
 local execution uses a future authenticated, short-lived execution-grant
@@ -89,8 +91,11 @@ Runtime represents an authorized local project root with a device-local opaque
 `LocalWorkspaceBindingId`; its raw absolute path stays local by default. Local
 path checks constrain TaskPilot-owned file tools and execution policy but are not an
 OS-level sandbox. Arbitrary child processes retain the user's OS permissions and
-may access resources outside the selected root unless a future isolation design
-adds enforceable platform controls.
+may access resources outside the selected root. Before TaskPilot exposes general
+Shell or CLI execution, a separate design must define and natively verify macOS
+and Windows isolation, child-process network policy, whole-process-tree cleanup,
+and sandbox failure and escape behavior. Rust, local consent, and canonical path
+checks do not satisfy that gate by themselves.
 
 Redis is optional technical infrastructure. The Gateway may use it for a proven
 distributed rate-limit requirement. `core-api` adds Redis only for a documented
@@ -134,16 +139,19 @@ created.
 - Desktop: Electron, React, strict TypeScript, Vite, and TanStack Query, with
   sandboxed Renderer and typed Preload IPC. See
   [`apps/desktop/docs/architecture.md`](../apps/desktop/docs/architecture.md).
-- Agent Runtime: separately supervised local execution with narrow
-  Windows/macOS platform adapters. Concrete language and libraries are deferred.
-  See [`apps/agent-runtime/docs/architecture.md`](../apps/agent-runtime/docs/architecture.md).
+- Agent Runtime: a bundled Rust child process supervised by Electron Main, with
+  JSON-RPC 2.0 / JSONL over stdio and narrow Windows/macOS platform adapters.
+  Rust protocol types generate TypeScript types and JSON Schema; concrete Rust
+  libraries are selected when the Runtime is initialized. See
+  [`apps/agent-runtime/docs/architecture.md`](../apps/agent-runtime/docs/architecture.md).
 - Gateway: Kotlin and Spring Cloud Gateway. See
   [`services/gateway/docs/architecture.md`](../services/gateway/docs/architecture.md).
 - Core API: Kotlin, Spring Boot, and Spring Modulith. See
   [`services/core-api/docs/architecture.md`](../services/core-api/docs/architecture.md).
 - Data: PostgreSQL as the system of record; Redis only for a justified
   short-lived technical cache or coordination use case.
-- Build: pnpm for JavaScript projects and Gradle Kotlin DSL for Kotlin projects.
+- Build: pnpm for JavaScript projects, Cargo for the Rust Runtime, and Gradle
+  Kotlin DSL for Kotlin projects.
 
 Stable, mutually compatible versions are selected when each subproject is
 initialized. Windows and macOS share product code and protocols, but signing,

@@ -35,7 +35,7 @@ flowchart LR
     workspace["Bound local project root"]
     gateway["Gateway and Core API"]
 
-    desktop -->|authenticated local protocol| supervisor
+    desktop -->|JSON-RPC 2.0 / JSONL over stdio| supervisor
     supervisor --> worker
     worker --> guard
     guard --> process
@@ -44,56 +44,86 @@ flowchart LR
     supervisor -->|managed execution and evidence| gateway
 ```
 
-- A long-lived supervisor owns protocol sessions, version negotiation, worker
-  lifecycle, cancellation, recovery, and cloud synchronization.
+- A Desktop-lifetime supervisor owns the stdio protocol session, version and
+  capability negotiation, worker lifecycle, cancellation, recovery, and cloud
+  synchronization.
 - A run-scoped worker owns one execution context and has explicit resource,
   output, and time limits.
 - Workspace/tool guard canonicalizes TaskPilot-owned file operations and
   evaluates tool policy before side effects.
 - Platform adapters normalize process groups or Windows Jobs, PTY, signals,
   paths, filesystem events, and encodings without hiding real OS semantics.
-- The local journal stores enough idempotent state and evidence for reconnect
-  and crash diagnosis; it never becomes the canonical Agent Run record.
+- The local journal stores enough idempotent state and evidence for restart
+  recovery and crash diagnosis; it never becomes the canonical Agent Run record.
 
-Concrete language, libraries, and on-disk schemas are selected in a later
-implementation change.
+The Runtime is implemented in Rust. Its protocol types are the source of truth
+for generated TypeScript types and JSON Schema consumed by Desktop; generated
+artifacts are compatibility-checked and are not maintained by hand. Concrete Rust
+libraries and on-disk schemas are selected in a later implementation change.
 
 ## Local Transport and Lifecycle
 
-Electron Main starts or reconnects to one Runtime instance per OS user and
-product profile from the signed application installation. The Runtime exposes a
-private Unix Domain Socket on macOS or a Named Pipe restricted to the current
-user SID on Windows; it does not listen on TCP by default. Endpoint directories,
-pipe ACLs, ownership, stale cleanup, single-instance locking, and peer rejection
-fail closed.
+In the first phase, Electron Main starts exactly one Runtime child for its own
+application lifecycle from the fixed, signed application installation. Main owns
+three inherited anonymous pipes: Runtime stdin receives protocol input, Runtime
+stdout emits protocol output only, and Runtime stderr emits logs only. The Runtime
+does not listen on TCP, create a local socket or pipe endpoint, run as a service,
+or accept connections from another client. A Desktop restart starts a new child
+rather than reconnecting to a previous Runtime.
 
-A one-time bootstrap secret is delivered through an inherited anonymous channel,
-never argv, environment variables, a command line, a workspace file, or a
-predictable temporary file. Desktop and Runtime use it for a nonce-based mutual
-challenge, derive or rotate a short-lived session credential, and erase bootstrap
-material. A reconnect credential, when supported, is stored only through an
-OS-protected credential facility and restrictive Runtime state, rotates after
-connection or account changes, and is never the Desktop cloud token. If a new
-Main process cannot safely reauthenticate the Runtime, it rejects the old process
-and starts a fresh signed instance. Local OS identity and endpoint permissions are
-defense in depth rather than substitutes for protocol authentication.
+The wire protocol is JSON-RPC 2.0 encoded as UTF-8 JSONL: each line contains one
+complete JSON object. Both sides reject malformed envelopes, unknown or duplicate
+request IDs, unsupported methods, and messages exceeding the declared byte limit
+before unbounded allocation or dispatch. Reads and writes use bounded queues with
+explicit backpressure; cancellation has a versioned method and deterministic
+request lifecycle. Runtime code must never write logs, banners, panic text, or
+third-party output to stdout because any non-protocol line corrupts the session.
 
-The handshake exchanges protocol version, product profile, build identity, and
-supported compatibility range. Incompatible peers cannot claim or execute work.
-Loss of Main supervision stops new local requests and cloud claims and enters a
-bounded recovery path; resumed side effects require fresh grant and lease
-validation. Closing a Renderer window is distinct from full application exit, and
-the exact active-work exit behavior belongs to a future lifecycle contract.
-Runtime follows the Desktop
+`initialize` is the first accepted request and exchanges protocol version and
+compatibility range, Desktop and Runtime build identity, product profile, and
+capabilities. The initial walking skeleton also exposes `runtime/info`,
+`runtime/health`, and `runtime/shutdown`; their exact typed schemas and error codes
+are fixed by its implementation change. Incompatible peers fail before any work
+is accepted. Rust protocol types generate the Desktop TypeScript types and JSON
+Schema used for compile-time and runtime contract checks.
+
+The trusted fixed-path spawn plus inherited pipes establishes the phase-one local
+process relationship. It does not require a bootstrap secret, nonce challenge, or
+reconnect credential, and it does not authorize execution. Every real operation
+still requires the applicable execution grant, local workspace binding, local
+consent, lifecycle, and fencing checks. The Runtime never interprets possession
+of stdin as permission to execute.
+
+On normal application exit, Main requests `runtime/shutdown` with a bounded grace
+period, then closes pipes or terminates the child. Runtime exits when stdin reaches
+EOF or when platform supervision confirms its Main parent is gone; it stops new
+requests and cloud claims before bounded cleanup. Resuming any side effect after a
+new Desktop/Runtime start requires fresh grant and lease validation. Closing a
+Renderer window is distinct from full application exit, and exact active-work
+exit behavior belongs to a future lifecycle contract. Runtime follows the Desktop
 [packaging and update contract](../../desktop/docs/architecture.md#packaging-and-updates)
 and does not self-update independently.
+
+### Future daemon transport gate
+
+A persistent transport is not part of the first phase. Reconsider a Unix Domain
+Socket on macOS and a current-user ACL-restricted Named Pipe on Windows only when
+a confirmed requirement needs at least one of: work surviving Desktop exit,
+Desktop restart attachment, shared CLI/Desktop clients, a resident scheduler, or
+an independently managed Runtime lifecycle. That change must separately design
+endpoint ownership and cleanup, single-instance locking, peer authentication,
+credential rotation, reconnect semantics, replay resistance, and upgrade
+compatibility; the stdio relationship must not be stretched into an implicit
+daemon contract.
 
 ## Trust Boundaries
 
 All inputs are untrusted: Desktop messages, cloud assignments, Agent output,
 tool arguments, repository content, symlinks, environment values, process
-output, and recovered journal records. Protocol messages are authenticated,
-versioned, schema validated, bounded, and tied to one Runtime instance.
+output, and recovered journal records. Protocol messages arrive through the
+inherited private channel but are still versioned, schema validated, bounded, and
+tied to one child-process lifecycle. Transport provenance is not execution
+authorization.
 
 The Runtime never accepts the Desktop's long-lived user token. Managed execution
 must validate every binding and lifecycle rule in the root
@@ -120,9 +150,15 @@ operations and triggers the future contract's deterministic run transition.
 This is **not an OS-level sandbox**. An arbitrary child process executes with
 the user's OS permissions and may access files outside the bound project root,
 environment secrets, credential agents, devices, or network services. Tool
-policy, command review, environment minimization, and audit reduce risk but do
-not create kernel-enforced isolation. Any stronger isolation requires a
-separate design with explicit platform guarantees and usability trade-offs.
+policy, command review, environment minimization, Rust memory safety, and audit
+reduce risk but do not create kernel-enforced isolation.
+
+Before general Shell or CLI execution enters the product, a separate approved
+security design must define enforceable macOS and Windows isolation mechanisms,
+child-process network policy, full process-tree containment and cleanup, failure
+behavior when isolation cannot be established, and native sandbox escape tests.
+That design may make different platform trade-offs, but neither platform may ship
+on a path-check-and-consent claim alone.
 
 ## Tool and Approval Boundary
 
@@ -142,7 +178,7 @@ language; Runtime enforces local execution; Core API owns domain approval truth.
 
 ## Process and PTY Supervision
 
-The process boundary must eventually provide explicit start, output, exit,
+Before process execution ships, the process boundary must provide explicit start, output, exit,
 timeout, cancellation, and cleanup semantics across macOS and Windows. It must
 supervise the process tree rather than only a parent PID, preserve raw evidence
 where appropriate, and normalize display output without losing original exit
@@ -204,3 +240,5 @@ either/or behavior.
 - No unrestricted generic remote shell interface.
 - No claim that path checks isolate arbitrary child processes.
 - No assumption that macOS process/PTY behavior proves Windows behavior.
+- No phase-one daemon, multi-client endpoint, Desktop-restart attachment, or
+  independently updated Runtime.

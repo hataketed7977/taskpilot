@@ -23,7 +23,7 @@ when the application toolchain is initialized.
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
 | Main/Preload contract | Channel allowlist, schema validation, serialization, authorization and capability exposure |
-| Main integration | Window lifecycle, callback routing, credential adapter and Runtime connection supervision with owned test doubles |
+| Main integration | Window lifecycle, callback routing, credential adapter, fixed-path Runtime launch, JSON-RPC/JSONL stdio, backpressure and child supervision with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
 
@@ -43,12 +43,15 @@ when the application toolchain is initialized.
   validated.
 - Production CSP, Electron Fuses, packaged-resource integrity, and update
   signature/anti-downgrade behavior are checked against the packaged artifact.
-- Fake peers, stale endpoints, wrong-user connections, incompatible Runtime
-  builds, and replaced Runtime binaries fail before execution; inability to
-  reauthenticate an orphaned Runtime starts a fresh signed instance rather than
-  weakening the local protocol.
-- Runtime reconnect cannot replay an approval or local consent, reuse a stale
-  lease/fencing token, or duplicate a local operation.
+- A Runtime outside the fixed packaged path, a replaced packaged binary, an
+  incompatible protocol/build, a malformed or oversized JSONL message, a missing
+  request ID, or protocol contamination on stdout fails before execution.
+- Bounded queues apply backpressure without unbounded memory growth; cancellation,
+  EOF, child crash, graceful-shutdown timeout, and forced termination settle every
+  pending request exactly once and do not leave an owned Runtime process tree.
+- A new Desktop process starts a new Runtime rather than attaching to an orphan.
+  Restart cannot replay an approval or local consent, reuse a stale lease/fencing
+  token, or duplicate a local operation.
 - Logout and account switching clear OS-held credential material, applicable
   Main cloud-client session state, and Renderer-visible protected state; the
   previous account cannot remain usable.
@@ -59,7 +62,7 @@ changes; this Target strategy does not claim those tests exist.
 ## Renderer Behavior
 
 Test user-observable states rather than implementation details: success, empty,
-loading, rejection, permission denied, reconnect, stale response, partial log,
+loading, rejection, permission denied, connection loss/recovery, stale response, partial log,
 large output, keyboard focus, and reduced motion where applicable. Mock at the
 Preload capability boundary, never by importing Main internals into Renderer
 tests. Main cloud-client tests own the HTTP adapter and credential lifecycle.
@@ -73,7 +76,9 @@ release matrix therefore covers:
 - packaged Windows x64 critical journeys and native integrations;
 - architecture-specific artifacts added only when product support declares
   them;
-- signing/notarization and installer/update checks in their native environment.
+- signing/notarization and installer/update checks in their native environment;
+- bundled Runtime path resolution, stdio lifecycle, parent-exit behavior, and
+  whole-process-tree cleanup on both operating systems.
 
 A passing Renderer browser test is not evidence that IPC, packaging,
 credentials, deep links, installers, or process lifecycle work natively.

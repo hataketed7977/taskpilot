@@ -21,7 +21,7 @@ locking evidence.
 | Layer | Owns |
 | --- | --- |
 | Pure unit/property | Grant and message validation, tool policy, local-consent binding, state machines, redaction, limits |
-| Protocol contract | Endpoint ACL/ownership, bootstrap and peer authentication, version/build negotiation, idempotency, malformed/oversized/stale/replayed messages |
+| Protocol contract | JSON-RPC/JSONL framing, Rust-to-TypeScript/JSON Schema compatibility, initialize/version/build/capability negotiation, request IDs, cancellation, bounded queues, malformed/oversized/stale/replayed messages |
 | Filesystem integration | Real files, symlinks/junctions, canonical roots, rename/delete races, permissions, large/binary data |
 | Process/PTY integration | Output, exit, timeout, cancellation, process-tree cleanup, backpressure, encoding |
 | Journal/recovery | Crash points, torn/corrupt records, replay, snapshots, duplicate cloud acknowledgements |
@@ -33,11 +33,13 @@ locking evidence.
 - Invalid, expired, revoked, mismatched, replayed, wrong-Attempt, or stale-lease
   execution grants fail before work or another side effect starts; fencing also
   rejects stale heartbeat, evidence, and result submissions.
-- Wrong-user peers, stale/replaced endpoints, leaked/replayed bootstrap material,
-  incompatible builds, and Runtime binaries outside the signed installation fail
-  before protocol use. Loss of Main supervision stops new requests and claims;
-  reconnect or restart cannot resume a side effect without fresh grant/lease
-  validation.
+- A Runtime binary outside the fixed signed installation, an incompatible build
+  or protocol, a request before `initialize`, duplicate or unknown request IDs,
+  malformed/oversized JSONL, and any non-protocol stdout line fail before work.
+- EOF, parent loss, child crash, blocked readers/writers, cancellation races,
+  graceful-shutdown timeout, and forced termination stop new requests and claims,
+  settle pending requests once, and do not leak an owned process tree. A new
+  Runtime cannot resume a side effect without fresh grant/lease validation.
 - A cloud `WorkspaceId` cannot substitute for a `LocalWorkspaceBindingId`; a
   wrong Project, Runtime instance, product profile, revoked binding, or recycled
   binding fails before a TaskPilot-owned file operation or process starts.
@@ -53,14 +55,15 @@ locking evidence.
 - Cancellation and timeout clean the whole supervised process tree.
 
 Tests must state that these controls do not prove OS-level isolation of an
-arbitrary subprocess. Any future sandbox feature requires separate escape and
-platform-threat tests.
+arbitrary subprocess. General Shell or CLI execution cannot pass its release gate
+until separate macOS and Windows sandbox, child-network, process-containment,
+isolation-failure, and escape tests verify the approved platform design.
 
 ## Recovery Cases
 
 Exercise failure before and after journal append, process start, local consent,
 cloud approval observation, side-effect acknowledgement, artifact creation,
-cloud submission, lease loss, and Desktop disconnect. Recovery must not duplicate
+cloud submission, lease loss, and Desktop or Runtime restart. Recovery must not duplicate
 a tool side effect, consent prompt, approval decision, or business transition.
 Corrupt, tampered, truncated, or incompatible journal state fails diagnosably
 rather than being treated as authority or success. Schema compatibility is tested
@@ -73,9 +76,11 @@ an unresolved "continue or pause" choice.
 ## Native Platform Matrix
 
 - macOS arm64: process groups/signals, PTY, paths/symlinks, filesystem events,
-  permissions, sleep/wake and app lifecycle integration.
+  permissions, inherited stdio EOF, parent loss, sleep/wake and app lifecycle
+  integration.
 - Windows x64: Job Objects/process trees, ConPTY, drive/UNC paths, junctions,
-  case behavior, file locking, encodings, service/app lifecycle integration.
+  case behavior, file locking, encodings, inherited stdio EOF, parent loss,
+  Job Object cleanup and app lifecycle integration.
 - Additional architectures require an explicit support decision and native
   evidence.
 
