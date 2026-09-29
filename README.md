@@ -2,8 +2,9 @@
 
 TaskPilot is planned as a SaaS-ready task and ticket management product whose
 first-party Windows and macOS Desktop client can coordinate Agents working on
-explicitly selected local projects. The repository is currently in a
-documentation-first phase; no runnable application has been initialized yet.
+explicitly selected local projects. The repository remains documentation-first
+for product capabilities, while a minimal runnable Core API engineering
+foundation has now been initialized.
 
 ## Target Architecture
 
@@ -38,8 +39,11 @@ at project-summary level.
 
 ## Current Status
 
-The Desktop, Agent Runtime, Gateway, and Core API boundaries exist only as
-Target documentation with local Agent instructions, architecture,
-responsibility, and testing documents. Build files, application source,
-database migrations, API specifications, platform packages, and deployment
-manifests do not exist yet and must not be assumed to exist.
+The Core API now has a runnable Kotlin/Spring Boot foundation with four empty
+Spring Modulith capability boundaries, restricted health probes, layered tests,
+and a complete `:services:core-api:qualityCheck` gate. It has no business API,
+business persistence, or production migration yet.
+
+Desktop, Agent Runtime, and Gateway remain Target documentation only. API
+specifications, platform packages, and deployment manifests do not exist yet
+and must not be assumed to exist.

@@ -1,0 +1,4 @@
+CREATE TABLE integration_probe (
+    id INTEGER PRIMARY KEY,
+    checked_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

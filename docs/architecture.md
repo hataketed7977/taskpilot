@@ -16,9 +16,10 @@ repository is being formed. Product vocabulary and behavior belong to the
 frontend, Gateway, backend, CLI, or infrastructure decisions until a real
 subproject exists to own the detail.
 
-The repository currently contains documentation-only subproject boundaries. No
-runnable application, build configuration, database migration, or API
-specification has been initialized.
+The repository now contains a runnable Core API engineering foundation and root
+Gradle Wrapper. It does not yet contain business APIs, business persistence,
+production database migrations, or API specifications. Desktop, Agent Runtime,
+and Gateway remain documentation-only boundaries.
 
 ## Diagram Conventions
 
@@ -130,20 +131,27 @@ taskpilot/
 │   │   └── docs/
 │   └── core-api/
 │       ├── AGENTS.md
-│       └── docs/
+│       ├── build.gradle.kts
+│       ├── docs/
+│       └── src/               # Current minimal application and layered tests
 ├── contracts/                 # Future, when API specifications exist
 ├── docs/
 │   ├── README.md              # Documentation knowledge map
 │   ├── business-model.md      # Product vocabulary and behavior
 │   └── architecture.md        # Cross-project technical architecture
+├── gradle/                    # Current version catalog and Wrapper metadata
+├── gradlew
+├── gradlew.bat
+├── settings.gradle.kts
+├── build.gradle.kts
 ├── AGENTS.md
 └── README.md
 ```
 
 Do not create future directories until their project or artifact is actually
-initialized. Desktop, Agent Runtime, Gateway, and Core API currently have
-documentation owners only; the future CLI receives the same structure when
-created.
+initialized. Core API is the only currently initialized runnable subproject;
+Desktop, Agent Runtime, and Gateway still have documentation owners only. The
+future CLI receives the same structure when created.
 
 ## Technology Direction
 

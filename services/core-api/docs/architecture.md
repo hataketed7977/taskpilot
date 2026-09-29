@@ -10,6 +10,42 @@
 - **Mandatory before:** Initializing or changing Core API structure,
   persistence, APIs, workflow runtime, asynchronous execution, or providers
 
+## Current Foundation
+
+**Current:** The repository now contains a runnable `:services:core-api` Gradle
+subproject. The root Gradle Wrapper includes only this subproject and pins JDK
+21, Kotlin 2.3.21, Spring Boot 4.1.1, Spring Modulith 2.1.1, ArchUnit 1.5.1,
+JUnit 6.0.3, Testcontainers 2.0.5, Detekt 1.23.8, ktlint 1.8.0, and Kover
+0.9.10. Detekt runs with its compatible isolated Kotlin 2.0.21 tool classpath;
+that does not change the application Kotlin version.
+
+The implemented application is deliberately limited to:
+
+- one Spring Boot application rooted at `ai.taskpilot.coreapi`;
+- four empty capability boundaries named `access`, `project`, `automation`, and
+  `agent`, each declared as a Spring Modulith module;
+- a fail-closed Spring Security chain that permits only Actuator health,
+  liveness, and readiness endpoints, rejects every other route, and does not
+  install Spring Boot's generated default user; and
+- executable module-graph, technical-dependency, standalone-module, startup,
+  health, PostgreSQL/Flyway test-channel, static-analysis, executable Boot JAR,
+  and coverage gates.
+
+The ArchUnit rules use independently reported `rule-id/case-id` fixtures for
+model dependencies on MVC, Security, Jakarta Persistence, Spring Data, Spring
+JDBC, jOOQ, transport, and provider types; implementation-type leakage; every
+directed Desktop/public/managed-execution surface pair; controller access to
+another capability's internal or repository packages; reverse project
+dependencies; and shared/common escape packages. The three future HTTP adapter
+surface package segments are fixed as `desktopapi`, `publicapi`, and
+`managedapi`; a future Change that renames or adds a surface must update the
+owning architecture contract and fixtures together.
+
+There are no business controllers, use cases, tables, production migrations,
+persistence-framework choice, provider adapters, durable jobs, or
+managed-execution protocols yet. Everything below that describes those
+capabilities remains **Target** unless explicitly marked Current.
+
 ## Runtime Role
 
 `core-api` is one Kotlin/Spring Boot application. It owns application use cases,
@@ -64,7 +100,10 @@ implementation shape.
 - Database-backed durable jobs for Agent dispatch and reconciliation; claim
   leases and execution grants for local Runtime execution
 
-Compatible stable versions are selected when initialization begins.
+The Current foundation's pinned versions are listed in
+[Current Foundation](#current-foundation). Future upgrades must preserve the
+Spring Boot/Spring Modulith compatibility contract and pass the complete quality
+gate.
 
 ## Initial Capability Areas
 

@@ -8,6 +8,37 @@
   [`responsibilities.md`](responsibilities.md)
 - **Mandatory before:** Implementing or changing Core API behavior or tests
 
+## Current Executable Foundation
+
+**Current:** the initialized Core API exposes these independent Gradle entry
+points from the repository root:
+
+| Command | Current purpose |
+| --- | --- |
+| `./gradlew :services:core-api:test` | Fast JUnit, Spring Modulith graph verification, ArchUnit production scan, and independently reported `rule-id/case-id` rule self-tests; its classpath excludes Testcontainers |
+| `./gradlew :services:core-api:moduleTest` | Four standalone capability contexts plus application startup, explicit fail-closed security fallback, and health-only Actuator exposure |
+| `./gradlew :services:core-api:integrationTest` | Required real `postgres:17-alpine` Testcontainers connection and an integration-test-only Flyway probe migration; no test, no Docker, H2 fallback, or silent skip fails rather than passing |
+| `./gradlew :services:core-api:verifyBuildContract` | Source-set ownership, required integration-test presence, Detekt source coverage, dependency coordinates, task graph, fixed-version, and executable Boot JAR boundary checks |
+| `./gradlew :services:core-api:qualityCheck` | The complete Core API gate: compile, ktlint, Detekt, all three test layers, build-contract verification, and Kover XML/HTML/threshold verification |
+
+Kover aggregates `test`, `moduleTest`, and `integrationTest` over the same main
+production classes and enforces 80% line and 75% branch coverage. Its only
+explicit exclusions are the exact four empty capability marker objects and the
+empty architecture-root marker. Package descriptors and compiler-generated
+artifacts do not contribute executable lines. The application entry point and
+security configuration remain included. Because every current production line
+was introduced by the foundation Change, this first whole-module result is an
+equivalent bootstrap changed-code gate. It is not a substitute for diff-aware
+changed executable coverage once later changes mix new and existing code.
+
+Detekt scans Kotlin under `main`, `test`, `moduleTest`, and `integrationTest`;
+its test-source exceptions are limited to test naming, HTTP status literals,
+and test-only constant-returning probes. The test-only Flyway script lives
+under `src/integrationTest/resources` and is excluded from the executable Boot
+JAR. There is no production schema migration yet.
+The broader scenarios and tools below remain **Target** until their owning
+features exist.
+
 ## Principles
 
 Use the narrowest test that proves the risk, without replacing infrastructure
@@ -34,7 +65,8 @@ is intentionally synchronous.
 5. Run the focused suite, affected capability suite, architecture checks, and
    relevant PostgreSQL/API/executor-boundary tests.
 
-Exact commands are added after the toolchain exists.
+Use the Current commands above for the initialized layers. Add focused commands
+for each new behavior in its OpenSpec test plan.
 
 ## Test Layers
 
@@ -235,7 +267,9 @@ policies; it is not a target for DTO mapping or generated code.
 
 ## Quality Gates
 
-Once initialized, a Core API change is incomplete until:
+The Current foundation gate is `./gradlew --no-daemon
+:services:core-api:qualityCheck`. As further Target capabilities are implemented,
+a Core API change is incomplete until all applicable items below also pass:
 
 - Focused and affected capability tests pass.
 - Relevant business-model scenarios and critical branches pass.

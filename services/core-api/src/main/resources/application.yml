@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: taskpilot-core-api
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  endpoints:
+    web:
+      exposure:
+        include: health

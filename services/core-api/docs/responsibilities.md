@@ -8,6 +8,19 @@
 - **Mandatory before:** Adding a backend use case, capability area, API adapter,
   durable job, provider integration, or ownership boundary
 
+## Current Implemented Responsibility
+
+**Current:** `core-api` currently owns only its runnable application shell and
+engineering guardrails: the four declared capability boundaries, fail-closed
+health-only HTTP exposure with a fail-closed fallback, architecture tests,
+separated test source sets, executable Boot JAR verification, and the Core API
+quality task. It does not yet implement any business use case or
+persist business state.
+
+The responsibilities below are the approved **Target** allocation for future
+changes. A future item becomes Current only when its production implementation
+and focused tests land together.
+
 ## Service Responsibilities
 
 `core-api` owns:

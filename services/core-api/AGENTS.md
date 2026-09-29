@@ -24,10 +24,11 @@ rules.
 
 ## Local Rules
 
-- This subproject is documentation-only until the Kotlin/Spring toolchain is
-  explicitly initialized.
-- Do not create Gradle files, source directories, migrations, or runtime
-  configuration as part of documentation work.
+- The Kotlin/Spring foundation is initialized. Treat executable code and tests as
+  the source of truth for the implemented scaffold, while the local documents
+  remain Target for unimplemented business architecture.
+- Documentation-only work must not create source, migrations, or runtime
+  configuration unless an approved implementation Change explicitly requires it.
 - Preserve the pragmatic capability boundaries and dependency rules documented
   locally; do not introduce tactical-DDD layers or artifacts by default.
 - Do not expose persistence entities across modules or HTTP boundaries.
@@ -37,5 +38,6 @@ rules.
   authorization, and business-database truth; providers and Runtime submit
   normalized, authenticated, idempotent observations and never write those
   tables directly.
-- Behavior changes require focused tests and module-boundary verification once
-  a test toolchain exists.
+- Behavior changes require focused tests and module-boundary verification. Run
+  the owning test layer described in `docs/testing-strategy.md`; use
+  `:services:core-api:qualityCheck` for the complete local/CI Core API gate.
