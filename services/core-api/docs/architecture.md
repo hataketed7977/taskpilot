@@ -238,20 +238,28 @@ persistence entities, security contexts, or unbounded output.
 ## Agent Runtime Managed-Execution Protocol
 
 The Core API owns Agent Run state, attempts, dispatch intent, cancellation
-intent, retry limits, leases, and result/artifact references. The Local Agent
-Runtime:
+intent, retry limits, leases, result/artifact references, and execution-grant
+issuance and server-side validation. Its grant conforms to the root
+[identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization),
+includes the registered opaque `LocalWorkspaceBindingId`, and neither requires
+nor treats a raw local path as cloud business identity.
 
-- claims a durable job with an expiring lease;
-- resolves protected credentials through an approved runtime path;
+The Agent Runtime:
+
+- claims a durable job with an expiring lease and fencing token;
+- accepts only a grant whose bindings and lifecycle checks remain valid;
+- resolves protected credentials through an approved short-lived runtime path;
 - invokes the selected provider and tools;
 - reports heartbeat, bounded progress, artifacts, result, and reconciliation
   data through authenticated idempotent endpoints;
 - observes cancellation and timeout policies; and
 - never decides authoritative workflow transitions or writes business tables.
 
-Claiming, heartbeat, expiry, cancellation, retry, duplicate result, and
-`OutcomeUnknown` reconciliation semantics must be specified and tested before
-real provider execution is enabled.
+Claiming, heartbeat, grant renewal/revocation, lease expiry and fencing,
+cancellation, retry, duplicate result, and `OutcomeUnknown` reconciliation
+semantics must be specified and tested before real provider execution is
+enabled. A Core API `ApprovalRequest` is canonical workflow approval; a
+device-local `Local Execution Consent` is separate evidence and cannot advance it.
 
 ## Security and Tenancy
 

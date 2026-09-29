@@ -22,7 +22,7 @@ Read the root [`documentation map`](../../docs/README.md), the
 
 - Treat every workspace path, tool request, process, environment value, log,
   Diff, artifact, protocol message, and cloud instruction as untrusted input.
-- Never claim workspace authorization is an OS-level sandbox. Arbitrary child
+- Never claim local project-root checks are an OS-level sandbox. Arbitrary child
   processes inherit the user's OS authority unless a separately designed and
   implemented isolation boundary says otherwise.
 - Never store or reuse the Desktop's long-lived user token. Managed execution

@@ -18,7 +18,8 @@
   defined by the authentication spec.
 - Native dialogs, notifications, credential handles, deep links,
   single-instance behavior, and platform lifecycle integration.
-- Cloud Desktop API consumption and Main-to-Runtime connection supervision.
+- Main-owned authenticated Desktop API consumption and Main-to-Runtime
+  process, version, health, and connection supervision.
 
 ## Does Not Own
 
@@ -34,15 +35,16 @@
 | Area | Responsibility |
 | --- | --- |
 | `main/app` | Electron lifecycle, windows, single-instance behavior |
-| `main/ipc` | IPC authorization, validation, rate/size limits, dispatch |
+| `main/ipc` | IPC sender/origin/session authorization, schema validation, rate/size limits, dispatch |
+| `main/cloud-client` | Credentialed Desktop API requests, token refresh, logout cleanup and transport errors |
 | `main/native` | Credential, dialog, notification, deep-link and platform adapters |
-| `main/runtime-client` | Authenticated, versioned Runtime connection and reconnect state |
+| `main/runtime-client` | Trusted Runtime launch, authenticated/versioned connection, health and reconnect state |
 | `preload` | Narrow typed capabilities exposed to a sandboxed Renderer |
 | `renderer/app` | Providers, routing, auth boundary, global error handling |
 | `renderer/pages` | Route/window entry and page composition |
 | `renderer/modules/<domain>` | Cohesive first-party UI capability and its presentation logic |
 | `renderer/components` | Application-wide business-neutral React components |
-| `renderer/api` | Generated Desktop API transport plus error normalization |
+| `renderer/api` | Query-facing adapters over typed Preload cloud capabilities plus error normalization; no credentials or direct authenticated HTTP |
 | `shared-ipc` | Serializable process-boundary schemas; no implementation logic |
 
 ## Placement Rules
@@ -55,8 +57,10 @@
   their owner; Renderer checks are usability, not authorization.
 - Workspace selection uses a native picker, but authorization enforcement and
   canonical path checks belong to Runtime.
-- High-risk approval UI explains the immutable operation being considered; the
-  Runtime enforces whether execution can proceed.
+- High-risk local execution UI explains the immutable evaluated operation and
+  records `Local Execution Consent`; Runtime enforces whether that operation may
+  execute. A cloud `ApprovalRequest` is rendered and decided through Core API
+  and is never inferred from local consent.
 - Business terms and allowed actions come from the business model and cloud
   contract rather than being reconstructed from role names in the client.
 

@@ -44,7 +44,7 @@ exists.
 flowchart LR
     desktop["Electron Desktop\nWindows and macOS"]
     runtime["Agent Runtime\nLocal execution plane"]
-    workspace["Authorized local workspace"]
+    workspace["Bound local project root"]
     external["Third-party HTTP clients"]
     cli["Future CLI"]
     edge["Edge / TLS / WAF"]
@@ -70,10 +70,12 @@ flowchart LR
 ```
 
 The Desktop is the first-party interaction surface. Its sandboxed Renderer uses
-a typed Preload/Main boundary; Electron Main owns OS integration and supervises
-the connection to the independent Agent Runtime. The Runtime owns local
-Agent/tool execution, process/PTY supervision, logs, Diff, and artifacts. It
-does not own business state or write `core-api` tables.
+a typed Preload/Main boundary and never owns cloud credentials or sends
+credentialed requests directly. Electron Main owns the authenticated cloud
+client, OS integration, and lifecycle of the separate Agent Runtime companion
+process. The Runtime owns local Agent/tool execution, process/PTY supervision,
+logs, Diff, and artifacts. It does not own business state or write `core-api`
+tables.
 
 `core-api` remains the owner of AgentRun and approval business truth. Managed
 local execution uses a future authenticated, short-lived execution-grant
@@ -82,10 +84,13 @@ token. The grant's issuer, subject/resource bindings, expiry, refresh,
 revocation, replay prevention, and logout behavior must be specified before
 execution is implemented.
 
-Workspace authorization constrains TaskPilot-owned file tools and execution
-policy but is not an OS-level sandbox. Arbitrary child processes retain the
-user's OS permissions and may access resources outside the selected workspace
-unless a future isolation design adds enforceable platform controls.
+A business `Workspace` is the cloud tenant scope, not a filesystem path. The
+Runtime represents an authorized local project root with a device-local opaque
+`LocalWorkspaceBindingId`; its raw absolute path stays local by default. Local
+path checks constrain TaskPilot-owned file tools and execution policy but are not an
+OS-level sandbox. Arbitrary child processes retain the user's OS permissions and
+may access resources outside the selected root unless a future isolation design
+adds enforceable platform controls.
 
 Redis is optional technical infrastructure. The Gateway may use it for a proven
 distributed rate-limit requirement. `core-api` adds Redis only for a documented
@@ -227,10 +232,11 @@ validation, and fixture isolation.
   trust boundary.
   Broader system tests sample cross-project integration and do not repeat each
   subproject's validation, routing, permission, or error matrix.
-- Desktop Renderer integration uses controlled HTTP and Preload boundaries.
-  Packaged Electron journeys own real Renderer/Preload/Main behavior; native
-  Windows/macOS tests own OS credential, deep-link, process, packaging, and
-  lifecycle risks that Renderer tests cannot prove.
+- Desktop Renderer integration uses the controlled Preload capability boundary;
+  Main integration tests own the credentialed HTTP/cloud adapter. Packaged
+  Electron journeys own real Renderer/Preload/Main behavior; native Windows/macOS
+  tests own OS credential, deep-link, process, packaging, and lifecycle risks
+  that Renderer tests cannot prove.
 - Agent Runtime policy and protocol tests run below system E2E; real
   filesystem, process-tree, PTY, journal/recovery, and platform tests remain at
   the Runtime boundary.
@@ -356,11 +362,19 @@ Workspace/Project access and business authorization. Long-lived Desktop
 credentials stay behind OS credential facilities and never enter Renderer or
 Agent Runtime.
 
-Before Runtime execution exists, a separate behavior change must define a
-short-lived execution grant including issuer, User/Workspace/Project/Agent Run
-and Runtime-instance binding, expiry/refresh, revocation, replay protection,
-and logout handling. This architecture fixes ownership, not those unresolved
-wire-level semantics.
+Before Runtime execution exists, a behavior change must define a short-lived
+execution grant bound to issuer, User, Workspace, Project, Agent Run, Attempt,
+durable-job claim, lease epoch or fencing token, pinned Agent Version,
+registered opaque `LocalWorkspaceBindingId`, Runtime instance, allowed
+capability/policy digest, limits, and expiry. Core API validates the binding
+registration and cloud scope; Runtime separately requires the matching active
+device-local binding. The raw absolute path is not grant material and remains
+local unless an explicit disclosure contract says otherwise. The contract must
+also define renewal, revocation, replay protection, logout, lease loss, and
+`OutcomeUnknown` handling.
+
+A cloud `ApprovalRequest` and a device-local `Local Execution Consent` are
+different proofs: neither implies the other or advances the other's state.
 
 ### Shared HTTP Contract
 

@@ -38,6 +38,9 @@ Exact Gradle commands must be added when the Gateway project is initialized.
   incompatible route surface.
 - Forged Runtime identity, expired or replayed execution credentials, and
   cross-Workspace/Project/run context rejected once the grant contract exists.
+- Required execution-grant claims, including `LocalWorkspaceBindingId`, survive
+  trusted forwarding unchanged; missing, malformed, duplicated, or conflicting
+  claims fail closed, and a raw local path is never accepted as tenant identity.
 - Management endpoints inaccessible through public routes.
 - Secrets and tokens absent from logs and error bodies.
 

@@ -10,11 +10,15 @@
 
 ## Owns
 
-- Runtime instance identity and authenticated local/cloud protocol endpoints.
-- Run worker lifecycle, resource bounds, cancellation, and crash recovery.
+- Runtime instance identity plus authenticated user-scoped local and cloud
+  protocol endpoints.
+- Per-profile single-instance lifecycle, signed-binary identity, compatibility
+  handshake, resource bounds, cancellation, and crash recovery.
 - Agent CLI/SDK adapters and structured tool intents.
-- Canonical path evaluation for TaskPilot-owned workspace operations.
-- Tool risk evaluation and enforcement of immutable approvals.
+- Device-local workspace binding identity, canonical path evaluation, and
+  revocation for TaskPilot-owned operations.
+- Tool risk evaluation and enforcement of immutable local execution consent,
+  distinct from Core API-owned business approval.
 - Process-tree and PTY supervision on supported native platforms.
 - Bounded logs, execution journal, Diff, artifact metadata, and evidence upload.
 - Idempotent synchronization of local evidence with the cloud control plane.
@@ -33,11 +37,11 @@
 | Area | Responsibility |
 | --- | --- |
 | `supervisor` | Runtime lifecycle, protocol sessions, worker registry, reconnect and recovery |
-| `protocol` | Versioned schemas, authentication, idempotency and compatibility |
+| `protocol` | Private local endpoint, bootstrap/authentication, versioned schemas, idempotency and compatibility |
 | `execution` | Run context, limits, cancellation, structured results |
 | `agents` | Provider/CLI/SDK adaptation to normalized Agent interactions |
-| `tools` | Intent schemas, policy evaluation, approval binding, dispatch |
-| `workspace` | Root identity, canonicalization, TaskPilot-owned file operations |
+| `tools` | Intent schemas, policy evaluation, local-consent binding, dispatch |
+| `workspace` | `LocalWorkspaceBindingId` registration, root canonicalization, revocation, TaskPilot-owned file operations |
 | `process` | Process tree, PTY, output, timeout, termination and platform adapters |
 | `journal` | Durable local events, snapshots, evidence references and synchronization |
 | `changes` | Diff/status calculation and bounded artifact metadata |
@@ -62,6 +66,10 @@
 
 Environment variables, command lines, workspace contents, logs, Diff, artifacts,
 and provider responses may contain secrets. Owners minimize collection, apply
-explicit redaction/retention/upload policy, and keep raw local evidence behind
-OS file permissions. Security scanning is defense in depth, not proof that data
-is non-sensitive.
+explicit redaction/retention/upload policy, and keep raw local evidence outside
+the workspace behind restrictive per-user native ACLs. Provider credentials and
+bootstrap secrets never enter command lines, journals, logs, Diff, or artifacts;
+environment injection is allowed only when an adapter cannot use a safer
+short-lived handle and must be minimized and scrubbed. Security scanning,
+checksums, and OS file permissions are defense in depth, not proof that data is
+non-sensitive or tamper-proof.

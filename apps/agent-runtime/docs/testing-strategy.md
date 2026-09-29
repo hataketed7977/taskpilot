@@ -20,8 +20,8 @@ locking evidence.
 
 | Layer | Owns |
 | --- | --- |
-| Pure unit/property | Grant and message validation, tool policy, approval binding, state machines, redaction, limits |
-| Protocol contract | Version negotiation, authentication, idempotency, malformed/oversized/stale/replayed messages |
+| Pure unit/property | Grant and message validation, tool policy, local-consent binding, state machines, redaction, limits |
+| Protocol contract | Endpoint ACL/ownership, bootstrap and peer authentication, version/build negotiation, idempotency, malformed/oversized/stale/replayed messages |
 | Filesystem integration | Real files, symlinks/junctions, canonical roots, rename/delete races, permissions, large/binary data |
 | Process/PTY integration | Output, exit, timeout, cancellation, process-tree cleanup, backpressure, encoding |
 | Journal/recovery | Crash points, torn/corrupt records, replay, snapshots, duplicate cloud acknowledgements |
@@ -30,12 +30,24 @@ locking evidence.
 
 ## Security and Rejection Cases
 
-- Invalid, expired, revoked, mismatched, or replayed execution grants fail
-  before work starts once that contract exists.
+- Invalid, expired, revoked, mismatched, replayed, wrong-Attempt, or stale-lease
+  execution grants fail before work or another side effect starts; fencing also
+  rejects stale heartbeat, evidence, and result submissions.
+- Wrong-user peers, stale/replaced endpoints, leaked/replayed bootstrap material,
+  incompatible builds, and Runtime binaries outside the signed installation fail
+  before protocol use. Loss of Main supervision stops new requests and claims;
+  reconnect or restart cannot resume a side effect without fresh grant/lease
+  validation.
+- A cloud `WorkspaceId` cannot substitute for a `LocalWorkspaceBindingId`; a
+  wrong Project, Runtime instance, product profile, revoked binding, or recycled
+  binding fails before a TaskPilot-owned file operation or process starts.
 - Paths escaping through `..`, symlink, junction, case behavior, rename race, or
-  platform normalization fail for TaskPilot-owned file operations.
-- Approved executable, argv, environment, working directory, timeout, network,
-  or target changes invalidate the approval.
+  platform normalization fail for TaskPilot-owned file operations. Raw absolute
+  local paths are not uploaded by default.
+- Approved executable, argv, environment, working directory, timeout, mediated
+  network target, or other evaluated input changes invalidate local consent.
+- Tests distinguish enforceable Runtime-owned HTTP/tool network policy from the
+  non-guaranteed egress behavior of an arbitrary child process.
 - Malformed Agent output cannot inject protocol messages or bypass tool policy.
 - Output and artifact limits prevent unbounded memory/disk use.
 - Cancellation and timeout clean the whole supervised process tree.
@@ -46,11 +58,14 @@ platform-threat tests.
 
 ## Recovery Cases
 
-Exercise failure before and after journal append, process start, approval,
-side-effect acknowledgement, artifact creation, cloud submission, and Desktop
-disconnect. Recovery must not duplicate a tool side effect, approval prompt, or
-business transition. Corrupt or incompatible journal state fails diagnosably
-rather than being treated as success.
+Exercise failure before and after journal append, process start, local consent,
+cloud approval observation, side-effect acknowledgement, artifact creation,
+cloud submission, lease loss, and Desktop disconnect. Recovery must not duplicate
+a tool side effect, consent prompt, approval decision, or business transition.
+Corrupt, tampered, truncated, or incompatible journal state fails diagnosably
+rather than being treated as authority or success. Schema compatibility is tested
+across the supported Desktop/Runtime upgrade and rollback baseline; incompatibility
+never silently discards or replays work.
 
 Exact recovery outcomes depend on future behavior specs; tests must not encode
 an unresolved "continue or pause" choice.

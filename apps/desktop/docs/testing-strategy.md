@@ -29,15 +29,29 @@ when the application toolchain is initialized.
 
 ## Security-Critical Cases
 
-- Renderer has no Node/Electron globals and cannot invoke undeclared channels.
-- Invalid, oversized, stale, cross-session, or unauthorized IPC messages fail
-  closed without invoking native or Runtime effects.
-- Credential values never cross into Renderer, logs, snapshots, or crash data.
-- External navigation, file dialogs, deep links, and callback inputs are
-  allowlisted and validated.
-- Runtime reconnect cannot replay an approval or duplicate a local operation.
-- Logout and account switching cannot retain the previous session's protected
-  state.
+- Renderer has no Node/Electron globals; `nodeIntegration` stays disabled,
+  `contextIsolation`, sandboxing, and `webSecurity` stay enabled, and `<webview>`
+  and the remote module are unavailable.
+- Invalid, oversized, stale, cross-session, wrong-origin, wrong-frame, or
+  unauthorized IPC messages fail closed without invoking native, cloud, or
+  Runtime effects; tests exercise `event.senderFrame` validation.
+- Credential values never cross into Renderer, logs, snapshots, crash data,
+  command lines, or environment variables. Renderer cannot send authenticated
+  cloud requests directly.
+- Navigation, new windows, permission requests, downloads, external URLs, file
+  dialogs, deep links, and callback inputs are deny-by-default, allowlisted, and
+  validated.
+- Production CSP, Electron Fuses, packaged-resource integrity, and update
+  signature/anti-downgrade behavior are checked against the packaged artifact.
+- Fake peers, stale endpoints, wrong-user connections, incompatible Runtime
+  builds, and replaced Runtime binaries fail before execution; inability to
+  reauthenticate an orphaned Runtime starts a fresh signed instance rather than
+  weakening the local protocol.
+- Runtime reconnect cannot replay an approval or local consent, reuse a stale
+  lease/fencing token, or duplicate a local operation.
+- Logout and account switching clear OS-held credential material, applicable
+  Main cloud-client session state, and Renderer-visible protected state; the
+  previous account cannot remain usable.
 
 The detailed login and execution scenarios are added by their future capability
 changes; this Target strategy does not claim those tests exist.
@@ -47,8 +61,8 @@ changes; this Target strategy does not claim those tests exist.
 Test user-observable states rather than implementation details: success, empty,
 loading, rejection, permission denied, reconnect, stale response, partial log,
 large output, keyboard focus, and reduced motion where applicable. Mock at the
-Preload or HTTP adapter boundary, never by importing Main internals into
-Renderer tests.
+Preload capability boundary, never by importing Main internals into Renderer
+tests. Main cloud-client tests own the HTTP adapter and credential lifecycle.
 
 ## Packaged and Native Matrix
 

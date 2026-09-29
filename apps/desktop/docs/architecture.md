@@ -26,7 +26,10 @@ business truth, or connect to business databases.
 - React with strict TypeScript and Vite for Renderer UI
 - A narrow typed Preload API; no direct Node.js or Electron access in Renderer
 - TanStack Query for remote cloud state
-- Generated types plus a typed transport adapter for the first-party Desktop API
+- Generated types plus a Main-owned typed transport client for the first-party
+  Desktop API
+- Renderer query adapters that invoke typed Preload capabilities and never hold
+  credentials or call authenticated cloud endpoints directly
 - Platform adapters for OS credential storage, deep-link/single-instance
   handling, notifications, paths, signing, installation, and updates
 
@@ -56,9 +59,10 @@ flowchart LR
   least-privilege view models and capability results.
 - Preload exposes an explicit API surface and does not forward arbitrary
   channels, command strings, filesystem access, or Electron objects.
-- Main owns windows, application lifecycle, deep links, credential handles,
-  native dialogs, notifications, and connection supervision. It does not host
-  Agent execution.
+- Main owns windows, application lifecycle, the authenticated cloud client,
+  token refresh, deep links, credential handles, native dialogs, notifications,
+  and Runtime lifecycle/connection supervision. It does not host Agent
+  execution.
 - Agent Runtime owns controlled local work. It never receives the
   Desktop's long-lived user token.
 - Gateway/Core API remain the authoritative source for identity, Workspace,
@@ -74,6 +78,7 @@ apps/desktop/
     ├── main/
     │   ├── app/
     │   ├── ipc/
+    │   ├── cloud-client/
     │   ├── native/
     │   └── runtime-client/
     ├── preload/
@@ -115,6 +120,8 @@ flowchart LR
 ```
 
 Components do not call `fetch`, Electron IPC, or Runtime protocols directly.
+Renderer cloud adapters call typed Preload capabilities; Main performs the
+credentialed HTTPS request and returns least-privilege serializable results.
 Remote resources remain owned by TanStack Query; shareable navigation by the
 router; form state by its form boundary; temporary interaction by local React
 state. Workspace- and Project-scoped cache keys include their stable IDs and
@@ -136,18 +143,53 @@ flow. This architecture only fixes these boundaries:
 - Agent Runtime does not reuse or retain the Desktop's long-lived token.
 
 Exact callback behavior, token lifecycle, and failure semantics belong to the
-future authentication capability spec.
+future authentication capability spec. Main keeps cloud-client session state
+separate from Renderer storage; account switch and logout clear OS-held credential
+material, Main cookies/cache/tokens where applicable, pending callbacks,
+query-visible protected state, and Runtime session binding.
+
+## Electron Security Baseline
+
+Every application window starts from deny-by-default settings:
+
+- `nodeIntegration` is disabled, `contextIsolation`, Renderer sandboxing, and
+  `webSecurity` remain enabled, and no `remote` module or `<webview>` is exposed;
+- production Renderer content is packaged with the application; arbitrary remote
+  pages and scripts are not loaded into a privileged window;
+- Content Security Policy excludes remote script execution and unnecessary
+  `unsafe-eval`; deviations require an explicit security review;
+- Main validates schema, lifecycle, authorization, `event.senderFrame`, expected
+  origin, frame, and session for every IPC request; channel names alone confer no
+  authority;
+- navigation, `window.open`, permission requests, downloads, external URLs, and
+  protocol/deep-link inputs are denied by default and pass through explicit
+  allowlists with length and scheme checks; and
+- production builds enable appropriate Electron Fuses and packaged-resource
+  integrity checks. Disabling a security control requires a documented threat
+  argument and a packaged-app regression test.
 
 ## Agent Runtime Integration
 
-Main supervises connectivity to the Runtime and presents its typed state to the
-Renderer. The local protocol must be versioned, authenticated, bounded in
-message size, resilient to reconnects, and explicit about which side owns each
-operation. Renderer-originated requests are revalidated by Main and Runtime.
+The Runtime is a signed, per-user companion process distributed and versioned
+with the Desktop application, not a system-wide service. Main starts or reconnects
+to the packaged Runtime from a trusted installation path, enforces a single
+instance per product profile, supervises health and termination, and never accepts
+a Runtime executable selected from a project root or mutable user path. Closing a
+Renderer window does not by itself imply full application exit; background and
+active-work behavior remains an explicit product lifecycle decision.
 
-A future execution-grant contract must define issuer, binding to User,
-Workspace, Project, Agent Run and Runtime instance, expiry, refresh, revocation,
-replay prevention, and logout handling before managed execution is implemented.
+Main implements the Desktop side of the authenticated local transport owned by the
+[Agent Runtime architecture](../../agent-runtime/docs/architecture.md#local-transport-and-lifecycle).
+It launches only the signed bundled binary, authenticates and version-negotiates
+before use, revalidates Renderer-originated requests, and fails closed when the
+peer, endpoint, session, or build is not trusted. It never weakens Runtime recovery
+or grant checks merely to reconnect.
+
+Managed execution follows the root
+[identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization).
+Desktop does not mint an execution grant, turn its user session into Runtime
+authority, substitute a raw local path for `LocalWorkspaceBindingId`, or relax a
+grant binding.
 
 ## API Contract Integration
 
@@ -176,7 +218,11 @@ OS and architecture.
 
 Signed artifacts, notarization, installer formats, update channels, rollback,
 and release provenance are required design concerns but not yet implemented.
-No application may enable silent code download or unsigned updates by default.
+Desktop and Runtime are signed and released as one compatibility-tested bundle;
+an update must verify publisher identity, signature, integrity, channel, and
+anti-downgrade policy before activation, then switch atomically or roll back both
+components together. No application may enable arbitrary silent code download,
+unsigned updates, or a Runtime binary supplied from a mutable workspace path.
 Concrete tooling and release commands are recorded only after the build exists.
 
 ## Non-Goals

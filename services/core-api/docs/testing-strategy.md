@@ -151,6 +151,13 @@ Also prove:
 
 - Only one Agent Runtime worker holds a valid claim lease.
 - Expired claims recover safely; stale heartbeats and results are rejected.
+- Grant issuance and validation reject every missing or mismatched root-contract
+  binding, including User, Workspace, Project, Agent Run, Attempt, job claim,
+  lease/fencing token, Agent Version, `LocalWorkspaceBindingId`, Runtime instance,
+  policy digest, limits, and expiry.
+- A raw local path is neither required grant material nor accepted as cloud
+  Workspace identity; a revoked or re-registered local binding cannot authorize
+  an existing grant.
 - Duplicate claim, progress, artifact, result, and cancellation submissions are
   idempotent.
 - A durable job and its authorizing Agent Run state commit atomically.

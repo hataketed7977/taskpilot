@@ -100,7 +100,8 @@ documentation.
 | Project Workflow Binding | A Project's use of an exact Workflow Version plus Project-specific defaults |
 | Agent Run | One tracked execution of an Agent Version for an Agent Step Run |
 | Attempt | One technical attempt within an Agent Run; retrying infrastructure does not create a new workflow step |
-| Approval Request | A pending or completed human gate associated with a Human Approval Step Run |
+| Approval Request | A canonical pending or completed human gate associated with a Human Approval Step Run |
+| Local Execution Consent | A device-local safety confirmation for one immutable evaluated operation; it is not canonical business approval and does not advance a Workflow |
 | Artifact | A referenced output such as code, a report, test evidence, a file, a build, or a deployment result |
 | Comment | Human collaboration attached to a Work Item; it is not an approval decision |
 | Provider Connection | Workspace-owned connection metadata and secret references for a managed-Agent provider |
@@ -118,6 +119,7 @@ documentation.
 | Assignment and execution | Assignment selects responsibility; workflow activation starts work |
 | Attempt retry and business rework | Technical retry stays in one Agent Run; review rework creates a new Step Run |
 | Agent recommendation and human decision | Agent output may inform a gate but cannot silently become protected approval |
+| Approval Request and Local Execution Consent | The former is canonical workflow approval; the latter only permits a bound operation on one device and cannot advance business state |
 
 ## Logical Business Model
 
@@ -799,7 +801,7 @@ Agent Runtime running on the user device:
 - Audit records preserve important facts for support and future analytics.
 - Provider adapters isolate Volcengine and future managed-Agent integrations.
 - The Agent Runtime executes and reports evidence but does not own AgentRun,
-  ApprovalRequest, Workspace authorization, or database business truth.
+  ApprovalRequest, cloud Workspace authorization, or database business truth.
 
 Implement a code event only when it has a concrete consumer and delivery
 requirement. Do not mechanically turn every Event Storming sticky note into an

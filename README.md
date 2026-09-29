@@ -20,9 +20,9 @@ monorepo:
 - PostgreSQL as business truth; the Agent Runtime submits execution evidence
   and never writes Core API business tables directly.
 
-Workspace authorization is not an OS-level sandbox: arbitrary child processes
-retain the user's operating-system permissions unless a future isolation design
-is separately specified and implemented.
+Local project-root authorization is not an OS-level sandbox: arbitrary child
+processes retain the user's operating-system permissions unless a future
+isolation design is separately specified and implemented.
 
 The system-level design lives in
 [`docs/architecture.md`](docs/architecture.md). This file intentionally stays

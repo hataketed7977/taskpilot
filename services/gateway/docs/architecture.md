@@ -61,9 +61,13 @@ before trusted internal context is written.
 | Health and readiness | Gateway management endpoints | Restricted exposure |
 
 The Gateway must preserve the distinction among Desktop, managed-execution,
-and public API surfaces. The exact execution-grant wire format, issuer,
-resource bindings, renewal, revocation, and replay rules are deferred to a
-future implementation change; route documentation must not invent them.
+and public API surfaces. The managed-execution route authenticates the
+execution-scoped credential and preserves every claim required by the root
+[identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization).
+It does not accept a raw local path as tenant identity or required grant material.
+Exact wire format and technical validation belong to the implementation change;
+route documentation must not weaken the root bindings or replace Core API
+authorization.
 
 ## Identity and Tenant Context
 
