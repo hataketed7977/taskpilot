@@ -34,13 +34,16 @@ Exact Gradle commands must be added when the Gateway project is initialized.
 - Missing, expired, malformed, and wrong-audience credentials.
 - Forged tenant, principal, role, and correlation headers.
 - Tenant context derived from each supported trusted source.
-- Public API credentials rejected from Web-only routes and vice versa.
+- Desktop, managed-execution, and public credentials rejected from every
+  incompatible route surface.
+- Forged Runtime identity, expired or replayed execution credentials, and
+  cross-Workspace/Project/run context rejected once the grant contract exists.
 - Management endpoints inaccessible through public routes.
 - Secrets and tokens absent from logs and error bodies.
 
 ## Required Routing Cases
 
-- Web and public API route separation.
+- Desktop, managed-execution, and public API route separation.
 - Versioned public route selection.
 - Unknown routes return a stable transport-level response.
 - Request-size rejection occurs before upstream forwarding.
@@ -64,12 +67,12 @@ Exact Gradle commands must be added when the Gateway project is initialized.
 - Do not mock Spring Cloud Gateway internals when an integration test is
   practical.
 - Avoid end-to-end domain assertions in this subproject.
-- Cypress system journeys prove only representative routing and authentication
-  paths; they do not replace the Gateway's header-trust, credential,
-  rate-limit, timeout, or route-isolation matrix.
-- Keep browser setup and domain fixtures outside Gateway tests. Gateway tests
-  use protocol-focused upstream stubs and assert externally observable HTTP
-  behavior.
+- Representative packaged Desktop/system journeys prove only selected routing
+  and authentication paths; they do not replace the Gateway's header-trust,
+  credential, rate-limit, timeout, or route-isolation matrix.
+- Keep packaged Desktop setup and domain fixtures outside Gateway tests. Gateway
+  tests use protocol-focused upstream stubs and assert externally observable
+  HTTP behavior.
 
 ## Execution and Coverage Policy
 

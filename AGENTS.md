@@ -12,7 +12,7 @@ the [`documentation map`](docs/README.md), then read by change type:
 | Change | Mandatory root document |
 | --- | --- |
 | Business terminology, behavior, lifecycle, workflow, Board, Work Item, Agent, approval, custom field, or related API/data model | [`docs/business-model.md`](docs/business-model.md) |
-| Architecture, project boundaries, dependencies, build, shared API policy, database technology, tests, deployment, or infrastructure | [`docs/architecture.md`](docs/architecture.md) |
+| Architecture, Desktop, Agent Runtime, project boundaries, dependencies, build, shared API policy, database technology, tests, deployment, or infrastructure | [`docs/architecture.md`](docs/architecture.md) |
 | Both business behavior and its implementation | Both documents, business model first |
 | Documentation inventory, ownership, navigation, move, or rename | [`docs/README.md`](docs/README.md) |
 
@@ -69,9 +69,9 @@ Use the OpenSpec Skills by phase:
 | Turn an agreed goal into a complete proposal, specs, design, and task plan | `openspec-propose` |
 | Revise an existing change's planning artifacts or reconcile inconsistencies among them | `openspec-update-change` |
 | Implement or continue the tasks of a selected, planning-complete change | `openspec-apply-change` |
-| Independently and read-only verify implementation against the completed change before archive | `openspec-verify-change` |
+| Optionally perform an independent read-only review for high-risk work or when explicitly requested | `openspec-verify-change` |
 | Merge an active change's delta specs into main specs without archiving it | `openspec-sync-specs` |
-| Finalize a fully implemented change with current verification or allowed owner acceptance evidence | `openspec-archive-change` |
+| Sync applicable delta specs and finalize a fully implemented, tested change | `openspec-archive-change` |
 
 For Codex CLI or IDE, invoke a Skill with its `$` form, for example
 `$openspec-propose`; in the Codex desktop app, select the corresponding Skill.
@@ -82,49 +82,26 @@ implementation still requires focused automated tests, source review, and any
 owning architecture or contract updates. Proposed change artifacts describe a
 future delta and must not be presented as current behavior.
 
-The default completion sequence is `openspec-apply-change`, a separate
-independent and read-only `openspec-verify-change`, verification receipt
-recording, repository archive preflight, and only then
-`openspec-archive-change`. Prefer a fresh context or reviewer for verification.
-Verification itself never edits code, planning artifacts, or evidence. A
-self-review may find defects but cannot represent itself as an independent
-review.
+The default completion sequence is `openspec-apply-change`, the focused and
+affected automated checks declared by the Change's test plan, applicable delta
+spec sync, and then `openspec-archive-change`. Task completion and OpenSpec
+validation are structural signals; they do not replace passing tests or the
+archive workflow's spec-sync assessment.
 
-A Change may opt into owner acceptance only through a committed
-`verification-policy.json` whose risk is `low` or `bootstrap` and whose mode is
-`owner-acceptance-allowed`. Missing policy defaults to independent review;
-`standard`, `high`, and `critical` risk always require it. Owner acceptance must
-identify the owner, reason, and accepted scope, and must remain visibly distinct
-from independent review. It cannot waive failed commands, CRITICAL findings,
-unaccepted WARNING findings, or applicable `Not verified` checks.
-
-The coordinating agent records the attestation with
-[`tools/openspec/record-verification.sh`](tools/openspec/record-verification.sh)
-`<change> <review-report.json-or-markdown>`. A report intended for recording
-must be pure JSON or, when it also contains the human-readable Verify report,
-must append exactly one `verification-report` JSON fenced block. The
-coordinator passes that report through without manually translating findings. Fix blockers through apply and rerun applicable checks;
-independent-review Changes then require another independent review. Explicitly
-accepted non-blocking WARNINGs and inapplicable checks remain visible in the
-receipt.
-
-Immediately before invoking `openspec-archive-change`, run
-[`tools/openspec/archive-preflight.sh`](tools/openspec/archive-preflight.sh)
-`<change>`. It rejects missing or malformed evidence, policy-ineligible
-attestation, blocking results, and a relevant-content fingerprint that no
-longer matches the attested state. The fingerprint always covers the selected
-Change and its policy-declared impact paths and must not be invalidated by an
-unrelated sibling Change. Any relevant content change after recording requires
-fresh attestation; never bypass or hand-edit the receipt to make it pass.
+`openspec-verify-change` is optional. Use it when the user requests an
+independent review or when the change's security, data, authorization,
+deployment, or business risk warrants a second read-only pass. Verification
+findings loop back to apply, but routine completion does not require a receipt,
+workspace fingerprint, verification policy, or repository archive preflight.
 
 Generated OpenSpec Skills must not be edited manually. Refresh and verify all
 seven repository workflows with `tools/openspec/update-workflows.sh`; run
 [`tools/openspec/test-workflow.sh`](tools/openspec/test-workflow.sh) after
-changing the schema, workflow guidance, evidence format, preflight, or Skill
-refresh logic.
+changing the schema, workflow guidance, or Skill refresh logic.
 
-For work under `apps/web/`, do not skip the mandatory design and React Skill
-routing defined in [`apps/web/AGENTS.md`](apps/web/AGENTS.md#skill-routing):
+For Renderer UI work under `apps/desktop/`, do not skip the mandatory design
+and React Skill routing defined in
+[`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md#skill-routing):
 
 - use `frontend-design` before creating or substantially reshaping a
   user-facing experience;
@@ -135,7 +112,9 @@ routing defined in [`apps/web/AGENTS.md`](apps/web/AGENTS.md#skill-routing):
 
 The child `AGENTS.md` owns the detailed triggers, order, exceptions, and review
 behavior. Documentation-only, backend-only, and non-visual changes do not
-activate frontend Skills merely because the repository contains a Web project.
+activate frontend Skills merely because the repository contains a Desktop project.
+Local execution work under `apps/agent-runtime/` instead follows
+[`apps/agent-runtime/AGENTS.md`](apps/agent-runtime/AGENTS.md).
 
 ## Source-of-Truth Order
 

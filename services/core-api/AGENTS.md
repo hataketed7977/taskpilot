@@ -31,5 +31,9 @@ rules.
 - Preserve the pragmatic capability boundaries and dependency rules documented
   locally; do not introduce tactical-DDD layers or artifacts by default.
 - Do not expose persistence entities across modules or HTTP boundaries.
+- Keep Desktop, managed-execution Agent Runtime, and public API adapters
+  distinct. `core-api` owns `AgentRun`, `ApprovalRequest`, authorization, and
+  business-database truth; the Runtime submits authenticated, idempotent
+  execution evidence and never writes those tables directly.
 - Behavior changes require focused tests and module-boundary verification once
   a test toolchain exists.

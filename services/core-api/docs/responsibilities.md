@@ -19,16 +19,16 @@
 - Agent configuration control-plane state and Project Agent resolution.
 - Agent Run dispatch state, attempts, cancellation, reconciliation, and output
   references.
-- Web API and public HTTP API representations and OpenAPI generation.
+- Desktop API, managed-execution, and public HTTP API representations and OpenAPI generation.
 - Durable local jobs, audit facts, and realtime notification sources.
 
 It does not own:
 
-- Browser presentation or client cache state.
+- Desktop presentation or client cache state.
 - Edge routing, WAF, or distributed edge rate limiting.
 - Long-running Agent execution inside its process.
 - Managed-provider internals or direct storage of provider credentials.
-- Arbitrary business logic embedded in the Gateway or Runner.
+- Arbitrary business logic embedded in the Gateway or Agent Runtime.
 
 ## Business Model Compliance
 
@@ -90,7 +90,7 @@ shape per concept.
 - Request, grant, reject, expire, or cancel human approval.
 - Handle bounded rework loops and manual intervention.
 
-### Agent runtime
+### Agent Runtime
 
 - Configure a Provider Connection using protected secret references.
 - Create an Agent and publish an Agent Version.
@@ -108,12 +108,13 @@ Place a use case in the capability that owns the initiating business intent:
 
 - Board viewing and configuration belong to Project Work.
 - Starting or progressing a workflow belongs to Automation.
-- Reporting provider execution belongs to Agent Runtime; the application flow
-  then advances Automation in the same local transaction when the business
-  result is accepted.
+- Accepting authenticated, idempotent execution evidence belongs to the Core
+  API agent capability; the application flow then advances Automation in the
+  same local transaction when the business result is accepted.
 - A human approval decision belongs to Automation even when presented on a
   Project page.
-- Agent editing belongs to Agent Runtime, not to a generic administration area.
+- Agent editing belongs to the Core API agent capability, not to a generic
+  administration area.
 
 If a use case needs multiple capability records, use a coordinating application
 service and one explicit transaction. Do not duplicate state to avoid a direct
@@ -167,9 +168,9 @@ Automation owns definition validation and runtime progression. It guarantees:
 
 It does not parse free-form Agent text to infer a transition.
 
-## Agent Runtime Responsibilities
+## Agent Control-Plane Responsibilities
 
-Agent Runtime owns control-plane state. It guarantees:
+The Core API agent capability owns control-plane state. It guarantees:
 
 - exact Agent Version pinning;
 - Provider Connection scope and protected secret references;
@@ -177,7 +178,7 @@ Agent Runtime owns control-plane state. It guarantees:
 - bounded attempts, retry eligibility, timeout, and cancellation;
 - idempotent progress, artifacts, results, and callbacks;
 - distinction between terminal failure and uncertain external outcome; and
-- no direct Runner access to PostgreSQL business tables.
+- no direct Agent Runtime access to PostgreSQL business tables.
 
 Agent output is not human approval. Runtime data may provide artifacts/evidence
 for a later Approval Request.
@@ -194,15 +195,17 @@ for a later Approval Request.
 
 ## API Responsibilities
 
-- Web controllers optimize first-party workflows.
+- Desktop controllers optimize first-party workflows.
 - Public controllers maintain their own compatibility policy.
 - Both call the same application use cases without sharing transport DTOs by
   accident.
 - The server returns allowed actions for presentation but always reauthorizes
   commands.
 - Validation and conflict errors are stable and path-addressable where relevant.
-- Provider and Runner endpoints are internal, authenticated, idempotent, and
-  separated from public APIs.
+- Managed-execution endpoints accept authenticated, idempotent evidence from
+  the Agent Runtime and are separated from Desktop and public APIs.
+- `core-api`, not the Runtime, owns `AgentRun`, `ApprovalRequest`, durable job,
+  authorization, and business-database truth.
 
 ## Security Responsibilities
 

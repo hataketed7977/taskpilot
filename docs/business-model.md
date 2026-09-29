@@ -582,9 +582,9 @@ the same Agent Run. Business rework, such as review requesting changes, creates
 a new Step Run and a new Agent Run.
 
 High-frequency logs and token streams are not Work Item or Workflow Run fields.
-They flow through the execution/log channel and may be delivered to the Web by
-SSE. Business records retain status, bounded progress summaries, output
-references, and audit facts.
+They flow through an execution/log channel and may be projected to authorized
+clients. Transport details do not become business state. Business records retain
+status, bounded progress summaries, output references, and audit facts.
 
 ## Lifecycle State Machines
 
@@ -635,7 +635,7 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Queued
-    Queued --> Claimed: runner claims lease
+    Queued --> Claimed: Agent Runtime worker claims lease
     Queued --> Cancelled: cancel before claim
     Claimed --> Running: provider execution starts
     Claimed --> Cancelled: cancel before provider start
@@ -686,8 +686,8 @@ real asynchronous or integration boundary require reliable delivery.
 
 | Actor or policy | Command | Business fact | Next policy/action |
 | --- | --- | --- | --- |
-| Runner | `ReportAgentRunStarted` | `AgentRunStarted` | Stream bounded progress |
-| Runner | `ReportAgentRunResult` | `AgentRunSucceeded` | Validate structured output and resolve business outcome |
+| Agent Runtime | `ReportAgentRunStarted` | `AgentRunStarted` | Stream bounded progress |
+| Agent Runtime | `ReportAgentRunResult` | `AgentRunSucceeded` | Validate structured output and resolve business outcome |
 | Workflow policy | `CompleteStep(outcome)` | `WorkflowStepCompleted` | Select the declared transition |
 | Workflow policy | `AdvanceWorkflow` | `WorkflowAdvanced` | Activate the next Step Run or finish the run |
 | Workflow policy | `CompleteWorkflow` | `WorkflowRunSucceeded` | Complete the Work Item when workflow policy requires it |
@@ -784,8 +784,8 @@ requested" and "execution stopped" are distinct facts.
 ## Implementation Guidance
 
 Event Storming does not prescribe the code architecture. The intended first
-implementation is a pragmatic modular monolith plus a separately operated Agent
-Runner:
+implementation is a pragmatic modular monolith plus a separately operated
+Agent Runtime running on the user device:
 
 - Direct application services handle ordinary synchronous use cases.
 - Clear transactions may update the related business records required by one
@@ -794,10 +794,12 @@ Runner:
 - PostgreSQL is the source of business truth.
 - Durable database-backed jobs and leases initially coordinate long-running
   Agent work; a broker is added only for measured need.
-- SSE carries realtime progress to the Web; reconnecting clients reload the
-  authoritative state.
+- Realtime transports may carry progress to authorized clients; reconnecting
+  clients reload authoritative state.
 - Audit records preserve important facts for support and future analytics.
 - Provider adapters isolate Volcengine and future managed-Agent integrations.
+- The Agent Runtime executes and reports evidence but does not own AgentRun,
+  ApprovalRequest, Workspace authorization, or database business truth.
 
 Implement a code event only when it has a concrete consumer and delivery
 requirement. Do not mechanically turn every Event Storming sticky note into an

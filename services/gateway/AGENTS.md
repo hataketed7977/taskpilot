@@ -31,5 +31,9 @@ rules.
 - Keep the Gateway free of business workflows and business persistence.
 - Gateway trust decisions must remain independently enforceable by `core-api`
   where domain authorization is involved.
+- Keep Desktop, managed-execution Runtime, public, and management route classes
+  distinct. The Gateway validates technical credentials and normalizes trusted
+  identity context; it does not own business authorization or invent the future
+  execution-grant contract.
 - Routing and security policy changes require focused tests once a test
   toolchain exists.

@@ -1,7 +1,7 @@
 # Forked from @fission-ai/openspec 1.13.2 built-in spec-driven schema.
 name: taskpilot-sdd
 version: 1
-description: TaskPilot SDD workflow - proposal → specs/design → test plan → TDD tasks → apply → independent verify
+description: TaskPilot SDD workflow - proposal → specs/design → test plan → TDD tasks → apply → automated checks → spec sync/archive
 artifacts:
 - id: proposal
   generates: proposal.md
@@ -252,4 +252,4 @@ apply:
 
     For a task explicitly marked TDD-not-applicable by test-plan.md, run its planned automated structural evidence instead of inventing a behavioral test. Mark a checkbox complete only after its stated evidence passes. Manual observation alone does not complete an automatable task.
 
-    If implementation reveals a conflict or missing decision in proposal, specs, design, or test-plan, stop and use openspec-update-change; do not silently rewrite the contract during apply. Run focused checks before broader suites and expand by risk according to repository testing documentation. After all tasks pass, stop and hand off to an independent read-only openspec-verify-change review before archive.
+    If implementation reveals a conflict or missing decision in proposal, specs, design, or test-plan, stop and use openspec-update-change; do not silently rewrite the contract during apply. Run focused checks before broader suites and expand by risk according to repository testing documentation. After all tasks pass, run the planned focused and affected automated checks, then proceed to delta spec sync and archive. Use openspec-verify-change only when the user requests an independent review or the change risk warrants an optional second pass.

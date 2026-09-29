@@ -55,20 +55,29 @@ before trusted internal context is written.
 
 | Route class | Target | Policy |
 | --- | --- | --- |
-| First-party Web API | `core-api` Web controllers | User session/token, first-party limits |
+| First-party Desktop API | `core-api` Desktop controllers | Authenticated user identity, first-party limits |
+| Managed-execution API | `core-api` internal Runtime controllers | Authenticated Runtime identity, execution-scoped technical credential, strict limits |
 | Public HTTP API | `core-api` public controllers | Versioned routes, API credentials, public quotas |
 | Health and readiness | Gateway management endpoints | Restricted exposure |
 
-The Gateway must preserve the distinction between Web and public API surfaces.
+The Gateway must preserve the distinction among Desktop, managed-execution,
+and public API surfaces. The exact execution-grant wire format, issuer,
+resource bindings, renewal, revocation, and replay rules are deferred to a
+future implementation change; route documentation must not invent them.
 
-## Tenant Context
+## Identity and Tenant Context
 
+- User or Runtime identity is derived only from a credential accepted for the
+  selected route class; a Desktop user credential is not a Runtime credential.
 - Tenant identity is derived from trusted claims, approved host mapping, or API
   credentials.
-- Client-provided internal tenant headers are stripped.
-- Normalized tenant context is forwarded only on trusted internal routes.
-- `core-api` independently verifies membership and domain authorization.
-- The Gateway never turns tenant context into proof of resource ownership.
+- Client-provided internal identity and tenant headers are stripped.
+- Normalized identity and tenant context are forwarded only on trusted internal
+  routes.
+- `core-api` independently verifies membership, execution scope, resource
+  binding, and domain authorization.
+- Gateway validation and normalization never turn identity or tenant context
+  into proof of resource ownership or permission to advance an `AgentRun`.
 
 ## Failure Behavior
 

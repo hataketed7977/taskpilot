@@ -9,8 +9,8 @@
 ## Owns
 
 - External route matching and upstream selection.
-- Edge credential validation.
-- Trusted tenant-context normalization.
+- Route-specific Desktop, Runtime, and public credential validation.
+- Trusted principal and tenant-context normalization.
 - Removal of spoofable internal headers.
 - Request correlation and trace propagation.
 - Route-level timeouts, body limits, and rate limits.
@@ -20,7 +20,7 @@
 ## Does Not Own
 
 - User, Workspace, Project, Work Item, Board, or Agent persistence.
-- Final membership or resource authorization.
+- Final membership, execution-scope, or resource authorization.
 - Business validation.
 - API response aggregation for screens.
 - Public API DTOs or OpenAPI generation.
@@ -31,9 +31,9 @@
 
 | Policy | Gateway responsibility | `core-api` responsibility |
 | --- | --- | --- |
-| Authentication | Validate token or credential | Resolve domain principal |
+| Authentication | Validate the route's technical credential and normalize principal context | Resolve the domain principal and authoritative session/run context |
 | Tenant | Derive and normalize context | Verify membership and ownership |
-| Authorization | Coarse route access | Use-case and resource authorization |
+| Authorization | Coarse route access | Use-case, execution-scope, and resource authorization |
 | Rate limit | Enforce technical quota | Decide plan/entitlement semantics |
 | Validation | Request transport limits | Domain and DTO validation |
 | Errors | Transport policy errors | Business error contract |
@@ -48,8 +48,14 @@
 
 ## Route Change Rules
 
-- A new route declares its API surface, authentication mode, timeout, size
+- A new route declares whether it belongs to the Desktop, managed-execution,
+  public, or management surface, plus its authentication mode, timeout, size
   limit, and rate-limit key.
+- Desktop user credentials are rejected from managed-execution routes, and
+  Runtime credentials are rejected from Desktop and public routes.
+- A future execution grant remains short-lived and execution-scoped; this
+  document does not define its wire contract or let the Gateway decide whether
+  an `AgentRun` may advance.
 - Public API version routing cannot silently point to an incompatible upstream.
 - Route predicates must not depend on mutable business data.
 - Fallback behavior must not convert an authorization failure into anonymous

@@ -42,64 +42,67 @@ exists.
 
 ```mermaid
 flowchart LR
-    web["React Web"]
+    desktop["Electron Desktop\nWindows and macOS"]
+    runtime["Agent Runtime\nLocal execution plane"]
+    workspace["Authorized local workspace"]
     external["Third-party HTTP clients"]
     cli["Future CLI"]
     edge["Edge / TLS / WAF"]
     gateway["Kotlin API Gateway"]
     api["Kotlin core-api control plane"]
-    runner["Future Agent Runner execution plane"]
     provider["Agent / model providers and tools"]
+    credential["OS credential store"]
     postgres[(PostgreSQL)]
     redis[(Redis technical state)]
 
-    web --> edge
+    desktop -->|HTTPS| edge
     external --> edge
     cli --> edge
     edge --> gateway
     gateway --> api
     gateway --> redis
     api --> postgres
-    api -. dispatch and status protocol .-> runner
-    runner --> provider
+    desktop -->|authenticated local protocol| runtime
+    runtime --> workspace
+    runtime --> provider
+    runtime -->|managed execution and evidence| edge
+    desktop -->|secret handles| credential
 ```
 
-`core-api` remains the owner of AgentRun business state. When Agent execution is
-implemented, long-running or resource-intensive work runs in a separately
-operated Runner process so API availability, deployment, and resource limits are
-not coupled to an execution attempt. This is a process and failure-domain
-boundary, not an initial business microservice or independent source of truth.
-The Runner uses an authenticated internal protocol and never writes `core-api`
-business tables directly.
+The Desktop is the first-party interaction surface. Its sandboxed Renderer uses
+a typed Preload/Main boundary; Electron Main owns OS integration and supervises
+the connection to the independent Agent Runtime. The Runtime owns local
+Agent/tool execution, process/PTY supervision, logs, Diff, and artifacts. It
+does not own business state or write `core-api` tables.
+
+`core-api` remains the owner of AgentRun and approval business truth. Managed
+local execution uses a future authenticated, short-lived execution-grant
+contract; the Runtime never receives or stores the Desktop's long-lived user
+token. The grant's issuer, subject/resource bindings, expiry, refresh,
+revocation, replay prevention, and logout behavior must be specified before
+execution is implemented.
+
+Workspace authorization constrains TaskPilot-owned file tools and execution
+policy but is not an OS-level sandbox. Arbitrary child processes retain the
+user's OS permissions and may access resources outside the selected workspace
+unless a future isolation design adds enforceable platform controls.
 
 Redis is optional technical infrastructure. The Gateway may use it for a proven
-distributed rate-limit requirement. `core-api` adds a Redis dependency only
-when a documented cache or coordination use case, ownership, expiry, and
-failure policy exist; Redis never owns business truth.
-
-```mermaid
-flowchart LR
-    api2["core-api / Agent Runtime area"]
-    db2[(PostgreSQL AgentRun truth)]
-    runner2["Agent Runner"]
-    artifacts["Artifact / log storage"]
-    secrets["Protected credential store"]
-
-    api2 --> db2
-    runner2 -->|claim, heartbeat, result| api2
-    runner2 --> artifacts
-    runner2 --> secrets
-```
+distributed rate-limit requirement. `core-api` adds Redis only for a documented
+cache or coordination use case; Redis never owns business truth.
 
 ## Top-Level Project Boundaries
 
 ```text
 taskpilot/
 ├── apps/
-│   ├── web/
+│   ├── desktop/
 │   │   ├── AGENTS.md
 │   │   └── docs/
-│   └── cli/                 # Future
+│   ├── agent-runtime/
+│   │   ├── AGENTS.md
+│   │   └── docs/
+│   └── cli/                   # Future
 ├── services/
 │   ├── gateway/
 │   │   ├── AGENTS.md
@@ -107,26 +110,28 @@ taskpilot/
 │   └── core-api/
 │       ├── AGENTS.md
 │       └── docs/
-├── contracts/               # Future, when API specifications exist
+├── contracts/                 # Future, when API specifications exist
 ├── docs/
-│   ├── README.md             # Documentation knowledge map
-│   ├── business-model.md     # Product vocabulary and behavior
-│   └── architecture.md       # Cross-project technical architecture
+│   ├── README.md              # Documentation knowledge map
+│   ├── business-model.md      # Product vocabulary and behavior
+│   └── architecture.md        # Cross-project technical architecture
 ├── AGENTS.md
 └── README.md
 ```
 
-Do not create future directories until the corresponding project or artifact is
-implemented.
-
-The current Web, Gateway, and Core API boundaries each have their own
-`AGENTS.md` and `docs/`. The future CLI receives the same structure when
+Do not create future directories until their project or artifact is actually
+initialized. Desktop, Agent Runtime, Gateway, and Core API currently have
+documentation owners only; the future CLI receives the same structure when
 created.
 
 ## Technology Direction
 
-- Web: React, TypeScript, Vite, shadcn/ui, and TanStack Query. See
-  [`apps/web/docs/architecture.md`](../apps/web/docs/architecture.md).
+- Desktop: Electron, React, strict TypeScript, Vite, and TanStack Query, with
+  sandboxed Renderer and typed Preload IPC. See
+  [`apps/desktop/docs/architecture.md`](../apps/desktop/docs/architecture.md).
+- Agent Runtime: separately supervised local execution with narrow
+  Windows/macOS platform adapters. Concrete language and libraries are deferred.
+  See [`apps/agent-runtime/docs/architecture.md`](../apps/agent-runtime/docs/architecture.md).
 - Gateway: Kotlin and Spring Cloud Gateway. See
   [`services/gateway/docs/architecture.md`](../services/gateway/docs/architecture.md).
 - Core API: Kotlin, Spring Boot, and Spring Modulith. See
@@ -136,13 +141,16 @@ created.
 - Build: pnpm for JavaScript projects and Gradle Kotlin DSL for Kotlin projects.
 
 Stable, mutually compatible versions are selected when each subproject is
-initialized.
+initialized. Windows and macOS share product code and protocols, but signing,
+packaging, native integrations, process behavior, and releases require separate
+platform evidence.
 
 ## Subproject Documentation
 
 | Subproject | Architecture | Responsibilities | Testing |
 | --- | --- | --- | --- |
-| Web | [`architecture`](../apps/web/docs/architecture.md) | [`responsibilities`](../apps/web/docs/responsibilities.md) | [`testing strategy`](../apps/web/docs/testing-strategy.md) |
+| Desktop | [`architecture`](../apps/desktop/docs/architecture.md) | [`responsibilities`](../apps/desktop/docs/responsibilities.md) | [`testing strategy`](../apps/desktop/docs/testing-strategy.md) |
+| Agent Runtime | [`architecture`](../apps/agent-runtime/docs/architecture.md) | [`responsibilities`](../apps/agent-runtime/docs/responsibilities.md) | [`testing strategy`](../apps/agent-runtime/docs/testing-strategy.md) |
 | Gateway | [`architecture`](../services/gateway/docs/architecture.md) | [`responsibilities`](../services/gateway/docs/responsibilities.md) | [`testing strategy`](../services/gateway/docs/testing-strategy.md) |
 | Core API | [`architecture`](../services/core-api/docs/architecture.md) | [`responsibilities`](../services/core-api/docs/responsibilities.md) | [`testing strategy`](../services/core-api/docs/testing-strategy.md) |
 
@@ -157,23 +165,17 @@ application components described elsewhere in this document already exist.
 
 ```mermaid
 flowchart LR
-    proposal["Proposal"] --> specs["Specs"]
-    proposal --> design["Design"]
-    specs --> testPlan["Test Plan"]
-    design --> testPlan
-    testPlan --> tasks["TDD Tasks"]
-    design --> tasks
-    tasks --> apply["Apply"]
-    apply --> policy{"Verification policy"}
-    policy -->|default / standard+| verify["Independent read-only verify"]
-    policy -->|explicit low / bootstrap| owner["Owner acceptance"]
+    plan["Proposal / Specs / Design / Test Plan"]
+    apply["Apply with TDD"]
+    checks["Focused and affected automated checks"]
+    verify["Optional independent verify"]
+    sync["Delta spec sync"]
+    archive["Archive"]
+
+    plan --> apply --> checks --> sync --> archive
+    checks -. high risk or user request .-> verify
     verify -->|blocking finding| apply
-    owner -->|blocking evidence| apply
-    verify -->|ready report| receipt["Record verification receipt"]
-    owner -->|ready acceptance| receipt
-    receipt --> preflight["Archive preflight"]
-    preflight -->|relevant content changed| policy
-    preflight -->|evidence current and non-blocking| archive["Archive"]
+    verify -->|no blocker| sync
 ```
 
 - Before implementation, `test-plan.md` maps changed scenarios and material
@@ -193,32 +195,20 @@ flowchart LR
   planned automated structural evidence such as schema validation, fixtures, a
   self-test, lint, or build; manual observation does not replace an automatable
   gate.
-- After apply completes, independent read-only verification is the safe
-  default. A committed `verification-policy.json` may allow explicit owner
-  acceptance only for `low` or `bootstrap` risk; missing policy and every
-  `standard`, `high`, or `critical` Change require an independent reviewer.
-  Owner acceptance records accountable human risk acceptance and never claims
-  independence. Neither path can waive failed commands, CRITICAL findings,
-  unaccepted WARNINGs, or applicable checks reported as `Not verified`.
-- The coordinator records the structured attestation with
-  [`record-verification.sh`](../tools/openspec/record-verification.sh). A report
-  intended for recording is either pure JSON or a human-readable Markdown
-  Verify report with exactly one `verification-report` JSON fenced block; the
-  coordinator does not manually translate findings between formats. The receipt under the
-  Change's `evidence/` directory preserves policy, attestation mode, identity,
-  commands, findings, `Not verified` applicability, verdict, timestamps, and a
-  fingerprint of the Change plus declared impact paths.
-- Before the Archive Skill is invoked,
-  [`archive-preflight.sh`](../tools/openspec/archive-preflight.sh) must pass. It
-  rejects missing or malformed receipts, policy-ineligible attestations,
-  failed commands, non-ready verdicts, CRITICAL findings, WARNING findings not
-  explicitly accepted as non-blocking, applicable `Not verified` checks, and a
-  stale relevant-content fingerprint. Edits to unrelated sibling active
-  Changes do not invalidate the receipt; changes to the selected Change or a
-  policy-declared path require fresh attestation. Preflight is check-only and
-  never archives or edits the workspace.
+- After apply completes, run the focused and affected automated checks declared
+  by the Change's test plan. Applicable coverage, architecture, contract,
+  database, browser, packaged Desktop, and system gates remain blocking when
+  the owning testing strategy requires them.
+- `openspec-verify-change` is an optional read-only second pass for high-risk
+  work or explicit user requests. Its findings return to apply, but routine
+  archive readiness does not depend on a verification receipt, policy,
+  fingerprint, or repository-specific preflight.
+- Before archive, assess every delta spec and sync it into the corresponding
+  main spec. A Change with `skip_specs: true` reports that no delta sync is
+  applicable; this marker never waives implementation tests or strict
+  validation.
 - The canonical test tools, layer ownership, critical scenarios, and local
-  commands remain in the Web, Gateway, and Core API
+  commands remain in the Desktop, Agent Runtime, Gateway, and Core API
   [testing strategies](#subproject-documentation). This workflow only requires
   each change to select and evidence the relevant parts.
 
@@ -228,8 +218,8 @@ which uses temporary OpenSpec profile state instead of modifying a developer's
 global profile and verifies that all seven generated Skills report the installed
 OpenSpec version. Generated Skill files are never edited manually. The isolated
 [`tools/openspec/test-workflow.sh`](../tools/openspec/test-workflow.sh) is the
-semantic regression gate for the schema graph, TDD guidance, report parsing,
-policy eligibility, scoped fingerprints, receipt format, and archive preflight behavior.
+semantic regression gate for the schema graph, TDD guidance, strict Change
+validation, and fixture isolation.
 
 ## Cross-Project Testing Boundaries
 
@@ -237,12 +227,17 @@ policy eligibility, scoped fingerprints, receipt format, and archive preflight b
   trust boundary.
   Broader system tests sample cross-project integration and do not repeat each
   subproject's validation, routing, permission, or error matrix.
-- Web module integration uses a controlled HTTP boundary. Cypress owns real
-  browser interaction and the small system end-to-end suite; it is not the
-  default runner for all frontend integration tests.
-- A system E2E runs the TaskPilot Web, Gateway, Core API, and PostgreSQL across
-  their real boundaries. Third-party identity, model, and Agent providers may
-  be deterministic test doubles at TaskPilot-owned outbound boundaries.
+- Desktop Renderer integration uses controlled HTTP and Preload boundaries.
+  Packaged Electron journeys own real Renderer/Preload/Main behavior; native
+  Windows/macOS tests own OS credential, deep-link, process, packaging, and
+  lifecycle risks that Renderer tests cannot prove.
+- Agent Runtime policy and protocol tests run below system E2E; real
+  filesystem, process-tree, PTY, journal/recovery, and platform tests remain at
+  the Runtime boundary.
+- A system E2E runs packaged TaskPilot Desktop, Agent Runtime, Gateway,
+  Core API, and PostgreSQL across their real boundaries. Third-party identity,
+  model, and Agent providers may be deterministic test doubles at
+  TaskPilot-owned outbound boundaries.
 - System E2E state is prepared through controlled test fixtures or APIs rather
   than repeated UI setup. Test-only setup capabilities are unavailable in
   production and cannot bypass the business rule under test.
@@ -263,8 +258,8 @@ or a desire to maximize test count:
 
 | Risk class | Examples | Minimum evidence |
 | --- | --- | --- |
-| Critical | Tenant isolation, authentication and authorization, destructive writes, workflow transitions, idempotency, concurrency, migrations, Runner leases | Focused rule tests, real-boundary integration tests, negative cases, and a representative cross-system journey when user-visible |
-| High | Main Work Item and Board workflows, public API compatibility, cache scope, retries, external-provider failure | Unit or module integration tests, contract tests where applicable, and selected browser or infrastructure integration |
+| Critical | Tenant isolation, authentication and authorization, destructive writes, workflow transitions, idempotency, concurrency, migrations, execution grants and Runtime recovery | Focused rule tests, real-boundary integration tests, negative cases, and a representative cross-system journey when user-visible |
+| High | Main Work Item and Board workflows, public API compatibility, cache scope, retries, external-provider failure | Unit or module integration tests, contract tests where applicable, and selected packaged Desktop or infrastructure integration |
 | Routine | Presentation variants, formatting, simple mapping, non-critical configuration | The lowest reliable unit or component layer; broader tests only when they catch a distinct failure mode |
 
 Every feature or defect fix identifies its important success, rejection,
@@ -281,7 +276,7 @@ quality. The generated projects must report at least:
 2. Whole-subproject line and branch coverage as a non-regression trend.
 3. Coverage of critical behaviors and risk cases, maintained as named tests or
    a risk-to-test matrix rather than inferred from line coverage.
-4. Contract, architecture-boundary, migration, and supported-browser results,
+4. Contract, architecture-boundary, migration, packaged Desktop, and supported-platform results,
    which source coverage cannot represent.
 
 After coverage instrumentation exists, the initial blocking floor is 80% line
@@ -335,48 +330,60 @@ production-realistic boundaries:
 - Preserve failure artifacts sufficient to reproduce the failing layer while
   redacting credentials and personal data.
 
-Exact CI stages, commands, coverage tools, browser versions, and deployment
+Exact CI stages, commands, coverage tools, Electron/platform versions, and deployment
 topology are defined when the runnable projects and CI configuration exist.
 Thresholds may be raised from evidence after a stable baseline; lowering a
 threshold is an architectural policy change, not a local test workaround.
 
 ## Cross-Project API Boundaries
 
-- The first-party Web API and public HTTP API are separate API products.
+- The first-party Desktop API and public HTTP API are separate API products.
 - Both may be implemented by `core-api`, but they have separate controllers,
   transport models, compatibility policies, and OpenAPI documents.
-- Web-generated TypeScript types belong inside the Web subproject.
+- Desktop-generated TypeScript transport types belong in the Desktop project.
 - The public API exposes HTTP only; TaskPilot does not publish a public SDK.
-- The future CLI consumes the public HTTP API like any other external client.
-- The Gateway routes and protects both API surfaces without owning business
-  workflows.
+- The future CLI consumes the public HTTP API like any external client.
+- Gateway routes and protects both API surfaces without owning business flows.
+- Agent Runtime uses a distinct authenticated managed-execution surface;
+  it does not reuse the Desktop's long-lived user credential or the public API
+  as a generic remote shell.
+
+### Identity and Execution Authorization
+
+Desktop identity is established through a future system-browser login contract.
+Gateway normalizes verified identity context; Core API remains authoritative for
+Workspace/Project access and business authorization. Long-lived Desktop
+credentials stay behind OS credential facilities and never enter Renderer or
+Agent Runtime.
+
+Before Runtime execution exists, a separate behavior change must define a
+short-lived execution grant including issuer, User/Workspace/Project/Agent Run
+and Runtime-instance binding, expiry/refresh, revocation, replay protection,
+and logout handling. This architecture fixes ownership, not those unresolved
+wire-level semantics.
 
 ### Shared HTTP Contract
 
-Both API surfaces follow shared protocol conventions while retaining separate
-transport models and compatibility policies:
+The API surfaces share protocol conventions while retaining distinct models and
+compatibility policies:
 
-- Errors use a machine-readable Problem Details-compatible envelope with a
-  stable `code`, HTTP status, correlation identifier, and optional field or
-  definition diagnostics. Clients never branch on human-readable messages.
-- Mutable resources expose an explicit version. Commands based on previously
-  read state carry an expected version, using an API-surface-appropriate field
-  or conditional request header, and receive a stable conflict response when
-  stale.
-- Operations that can be duplicated by network retry, especially run creation,
-  revision publication, retry commands, and public resource creation, define an
-  idempotency contract before implementation.
-- Authorization remains authoritative in `core-api`. Web responses may expose
-  allowed actions or available transitions for presentation, but the browser
-  does not derive domain permission from role names.
-- Definition validation returns path-addressable diagnostics so visual editors
-  can identify invalid fields without reimplementing canonical DSL rules.
-- `core-api` produces separate OpenAPI artifacts. Web API contract changes and
-  generated Web transport types are verified together; public API artifacts
-  additionally receive compatibility checks.
+- Errors use a Problem Details-compatible envelope with stable `code`, HTTP
+  status, correlation identifier, and optional field/definition diagnostics.
+  Clients never branch on human-readable messages.
+- Mutable resources expose an explicit version. Commands based on stale state
+  receive a stable conflict result instead of silently overwriting newer data.
+- Retryable operations define idempotency before implementation.
+- Authorization remains authoritative in `core-api`. Desktop responses may
+  expose allowed actions for presentation, but the client does not derive
+  domain permission from role names.
+- Definition validation returns path-addressable diagnostics for visual editors
+  without moving canonical DSL rules into the Desktop.
+- `core-api` produces separate OpenAPI artifacts. Desktop API changes and
+  generated Desktop transport types are verified together; public API
+  artifacts additionally receive compatibility checks.
 
-Exact status codes, headers, payload schemas, artifact locations, and generation
-commands are recorded when the first API contract is implemented.
+Exact status codes, headers, payloads, artifact paths, and generation commands
+are recorded with the first API implementation.
 
 ## Business Model Boundary
 
@@ -415,8 +422,8 @@ for genuine asynchronous boundaries.
 
 Module boundaries must allow later extraction, but no external broker, service
 discovery platform, or distributed transaction mechanism is introduced before
-an actual service boundary exists. Detailed transaction, durable-job, Runner,
-and future extraction constraints belong to the
+an actual service boundary exists. Detailed transaction, durable-job, Agent Runtime protocol, and future
+extraction constraints belong to the
 [`Core API architecture`](../services/core-api/docs/architecture.md).
 
 ## SaaS Direction
@@ -450,5 +457,7 @@ capabilities speculatively.
 - No external message broker.
 - No business persistence or orchestration in the Gateway.
 - No long-running Agent execution in a `core-api` HTTP request or transaction.
-- No direct Runner access to `core-api` business tables.
+- No direct Agent Runtime access to `core-api` business tables.
+- No browser Web client in the initial first-party product.
+- No OS-level sandbox claim for arbitrary local child processes.
 - No shared package without multiple real consumers.

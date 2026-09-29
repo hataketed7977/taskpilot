@@ -2,7 +2,7 @@
 
 - **Status:** Target
 - **Owns:** Core API business, persistence, API, concurrency, durable-job,
-  Runner-protocol, and provider-adapter verification
+  managed-execution-protocol, and provider-adapter verification
 - **Read after:** [`../../../docs/business-model.md`](../../../docs/business-model.md),
   [`architecture.md`](architecture.md),
   [`responsibilities.md`](responsibilities.md)
@@ -32,7 +32,7 @@ is intentionally synchronous.
 3. Implement the smallest clear behavior.
 4. Refactor without changing the observable contract.
 5. Run the focused suite, affected capability suite, architecture checks, and
-   relevant PostgreSQL/API/Runner tests.
+   relevant PostgreSQL/API/Agent Runtime tests.
 
 Exact commands are added after the toolchain exists.
 
@@ -44,8 +44,8 @@ Exact commands are added after the toolchain exists.
 | Application | Focused Spring or plain service tests | Use-case orchestration, transactions, idempotency, related-record updates |
 | Capability integration | Spring Modulith/application slice | Capability wiring and supported cross-capability calls |
 | PostgreSQL | Testcontainers PostgreSQL | Migrations, constraints, JSONB, indexes, optimistic/concurrent writes, leases |
-| API contract | MockMvc/WebTestClient and generated OpenAPI | Auth, DTO mapping, errors, versions, idempotency, Web/public separation |
-| Runner/provider | Fake authenticated Runner and provider adapters | Claim, heartbeat, progress, result, cancellation, timeout, reconciliation |
+| API contract | MockMvc/WebTestClient and generated OpenAPI | Auth, DTO mapping, errors, versions, idempotency, Desktop/managed-execution/public separation |
+| Agent Runtime/provider | Fake authenticated Agent Runtime and provider adapters | Claim, heartbeat, progress, result, cancellation, timeout, reconciliation |
 | Full application | Small Spring Boot suite | Startup, security chain, main cross-capability assembly |
 
 Mocks replace only true external boundaries or another capability's narrow
@@ -111,7 +111,7 @@ Also prove:
 - two concurrent decisions or results produce one legal winner and one stable
   conflict/idempotent replay.
 
-### Agent runtime
+### Agent Runtime
 
 - Project Agent Slots resolve to an allowed exact Agent Version.
 - Agent Run history is unaffected by later Agent versions.
@@ -137,26 +137,28 @@ Also prove:
 
 ## API Cases
 
-- Web and public API generate separate OpenAPI groups.
-- Internal Runner/provider endpoints are not exposed as public API.
+- Desktop, managed-execution, and public API generate separate OpenAPI groups.
+- Internal Agent Runtime/provider endpoints are not exposed as public API.
 - Persistence and provider SDK types never appear in schemas.
 - Stable error codes cover authorization, validation, conflict, stale version,
   unsupported definition, and idempotency conflict.
 - Public breaking changes fail compatibility checks once a baseline exists.
-- Web API changes fail generated Web type checks until synchronized.
+- Desktop API changes fail generated Desktop transport type checks until
+  synchronized.
 - Allowed actions aid presentation but never bypass a negative command check.
 
-## Durable Job and Runner Cases
+## Durable Job and Agent Runtime Cases
 
-- Only one Runner holds a valid claim lease.
+- Only one Agent Runtime worker holds a valid claim lease.
 - Expired claims recover safely; stale heartbeats and results are rejected.
 - Duplicate claim, progress, artifact, result, and cancellation submissions are
   idempotent.
 - A durable job and its authorizing Agent Run state commit atomically.
-- Core API restart and Runner loss do not leave unobservable active work.
+- Core API restart and Agent Runtime loss do not leave unobservable active work.
 - Retry limit, timeout, backoff, cancellation, and reconciliation transitions
   are deterministic under a controlled clock.
-- A Runner cannot access another Workspace's run or Core API tables.
+- An Agent Runtime instance cannot access another Workspace's run or Core API
+  tables.
 - Logs and errors do not expose Provider Connection secrets.
 
 ## Realtime Cases
@@ -166,7 +168,7 @@ Also prove:
   notification being retained.
 - Late updates from an old Workspace, Project, run, or attempt cannot pollute a
   newly selected scope.
-- Backpressure or a disconnected browser does not block Agent execution.
+- Backpressure or a disconnected Desktop client does not block Agent execution.
 
 ## Architecture Verification
 
@@ -208,5 +210,5 @@ Once initialized, a Core API change is incomplete until:
 - Spring Modulith verification passes.
 - PostgreSQL/migration tests pass when persistence changes.
 - API generation and compatibility/type checks pass when contracts change.
-- Runner/provider failure tests pass when execution changes.
+- Agent Runtime/provider failure tests pass when execution changes.
 - Kotlin compile, lint, and formatting checks pass.

@@ -9,8 +9,8 @@
 
 ## How to Navigate
 
-Start from the repository root [`AGENTS.md`](../AGENTS.md). Then follow the path
-that matches the change:
+Start from the repository root [`AGENTS.md`](../AGENTS.md), then follow the path
+matching the change:
 
 ```mermaid
 flowchart TD
@@ -18,33 +18,35 @@ flowchart TD
     map["Documentation Map"]
     business["Business Model"]
     system["System Architecture"]
-    webAgent["Web AGENTS.md"]
-    gatewayAgent["Gateway AGENTS.md"]
-    coreAgent["Core API AGENTS.md"]
+    desktop["Desktop AGENTS.md"]
+    runtime["Agent Runtime AGENTS.md"]
+    gateway["Gateway AGENTS.md"]
+    core["Core API AGENTS.md"]
     local["Local architecture / responsibilities / testing"]
 
     root --> map
     map --> business
     map --> system
-    map --> webAgent
-    map --> gatewayAgent
-    map --> coreAgent
-    webAgent --> local
-    gatewayAgent --> local
-    coreAgent --> local
+    map --> desktop
+    map --> runtime
+    map --> gateway
+    map --> core
+    desktop --> local
+    runtime --> local
+    gateway --> local
+    core --> local
     business --> local
     system --> local
 ```
 
-Use these reading routes:
-
 | Change | Required reading |
 | --- | --- |
-| Business terminology, behavior, lifecycle, workflow, Board, Work Item, Agent, approval, or custom field | [`business-model.md`](business-model.md) |
-| Cross-project architecture, runtime topology, shared API policy, or project boundary | [`architecture.md`](architecture.md) |
-| Web code, UI behavior, frontend structure, or Web tests | Root documents above, then [`apps/web/AGENTS.md`](../apps/web/AGENTS.md) and its linked document |
-| Gateway route, policy, filter, configuration, or tests | Root architecture, then [`services/gateway/AGENTS.md`](../services/gateway/AGENTS.md) and its linked document |
-| Core API code, persistence, API, workflow runtime, provider integration, or tests | Root business model and architecture, then [`services/core-api/AGENTS.md`](../services/core-api/AGENTS.md) and its linked document |
+| Business terminology, lifecycle, workflow, Board, Work Item, Agent, approval, or custom field | [`business-model.md`](business-model.md) |
+| Cross-project architecture, trust boundaries, shared API policy, or project boundary | [`architecture.md`](architecture.md) |
+| Desktop window, Renderer UI, Electron process, native integration, packaging, or Desktop tests | Root documents, then [`apps/desktop/AGENTS.md`](../apps/desktop/AGENTS.md) and its linked document |
+| Local Agent execution, workspace access, tools, process/PTY, journal, Diff/artifact, or Runtime tests | Root business model and architecture, then [`apps/agent-runtime/AGENTS.md`](../apps/agent-runtime/AGENTS.md) and its linked document |
+| Gateway route, identity normalization, policy, filter, configuration, or tests | Root architecture, then [`services/gateway/AGENTS.md`](../services/gateway/AGENTS.md) and its linked document |
+| Core API persistence, API, workflow runtime, provider integration, execution evidence, or tests | Root business model and architecture, then [`services/core-api/AGENTS.md`](../services/core-api/AGENTS.md) and its linked document |
 | Documentation ownership or navigation | This map and the root `AGENTS.md` documentation rules |
 
 ## Root Documents
@@ -53,17 +55,26 @@ Use these reading routes:
 | --- | --- | --- |
 | [`../AGENTS.md`](../AGENTS.md) | Current | Mandatory repository-wide instructions and navigation rules |
 | [`../README.md`](../README.md) | Current | Human-facing project orientation |
-| [`business-model.md`](business-model.md) | Target | Product vocabulary, identity and relationship maps, Event Storming scenarios, state machines, and MVP business rules |
+| [`business-model.md`](business-model.md) | Target | Product vocabulary, identity and relationships, Event Storming scenarios, state machines, and MVP rules |
 | [`architecture.md`](architecture.md) | Target | System topology, cross-project boundaries, shared technical contracts, and architecture-wide quality policy |
 
-## Web Documents
+## Desktop Documents
 
 | Document | Status | Owns |
 | --- | --- | --- |
-| [`../apps/web/AGENTS.md`](../apps/web/AGENTS.md) | Current | Mandatory Web navigation and local working rules |
-| [`../apps/web/docs/architecture.md`](../apps/web/docs/architecture.md) | Target | Web runtime structure, dependency direction, state ownership, and API integration |
-| [`../apps/web/docs/responsibilities.md`](../apps/web/docs/responsibilities.md) | Target | UI capability ownership and placement rules |
-| [`../apps/web/docs/testing-strategy.md`](../apps/web/docs/testing-strategy.md) | Target | Web test layers, critical journeys, browser coverage, and quality gates |
+| [`../apps/desktop/AGENTS.md`](../apps/desktop/AGENTS.md) | Current | Mandatory Desktop navigation and local working rules |
+| [`../apps/desktop/docs/architecture.md`](../apps/desktop/docs/architecture.md) | Target | Electron boundaries, Renderer structure, typed IPC, native integration, API integration, and packaging |
+| [`../apps/desktop/docs/responsibilities.md`](../apps/desktop/docs/responsibilities.md) | Target | Desktop capability ownership and placement rules |
+| [`../apps/desktop/docs/testing-strategy.md`](../apps/desktop/docs/testing-strategy.md) | Target | Renderer, IPC, packaged Electron, accessibility, and native platform verification |
+
+## Agent Runtime Documents
+
+| Document | Status | Owns |
+| --- | --- | --- |
+| [`../apps/agent-runtime/AGENTS.md`](../apps/agent-runtime/AGENTS.md) | Current | Mandatory Runtime navigation and local security rules |
+| [`../apps/agent-runtime/docs/architecture.md`](../apps/agent-runtime/docs/architecture.md) | Target | Runtime topology, protocols, workspace/tool/process boundaries, journal, evidence, and platform adapters |
+| [`../apps/agent-runtime/docs/responsibilities.md`](../apps/agent-runtime/docs/responsibilities.md) | Target | Runtime capability ownership and placement rules |
+| [`../apps/agent-runtime/docs/testing-strategy.md`](../apps/agent-runtime/docs/testing-strategy.md) | Target | Policy, protocol, filesystem, process/PTY, recovery, and native platform verification |
 
 ## Gateway Documents
 
@@ -72,16 +83,16 @@ Use these reading routes:
 | [`../services/gateway/AGENTS.md`](../services/gateway/AGENTS.md) | Current | Mandatory Gateway navigation and local working rules |
 | [`../services/gateway/docs/architecture.md`](../services/gateway/docs/architecture.md) | Target | Gateway runtime, request pipeline, routes, and transport policies |
 | [`../services/gateway/docs/responsibilities.md`](../services/gateway/docs/responsibilities.md) | Target | Gateway policy ownership and non-responsibilities |
-| [`../services/gateway/docs/testing-strategy.md`](../services/gateway/docs/testing-strategy.md) | Target | Gateway security, routing, filter, and reliability verification |
+| [`../services/gateway/docs/testing-strategy.md`](../services/gateway/docs/testing-strategy.md) | Target | Gateway security, routing, filter, identity, and reliability verification |
 
 ## Core API Documents
 
 | Document | Status | Owns |
 | --- | --- | --- |
 | [`../services/core-api/AGENTS.md`](../services/core-api/AGENTS.md) | Current | Mandatory Core API navigation and local working rules |
-| [`../services/core-api/docs/architecture.md`](../services/core-api/docs/architecture.md) | Target | Core runtime structure, application transactions, persistence, APIs, durable jobs, and provider boundary |
+| [`../services/core-api/docs/architecture.md`](../services/core-api/docs/architecture.md) | Target | Core runtime, transactions, persistence, APIs, durable jobs, execution evidence, and provider boundary |
 | [`../services/core-api/docs/responsibilities.md`](../services/core-api/docs/responsibilities.md) | Target | Core API capability ownership, use-case placement, and collaboration rules |
-| [`../services/core-api/docs/testing-strategy.md`](../services/core-api/docs/testing-strategy.md) | Target | Core API business, persistence, API, concurrency, and Runner verification |
+| [`../services/core-api/docs/testing-strategy.md`](../services/core-api/docs/testing-strategy.md) | Target | Core API business, persistence, API, concurrency, and Runtime protocol verification |
 
 ## Ownership Rules
 
@@ -97,9 +108,8 @@ Use these reading routes:
   specification.
 
 When a concern moves to a child document, the former owner keeps only a summary
-and link. No two documents should maintain the same detailed rule. A child
-engineering document may refine implementation but cannot redefine business
-vocabulary or contradict a cross-project boundary.
+and link. A child document may refine implementation but cannot redefine
+business vocabulary or contradict a cross-project boundary.
 
 ## Keeping the Map Complete
 
@@ -108,7 +118,6 @@ When adding, moving, renaming, or deleting an engineering document:
 1. Update this inventory and its reading route in the same change.
 2. Update the relevant root or child `AGENTS.md` navigation link.
 3. Update inbound links from the former owner.
-4. Declare the document's Status, Owns, Read after, and Mandatory before
-   metadata.
-5. Check every relative Markdown link and every Mermaid diagram.
+4. Declare Status, Owns, Read after, and Mandatory before metadata.
+5. Check every relative Markdown link and render every changed Mermaid diagram.
 6. Do not add a document that duplicates an existing owner's detailed rules.

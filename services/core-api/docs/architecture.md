@@ -2,7 +2,8 @@
 
 - **Status:** Target
 - **Owns:** Core API runtime structure, application transactions, persistence,
-  HTTP adapters, durable jobs, Runner protocol, and provider integration
+  HTTP adapters, durable jobs, managed-execution protocol, and provider
+  integration
 - **Read after:** [`../AGENTS.md`](../AGENTS.md),
   [`../../../docs/business-model.md`](../../../docs/business-model.md),
   [`../../../docs/architecture.md`](../../../docs/architecture.md)
@@ -13,12 +14,15 @@
 
 `core-api` is one Kotlin/Spring Boot application. It owns application use cases,
 business rule enforcement, authorization, PostgreSQL persistence, first-party
-Web API controllers, public HTTP API controllers, workflow orchestration, and
-the control-plane state for Agent execution.
+Desktop API controllers, public HTTP API controllers, workflow orchestration,
+and the control-plane state for Agent execution.
 
-Long-running Agent work executes in the separately operated Runner described by
-the root architecture. The Runner never writes Core API tables directly and is
-not a second source of business truth.
+Long-running Agent work executes in the separately operated Agent Runtime
+described by the root architecture. It never writes Core API tables directly and is
+not a second source of business truth. `core-api` remains authoritative for
+`AgentRun`, `ApprovalRequest`, durable dispatch, domain authorization, and all
+business-state transitions. The Runtime submits authenticated, idempotent
+execution evidence through the managed-execution surface.
 
 ## Architecture Posture
 
@@ -64,7 +68,7 @@ Use the four coarse areas from the business model as the starting point:
 | `access` | User identity, login/session integration, Workspace and membership authorization |
 | `project` | Project membership, Work Items and types, Boards, comments, and custom values |
 | `automation` | Workflow definitions and versions, Workflow Runs, Step Runs, approval, transition evaluation, and orchestration |
-| `agent` | Provider Connections, Agents and versions, Project Agent Bindings, Agent Runs, attempts, artifacts, durable dispatch, and Runner/provider protocols |
+| `agent` | Provider Connections, Agents and versions, Project Agent Bindings, Agent Runs, attempts, artifacts, durable dispatch, and managed-execution/provider protocols |
 
 These names are initial code areas, not permanent service boundaries. A new
 module or split requires evidence of an independent ownership, permission,
@@ -118,7 +122,8 @@ split a single local business decision into eventual event handlers solely to
 preserve theoretical object boundaries.
 
 Never keep a database transaction open while calling a managed-Agent provider,
-waiting for a Runner, streaming output, uploading a large artifact, or waiting
+waiting for an Agent Runtime worker, streaming output, uploading a large
+artifact, or waiting
 for human approval.
 
 ## Workflow Runtime
@@ -194,7 +199,8 @@ before measured need.
 
 ## HTTP API Adapters
 
-Web API and public HTTP API controllers are separate adapter surfaces over the
+Desktop API, managed-execution, and public HTTP API controllers are separate
+adapter surfaces over the
 same application use cases:
 
 - Controllers parse transport input, call application services, and map typed
@@ -209,7 +215,8 @@ same application use cases:
   errors.
 - The server remains authoritative for permissions and allowed actions.
 
-The Web and public OpenAPI documents are generated and verified independently.
+The Desktop, managed-execution, and public OpenAPI documents are generated
+and verified independently.
 
 ## Durable Jobs and Notifications
 
@@ -220,7 +227,7 @@ Use durable jobs or reliable publication only for a concrete boundary:
 | Start or retry long-running Agent execution | Database-backed durable job and lease |
 | Provider callback/result | Authenticated idempotent internal command |
 | External side effect with uncertain outcome | Idempotency key plus reconciliation job |
-| Realtime Web progress | SSE notification backed by authoritative reload |
+| Realtime client progress | Transport notification backed by authoritative reload |
 | Audit and future statistics | Append-oriented audit/business-fact record |
 | Future cross-process integration | Versioned integration event introduced with that boundary |
 
@@ -228,10 +235,11 @@ Ordinary local updates use direct calls. In-process notifications never hide
 validation needed before commit. Event payloads do not contain credentials,
 persistence entities, security contexts, or unbounded output.
 
-## Runner Protocol
+## Agent Runtime Managed-Execution Protocol
 
 The Core API owns Agent Run state, attempts, dispatch intent, cancellation
-intent, retry limits, leases, and result/artifact references. The Runner:
+intent, retry limits, leases, and result/artifact references. The Local Agent
+Runtime:
 
 - claims a durable job with an expiring lease;
 - resolves protected credentials through an approved runtime path;
@@ -274,6 +282,6 @@ contracts, delivery guarantees, reconciliation, observability, and migration.
 - No microservice per capability area.
 - No arbitrary workflow scripts.
 - No external broker before a proven need.
-- No direct Runner database access.
+- No direct Agent Runtime database access.
 - No long-running provider call inside an HTTP/database transaction.
 - No business authorization or orchestration in the Gateway.
