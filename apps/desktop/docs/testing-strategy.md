@@ -23,7 +23,7 @@ when the application toolchain is initialized.
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
 | Main/Preload contract | Channel allowlist, schema validation, serialization, authorization and capability exposure |
-| Main integration | Window lifecycle, callback routing, credential adapter, fixed-path Runtime launch, JSON-RPC/JSONL stdio, backpressure and child supervision with owned test doubles |
+| Main integration | Window lifecycle, callback routing, credential adapter, authenticated cloud client, lazy fixed-path Runtime launch, JSON-RPC/JSONL stdio, backpressure and child supervision with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
 
@@ -35,9 +35,10 @@ when the application toolchain is initialized.
 - Invalid, oversized, stale, cross-session, wrong-origin, wrong-frame, or
   unauthorized IPC messages fail closed without invoking native, cloud, or
   Runtime effects; tests exercise `event.senderFrame` validation.
-- Credential values never cross into Renderer, logs, snapshots, crash data,
-  command lines, or environment variables. Renderer cannot send authenticated
-  cloud requests directly.
+- Credential values, provider secrets, SDK objects, raw callbacks, raw status
+  names, and remote handles never cross into Renderer, logs, snapshots, crash
+  data, command lines, or environment variables. Renderer cannot send
+  authenticated cloud requests directly.
 - Navigation, new windows, permission requests, downloads, external URLs, file
   dialogs, deep links, and callback inputs are deny-by-default, allowlisted, and
   validated.
@@ -56,8 +57,21 @@ when the application toolchain is initialized.
   Main cloud-client session state, and Renderer-visible protected state; the
   previous account cannot remain usable.
 
-The detailed login and execution scenarios are added by their future capability
-changes; this Target strategy does not claim those tests exist.
+The first implementation slice tests system-browser login/callback/session
+restore/logout, Workspace selection, Project list, create Project, and Project
+shell states. Agent execution scenarios are added by later capability changes;
+this Target strategy does not claim those tests exist.
+
+## Agent Presentation Boundary
+
+- Provider-neutral DTO mapping rejects or strips provider SDK and raw payload
+  fields before a value reaches Renderer.
+- Capability-driven UI renders supported actions and explicit unsupported states
+  without branching on a provider name.
+- A `REMOTE_MANAGED` run remains viewable and reloadable when Agent Runtime is
+  not installed, not started, incompatible, or unhealthy.
+- Runtime startup failure affects only `LOCAL_DESKTOP` actions and cannot fail
+  login, Workspace selection, Project list, create Project, or Project shell.
 
 ## Renderer Behavior
 

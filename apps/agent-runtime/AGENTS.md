@@ -25,8 +25,10 @@ Read the root [`documentation map`](../../docs/README.md), the
 - Never claim local project-root checks are an OS-level sandbox. Arbitrary child
   processes inherit the user's OS authority unless a separately designed and
   implemented isolation boundary says otherwise.
-- Never store or reuse the Desktop's long-lived user token. Managed execution
-  requires a future short-lived execution-grant contract.
+- Execute only `LOCAL_DESKTOP` work. Do not host remote Managed Agent provider
+  SDKs, credentials, callbacks, polling, or `HYBRID` behavior here.
+- Never store or reuse the Desktop's long-lived user token. Local managed
+  execution requires a future short-lived execution-grant contract.
 - Keep canonical business state, approval authority, and final authorization in
   Gateway/Core API. The Runtime reports evidence; it does not write business
   tables or invent domain outcomes.

@@ -45,7 +45,7 @@ flowchart TD
 | Cross-project architecture, trust boundaries, shared API policy, or project boundary | [`architecture.md`](architecture.md) |
 | Desktop window, Renderer UI, Electron process, native integration, packaging, or Desktop tests | Root documents, then [`apps/desktop/AGENTS.md`](../apps/desktop/AGENTS.md) and its linked document |
 | Local Agent execution, workspace access, tools, process/PTY, journal, Diff/artifact, or Runtime tests | Root business model and architecture, then [`apps/agent-runtime/AGENTS.md`](../apps/agent-runtime/AGENTS.md) and its linked document |
-| Gateway route, identity normalization, policy, filter, configuration, or tests | Root architecture, then [`services/gateway/AGENTS.md`](../services/gateway/AGENTS.md) and its linked document |
+| Gateway route, identity normalization, provider-callback ingress, policy, filter, configuration, or tests | Root architecture, then [`services/gateway/AGENTS.md`](../services/gateway/AGENTS.md) and its linked document |
 | Core API persistence, API, workflow runtime, provider integration, execution evidence, or tests | Root business model and architecture, then [`services/core-api/AGENTS.md`](../services/core-api/AGENTS.md) and its linked document |
 | Documentation ownership or navigation | This map and the root `AGENTS.md` documentation rules |
 
@@ -63,7 +63,7 @@ flowchart TD
 | Document | Status | Owns |
 | --- | --- | --- |
 | [`../apps/desktop/AGENTS.md`](../apps/desktop/AGENTS.md) | Current | Mandatory Desktop navigation and local working rules |
-| [`../apps/desktop/docs/architecture.md`](../apps/desktop/docs/architecture.md) | Target | Electron boundaries, Renderer structure, typed IPC, native integration, API integration, and packaging |
+| [`../apps/desktop/docs/architecture.md`](../apps/desktop/docs/architecture.md) | Target | Electron boundaries, Renderer structure, typed IPC, provider-neutral Agent presentation, native integration, API integration, and packaging |
 | [`../apps/desktop/docs/responsibilities.md`](../apps/desktop/docs/responsibilities.md) | Target | Desktop capability ownership and placement rules |
 | [`../apps/desktop/docs/testing-strategy.md`](../apps/desktop/docs/testing-strategy.md) | Target | Renderer, IPC, packaged Electron, accessibility, and native platform verification |
 
@@ -72,7 +72,7 @@ flowchart TD
 | Document | Status | Owns |
 | --- | --- | --- |
 | [`../apps/agent-runtime/AGENTS.md`](../apps/agent-runtime/AGENTS.md) | Current | Mandatory Runtime navigation and local security rules |
-| [`../apps/agent-runtime/docs/architecture.md`](../apps/agent-runtime/docs/architecture.md) | Target | Runtime topology, protocols, workspace/tool/process boundaries, journal, evidence, and platform adapters |
+| [`../apps/agent-runtime/docs/architecture.md`](../apps/agent-runtime/docs/architecture.md) | Target | Local Desktop execution topology, protocols, workspace/tool/process boundaries, journal, evidence, and platform adapters |
 | [`../apps/agent-runtime/docs/responsibilities.md`](../apps/agent-runtime/docs/responsibilities.md) | Target | Runtime capability ownership and placement rules |
 | [`../apps/agent-runtime/docs/testing-strategy.md`](../apps/agent-runtime/docs/testing-strategy.md) | Target | Policy, protocol, filesystem, process/PTY, recovery, and native platform verification |
 
@@ -81,7 +81,7 @@ flowchart TD
 | Document | Status | Owns |
 | --- | --- | --- |
 | [`../services/gateway/AGENTS.md`](../services/gateway/AGENTS.md) | Current | Mandatory Gateway navigation and local working rules |
-| [`../services/gateway/docs/architecture.md`](../services/gateway/docs/architecture.md) | Target | Gateway runtime, request pipeline, routes, and transport policies |
+| [`../services/gateway/docs/architecture.md`](../services/gateway/docs/architecture.md) | Target | Gateway runtime, request pipeline, Desktop/local-Runtime/provider-callback/public routes, and transport policies |
 | [`../services/gateway/docs/responsibilities.md`](../services/gateway/docs/responsibilities.md) | Target | Gateway policy ownership and non-responsibilities |
 | [`../services/gateway/docs/testing-strategy.md`](../services/gateway/docs/testing-strategy.md) | Target | Gateway security, routing, filter, identity, and reliability verification |
 
@@ -90,9 +90,9 @@ flowchart TD
 | Document | Status | Owns |
 | --- | --- | --- |
 | [`../services/core-api/AGENTS.md`](../services/core-api/AGENTS.md) | Current | Mandatory Core API navigation and local working rules |
-| [`../services/core-api/docs/architecture.md`](../services/core-api/docs/architecture.md) | Target | Core runtime, transactions, persistence, APIs, durable jobs, execution evidence, and provider boundary |
+| [`../services/core-api/docs/architecture.md`](../services/core-api/docs/architecture.md) | Target | Core runtime, transactions, persistence, APIs, durable jobs, executor routing, local execution evidence, and remote-provider boundary |
 | [`../services/core-api/docs/responsibilities.md`](../services/core-api/docs/responsibilities.md) | Target | Core API capability ownership, use-case placement, and collaboration rules |
-| [`../services/core-api/docs/testing-strategy.md`](../services/core-api/docs/testing-strategy.md) | Target | Core API business, persistence, API, concurrency, and Runtime protocol verification |
+| [`../services/core-api/docs/testing-strategy.md`](../services/core-api/docs/testing-strategy.md) | Target | Core API business, persistence, API, concurrency, remote-provider adapter, and local-Runtime protocol verification |
 
 ## Ownership Rules
 

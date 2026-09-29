@@ -56,23 +56,28 @@ before trusted internal context is written.
 | Route class | Target | Policy |
 | --- | --- | --- |
 | First-party Desktop API | `core-api` Desktop controllers | Authenticated user identity, first-party limits |
-| Managed-execution API | `core-api` internal Runtime controllers | Authenticated Runtime identity, execution-scoped technical credential, strict limits |
+| Local managed-execution API | `core-api` internal Runtime controllers | Authenticated Runtime identity, execution-scoped technical credential, strict limits |
+| Provider callback ingress | `core-api` provider callback controllers | Provider-specific authentication/verification, replay and size limits; no Desktop or Runtime credential |
 | Public HTTP API | `core-api` public controllers | Versioned routes, API credentials, public quotas |
 | Health and readiness | Gateway management endpoints | Restricted exposure |
 
-The Gateway must preserve the distinction among Desktop, managed-execution,
-and public API surfaces. The managed-execution route authenticates the
-execution-scoped credential and preserves every claim required by the root
+The Gateway must preserve the distinction among Desktop, local
+managed-execution, provider-callback, and public API surfaces. The local
+managed-execution route authenticates the execution-scoped credential and
+preserves every claim required by the root
 [identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization).
 It does not accept a raw local path as tenant identity or required grant material.
 Exact wire format and technical validation belong to the implementation change;
 route documentation must not weaken the root bindings or replace Core API
-authorization.
+authorization. Provider callbacks use a separate route and provider-specific
+verification policy; the Gateway may verify transport authenticity but never
+maps a raw provider identifier directly to TaskPilot business identity.
 
 ## Identity and Tenant Context
 
-- User or Runtime identity is derived only from a credential accepted for the
-  selected route class; a Desktop user credential is not a Runtime credential.
+- User, Runtime, or callback source identity is derived only from credentials
+  accepted for the selected route class; Desktop, Runtime, provider callback,
+  and public credentials are not interchangeable.
 - Tenant identity is derived from trusted claims, approved host mapping, or API
   credentials.
 - Client-provided internal identity and tenant headers are stripped.

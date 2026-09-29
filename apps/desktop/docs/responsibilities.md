@@ -12,15 +12,16 @@
 
 - Window lifecycle, navigation, application shell, and first-party workflows.
 - Accessible keyboard and pointer interaction in the React Renderer.
-- Typed presentation of cloud state, Runtime progress, logs, approvals, Diff,
-  and artifacts without becoming their business source of truth.
+- Provider-neutral typed presentation of cloud state, Agent Run progress,
+  normalized capabilities, logs, approvals, Diff, and artifacts without becoming
+  their business source of truth.
 - System-browser login initiation and callback handoff at the boundaries later
   defined by the authentication spec.
 - Native dialogs, notifications, credential handles, deep links,
   single-instance behavior, and platform lifecycle integration.
-- Main-owned authenticated Desktop API consumption and Main-to-Runtime child
-  launch, stdio protocol, version/capability, health, shutdown, and failure
-  supervision.
+- Main-owned authenticated Desktop API consumption and, only when a
+  `LOCAL_DESKTOP` capability is invoked, Main-to-Runtime child launch, stdio
+  protocol, version/capability, health, shutdown, and failure supervision.
 
 ## Does Not Own
 
@@ -29,6 +30,8 @@
 - Agent/model execution, tool policy, workspace file access, PTY/process trees,
   execution journaling, Diff calculation, or artifact production.
 - Public HTTP API compatibility, Gateway policy, or Core API persistence.
+- Remote-provider SDKs, credentials, callbacks, raw status vocabularies, or
+  remote-handle reconciliation.
 - OS-level isolation of arbitrary processes.
 
 ## Internal Ownership
@@ -64,14 +67,26 @@
   execute. A cloud `ApprovalRequest` is rendered and decided through Core API
   and is never inferred from local consent.
 - Business terms and allowed actions come from the business model and cloud
-  contract rather than being reconstructed from role names in the client.
+  contract rather than being reconstructed from role or provider names in the
+  client.
+- Renderer consumes normalized capabilities and provider-neutral view models.
+  Provider-specific configuration UI, if later required, stays behind a narrow
+  adapter and cannot leak into Project, Board, Work Item, workflow, or generic
+  Agent Run models.
+- Runtime absence disables only `LOCAL_DESKTOP` capabilities; it cannot block
+  login, application shell, Workspace/Project operations, or viewing a
+  `REMOTE_MANAGED` run.
 
 ## Initial Interaction Areas
 
-The Target UI may include login, Workspace/Project selection, Board and Work
-Item workflows, Agent configuration, Run monitoring, approval prompts, logs,
-Diff review, and artifact access. This inventory is not an implementation claim
-or permission to create all pages in one change.
+The first implementation slice is login, Workspace selection, Project list,
+create Project, and Project shell. It does not start Agent Runtime or implement
+Agent execution.
+
+Later Target UI may include Board and Work Item workflows, provider-neutral
+Agent configuration, Run monitoring, approval prompts, logs, Diff review, and
+artifact access. This inventory is not an implementation claim or permission to
+create all pages in one change.
 
 ## Security and Privacy
 

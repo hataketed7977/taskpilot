@@ -95,16 +95,17 @@ documentation.
 | Step Run | One activation of one workflow node; returning to a node creates a new Step Run |
 | Agent Slot | A logical workflow role such as `coding`, `review`, `test`, or `deploy` |
 | Agent | A stable TaskPilot identity for an automated worker |
-| Agent Version | An immutable executable configuration including provider, prompt, tools, Skills, Memory policy, schemas, and limits |
+| Agent Version | An immutable executable configuration including execution mode, provider or local-adapter configuration, prompt, tools, Skills, Memory policy, schemas, and limits |
 | Project Agent Binding | A Project's binding of an Agent Slot to an allowed Agent Version |
 | Project Workflow Binding | A Project's use of an exact Workflow Version plus Project-specific defaults |
-| Agent Run | One tracked execution of an Agent Version for an Agent Step Run |
+| Agent Run | One tracked execution of an Agent Version for an Agent Step Run, pinned to one execution mode and executor route |
 | Attempt | One technical attempt within an Agent Run; retrying infrastructure does not create a new workflow step |
 | Approval Request | A canonical pending or completed human gate associated with a Human Approval Step Run |
 | Local Execution Consent | A device-local safety confirmation for one immutable evaluated operation; it is not canonical business approval and does not advance a Workflow |
 | Artifact | A referenced output such as code, a report, test evidence, a file, a build, or a deployment result |
 | Comment | Human collaboration attached to a Work Item; it is not an approval decision |
-| Provider Connection | Workspace-owned connection metadata and secret references for a managed-Agent provider |
+| Provider Connection | Workspace-owned connection metadata and secret references for a remote managed-Agent provider |
+| Execution Mode | The immutable Agent Version choice of `REMOTE_MANAGED` provider execution or `LOCAL_DESKTOP` execution near a user project; hybrid execution is deferred |
 
 ### Terms That Must Stay Separate
 
@@ -324,7 +325,7 @@ classDiagram
     Workspace "1" o-- "0..*" ProviderConnection
     Workspace "1" o-- "0..*" Agent
     Agent "1" o-- "1..*" AgentVersion
-    AgentVersion "0..*" --> "1" ProviderConnection
+    AgentVersion "0..*" --> "0..1" ProviderConnection : remote mode uses
     ProjectAgentBinding "0..*" --> "1" AgentVersion : binds exact version
 
     WorkItem "1" --> "0..*" WorkflowRun
@@ -390,7 +391,7 @@ module for every object:
 | Access | User, login, Workspace, Workspace Member | Authentication context, ownership boundary, and membership |
 | Project Work | Project, Project Member, Work Item, Work Item Type, Board, Comment | Human collaboration and the canonical work record |
 | Automation | Workflow, Project Workflow Binding, Workflow Run, Step Run, Approval Request | Process definition, Project use, state progression, and human gates |
-| Agent Runtime | Provider Connection, Agent, Agent Version, Project Agent Binding, Agent Run, Attempt, Artifact | Agent configuration, provider integration, execution control, and outputs |
+| Agents | Provider Connection, Agent, Agent Version, Project Agent Binding, Agent Run, Attempt, Artifact | Agent configuration, executor selection, provider integration, execution control, and outputs |
 
 These are maintainability-oriented code areas, not promised microservices or
 formal bounded contexts. Split them only when ownership, scale, security, or
@@ -460,26 +461,39 @@ not claimed until an explicit locking or reservation strategy exists.
 ## Agent Configuration and Provider Boundary
 
 An Agent is a stable TaskPilot object; each published Agent Version is
-immutable and may include:
+immutable and includes one execution mode:
 
-- Provider type and Provider Connection reference.
-- Remote managed-Agent reference when the provider owns deployment.
-- System Prompt and model policy.
-- MCP servers and allowed tools.
-- Skill references and versions.
-- Memory scope, read/write mode, retention, and snapshot/reference policy.
-- Input and structured output schemas.
-- Time, retry, cost, resource, and permission limits.
+- `REMOTE_MANAGED`: a remote managed-Agent provider owns execution. The version
+  references a Workspace-scoped Provider Connection and, when applicable, a
+  provider-owned Agent or deployment reference.
+- `LOCAL_DESKTOP`: the Desktop-owned Agent Runtime executes near an authorized
+  local project. The version declares portable local capability requirements;
+  device identity, local paths, and `LocalWorkspaceBindingId` are execution
+  context and never part of the reusable Agent Version.
+
+An Agent Version may also include its System Prompt and model policy, MCP servers
+and allowed tools, Skill references and versions, Memory policy, input and
+structured output schemas, and time, retry, cost, resource, and permission
+limits. `HYBRID` remote reasoning with local tool execution is not an implicit
+combination of the two modes; it requires a later explicit protocol and threat
+model.
 
 Project Agent Bindings map logical Agent Slots to exact Agent Versions. Agent
-Runs pin the resolved version so editing or publishing an Agent does not alter
-history or work already in progress.
+Runs pin the resolved version, execution mode, provider/adapter kind, and the
+normalized executor route needed for history and reconciliation. Editing a
+connection or publishing another Agent Version cannot rewrite work already in
+progress. Provider capability checks occur before publication and again before
+execution when capabilities may drift; unsupported combinations fail explicitly
+rather than silently degrading.
 
-Provider credentials are secret references, never embedded in workflow DSL,
-Agent Runs, logs, or public events. Provider-specific API details remain behind
-an adapter. A separate Agent Deployment object should be introduced only if
-provider deployment gains an independent lifecycle, multiple deployment targets,
-or rollback/synchronization requirements.
+Provider credentials are protected secret references, never embedded in workflow
+DSL, Agent Runs, Desktop payloads, logs, or public events. Provider-specific SDK
+types, status names, remote identifiers, errors, and callback payloads remain
+behind a server-side adapter for `REMOTE_MANAGED`. TaskPilot exposes normalized
+capabilities, progress, results, cancellation, and error categories without
+pretending every provider supports the same feature. A separate Agent Deployment
+object should be introduced only if provider deployment gains an independent
+lifecycle, multiple deployment targets, or rollback/synchronization requirements.
 
 ## Workflow Definition
 
@@ -637,7 +651,7 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Queued
-    Queued --> Claimed: Agent Runtime worker claims lease
+    Queued --> Claimed: selected executor claims dispatch
     Queued --> Cancelled: cancel before claim
     Claimed --> Running: provider execution starts
     Claimed --> Cancelled: cancel before provider start
@@ -688,8 +702,8 @@ real asynchronous or integration boundary require reliable delivery.
 
 | Actor or policy | Command | Business fact | Next policy/action |
 | --- | --- | --- | --- |
-| Agent Runtime | `ReportAgentRunStarted` | `AgentRunStarted` | Stream bounded progress |
-| Agent Runtime | `ReportAgentRunResult` | `AgentRunSucceeded` | Validate structured output and resolve business outcome |
+| Selected executor | `ReportAgentRunStarted` | `AgentRunStarted` | Stream bounded normalized progress |
+| Selected executor | `ReportAgentRunResult` | `AgentRunSucceeded` | Validate structured output and resolve business outcome |
 | Workflow policy | `CompleteStep(outcome)` | `WorkflowStepCompleted` | Select the declared transition |
 | Workflow policy | `AdvanceWorkflow` | `WorkflowAdvanced` | Activate the next Step Run or finish the run |
 | Workflow policy | `CompleteWorkflow` | `WorkflowRunSucceeded` | Complete the Work Item when workflow policy requires it |
@@ -780,14 +794,20 @@ requested" and "execution stopped" are distinct facts.
     their outcome can be uncertain.
 19. Provider credentials remain protected references and never enter public
     payloads, DSL, logs, or artifacts.
-20. Comments, detailed logs, attempts, and artifacts are stored independently
+20. Every published Agent Version and Agent Run has exactly one execution mode;
+    switching between remote managed and local Desktop execution requires a new
+    Agent Version and never mutates an active or historical run.
+21. Provider-specific states and identifiers never replace TaskPilot Agent Run,
+    Attempt, or Artifact identity and lifecycle.
+22. Comments, detailed logs, attempts, and artifacts are stored independently
     from the bounded mutable state of a Work Item or Workflow Run.
 
 ## Implementation Guidance
 
 Event Storming does not prescribe the code architecture. The intended first
-implementation is a pragmatic modular monolith plus a separately operated
-Agent Runtime running on the user device:
+implementation is a pragmatic modular monolith that can execute remote managed
+Agents through server-side provider adapters. A separately operated Agent Runtime
+is added for Agent Versions that require `LOCAL_DESKTOP` execution:
 
 - Direct application services handle ordinary synchronous use cases.
 - Clear transactions may update the related business records required by one
@@ -799,8 +819,10 @@ Agent Runtime running on the user device:
 - Realtime transports may carry progress to authorized clients; reconnecting
   clients reload authoritative state.
 - Audit records preserve important facts for support and future analytics.
-- Provider adapters isolate Volcengine and future managed-Agent integrations.
-- The Agent Runtime executes and reports evidence but does not own AgentRun,
+- Server-side provider adapters isolate Volcengine and future remote
+  managed-Agent integrations behind normalized capabilities and lifecycle data.
+- The local Agent Runtime is not required for `REMOTE_MANAGED` runs. For
+  `LOCAL_DESKTOP` runs it executes and reports evidence but does not own AgentRun,
   ApprovalRequest, cloud Workspace authorization, or database business truth.
 
 Implement a code event only when it has a concrete consumer and delivery
@@ -823,6 +845,8 @@ The following remain outside the MVP baseline:
   and enterprise SSO.
 - A separate Agent Deployment model unless provider lifecycle requirements
   demonstrate the need.
+- `HYBRID` remote reasoning with local Desktop tool execution, including its
+  authorization, callback, replay, cancellation, and failure protocol.
 
 ## Change Rules
 

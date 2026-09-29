@@ -12,13 +12,15 @@
 ## Runtime Role
 
 The Desktop application is the first-party Windows and macOS client. It renders
-TaskPilot workflows, communicates with cloud services only through the Gateway,
-and controls the separately supervised Rust
+TaskPilot workflows and communicates with cloud services only through the
+Gateway. Ordinary product capabilities and `REMOTE_MANAGED` Agent Runs do not
+require a local Runtime. When a user invokes `LOCAL_DESKTOP` capabilities,
+Electron Main may start and control the separately supervised Rust
 [`Agent Runtime`](../../agent-runtime/docs/architecture.md) through a versioned
 JSON-RPC 2.0 protocol carried as JSONL over inherited stdio pipes.
 
 The Desktop does not execute Agent tools, directly edit workspace files, own
-business truth, or connect to business databases.
+business truth, connect to business databases, or host a remote-provider SDK.
 
 ## Technology Direction
 
@@ -51,7 +53,8 @@ flowchart LR
 
     renderer -->|typed capabilities| preload
     preload -->|validated IPC| main
-    main -->|JSON-RPC 2.0 / JSONL over stdio| runtime
+    main -.->|only for LOCAL_DESKTOP
+JSON-RPC 2.0 / JSONL over stdio| runtime
     main -->|HTTPS| gateway
     main -->|secret handles| credential
     runtime -->|managed execution protocol| gateway
@@ -65,8 +68,9 @@ flowchart LR
   token refresh, deep links, credential handles, native dialogs, notifications,
   and Runtime lifecycle/connection supervision. It does not host Agent
   execution.
-- Agent Runtime owns controlled local work. It never receives the
-  Desktop's long-lived user token.
+- Agent Runtime owns controlled `LOCAL_DESKTOP` work. It is not required for
+  login, Workspace/Project flows, or `REMOTE_MANAGED` run viewing, and it never
+  receives the Desktop's long-lived user token.
 - Gateway/Core API remain the authoritative source for identity, Workspace,
   Project, Work Item, workflow, Agent Run, and approval state.
 
@@ -129,6 +133,14 @@ router; form state by its form boundary; temporary interaction by local React
 state. Workspace- and Project-scoped cache keys include their stable IDs and
 must not rely on mutable global "current" scope.
 
+Renderer consumes provider-neutral Agent and Run view models plus normalized
+capabilities. It never receives provider SDK objects, credentials, raw callback
+payloads, raw provider status names, or opaque remote handles. A future
+provider-specific configuration surface may use a narrowly scoped UI adapter,
+but provider fields must not leak into Project, Board, Work Item, workflow, or
+generic Run presentation models. Capability-driven UI disables or omits an
+unsupported action explicitly rather than inferring support from provider name.
+
 ## Authentication Boundary
 
 A later implementation change must specify and test the concrete Desktop login
@@ -173,13 +185,16 @@ Every application window starts from deny-by-default settings:
 ## Agent Runtime Integration
 
 The Runtime is a signed companion executable distributed, versioned, and updated
-with the Desktop application, not a system-wide service. In the first phase,
-Electron Main starts one Runtime child for its own application lifecycle from a
-fixed packaged path, owns its stdin/stdout/stderr pipes, supervises health and
-termination, and never accepts a Runtime executable selected from a project root,
-configuration value, environment variable, or other mutable user path. A Desktop
-restart starts a new Runtime; it does not attach to an orphan from a previous Main
-process.
+with the Desktop application, not a system-wide service. It is started lazily
+only when an enabled `LOCAL_DESKTOP` capability requires it; login, application
+shell, Workspace/Project operations, and `REMOTE_MANAGED` run viewing remain
+usable when the Runtime is absent or unavailable. Once local execution is
+implemented, Electron Main starts at most one Runtime child for its own
+application lifecycle from a fixed packaged path, owns its stdin/stdout/stderr
+pipes, supervises health and termination, and never accepts a Runtime executable
+selected from a project root, configuration value, environment variable, or
+other mutable user path. A Desktop restart starts a new Runtime when next needed;
+it does not attach to an orphan from a previous Main process.
 
 Main implements the Desktop side of the transport owned by the
 [Agent Runtime architecture](../../agent-runtime/docs/architecture.md#local-transport-and-lifecycle):
@@ -208,6 +223,25 @@ loss. Background and active-work exit behavior remains an explicit future produc
 lifecycle decision. A daemon transport is designed only if a real requirement
 appears for work surviving Desktop exit, Desktop restart attachment, shared
 CLI/Desktop clients, a resident scheduler, or an independently managed Runtime.
+
+## First Implementation Slice
+
+The first runnable Desktop slice intentionally excludes Agent execution and
+Runtime startup. Implement it vertically in this order:
+
+1. secure Electron Main, Preload, and sandboxed Renderer skeleton;
+2. system-browser login, callback handling, session restore, and logout;
+3. Workspace selection;
+4. Project list and empty/loading/error states;
+5. create Project; and
+6. Project shell with authoritative reload and navigation.
+
+The corresponding Desktop API contract is limited initially to start/complete
+login, current session/user, list Workspaces, list/create Projects, Project
+detail, and logout. Agent configuration, `REMOTE_MANAGED` execution UI,
+`LOCAL_DESKTOP` Runtime startup, shell/PTY, and local workspace binding are later
+slices. This ordering must not create placeholder Runtime dependencies in login
+or application-shell startup.
 
 ## API Contract Integration
 

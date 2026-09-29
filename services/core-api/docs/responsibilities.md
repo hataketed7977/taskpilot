@@ -17,9 +17,12 @@
 - PostgreSQL business persistence and schema migration.
 - Workflow definition validation and workflow runtime progression.
 - Agent configuration control-plane state and Project Agent resolution.
-- Agent Run dispatch state, attempts, cancellation, reconciliation, and output
-  references.
-- Desktop API, managed-execution, and public HTTP API representations and OpenAPI generation.
+- Agent Run execution-mode routing, dispatch state, attempts, cancellation,
+  reconciliation, and output references.
+- Server-side remote-provider adapter orchestration and normalized lifecycle
+  commands.
+- Desktop API, local managed-execution, provider-callback, and public HTTP API
+  representations and OpenAPI generation.
 - Durable local jobs, audit facts, and realtime notification sources.
 
 It does not own:
@@ -58,7 +61,7 @@ No artifact is required solely because an event was named during analysis.
 | Access | User identity integration, Workspace, membership, session/actor facts, membership authorization operations | Project participation, work, workflow, Agent execution |
 | Project Work | Project and membership, Work Item and type, custom values, Board configuration/query, comments | Workflow progression, provider execution |
 | Automation | Workflow and versions, Workflow Run, Step Run, transition evaluation, Approval Request, cancellation orchestration | Provider SDK invocation, Card persistence |
-| Agent Runtime | Provider Connection, Agent and versions, Project Agent Binding, Agent Run, Attempt, Artifact references, dispatch/lease/reconciliation | Human membership, approval authority, Work Item truth |
+| Agent Execution | Provider Connection, Agent and versions, Project Agent Binding, Agent Run, Attempt, Artifact references, execution-mode routing, remote provider adapters, local dispatch/lease, and reconciliation | Human membership, approval authority, Work Item truth |
 
 This table guides placement without requiring separate deployables or one class
 shape per concept.
@@ -90,14 +93,16 @@ shape per concept.
 - Request, grant, reject, expire, or cancel human approval.
 - Handle bounded rework loops and manual intervention.
 
-### Agent Runtime
+### Agent execution
 
 - Configure a Provider Connection using protected secret references.
 - Create an Agent and publish an Agent Version.
 - Bind an Agent Slot in a Project to an exact Agent Version.
-- Create and dispatch an Agent Run.
-- Claim work, heartbeat, report progress/artifacts/result, cancel, retry, and
-  reconcile uncertain external effects.
+- Create an Agent Run with its execution mode and executor route pinned.
+- Start, observe, cancel, and reconcile `REMOTE_MANAGED` work through a
+  server-side provider adapter.
+- Dispatch, claim, heartbeat, report progress/artifacts/result, cancel, retry,
+  and reconcile `LOCAL_DESKTOP` work through the Agent Runtime.
 
 The use-case names describe behavior; they do not require one service or command
 class per bullet.
@@ -174,14 +179,20 @@ The Core API agent capability owns control-plane state. It guarantees:
 
 - exact Agent Version pinning;
 - Provider Connection scope and protected secret references;
-- durable dispatch and exclusive leases;
+- immutable execution-mode and executor-route selection per Agent Run;
+- durable dispatch, with exclusive claim leases for local Runtime work;
 - bounded attempts, retry eligibility, timeout, and cancellation;
-- idempotent progress, artifacts, results, and callbacks;
+- idempotent normalized progress, artifacts, results, provider observations,
+  and callbacks;
+- provider capability validation without pretending unsupported features exist;
+- namespaced remote handles that cannot replace TaskPilot run identities;
 - distinction between terminal failure and uncertain external outcome; and
-- no direct Agent Runtime access to PostgreSQL business tables.
+- no direct Agent Runtime or provider access to PostgreSQL business tables.
 
-Agent output is not human approval. Runtime data may provide artifacts/evidence
-for a later Approval Request.
+Agent output is not human approval. Normalized executor data may provide
+artifacts or evidence for a later Approval Request. Provider SDK objects, raw
+status names, callback payloads, and credentials stay behind the remote adapter;
+local Runtime evidence stays behind the managed-execution adapter.
 
 ## Query Responsibilities
 
@@ -202,10 +213,13 @@ for a later Approval Request.
 - The server returns allowed actions for presentation but always reauthorizes
   commands.
 - Validation and conflict errors are stable and path-addressable where relevant.
-- Managed-execution endpoints accept authenticated, idempotent evidence from
-  the Agent Runtime and are separated from Desktop and public APIs.
-- `core-api`, not the Runtime, owns `AgentRun`, `ApprovalRequest`, durable job,
-  authorization, and business-database truth.
+- Provider callback ingress authenticates and normalizes remote observations
+  before invoking idempotent application commands; raw provider payloads do not
+  become Desktop or public contracts.
+- Local managed-execution endpoints accept authenticated, idempotent evidence
+  from Agent Runtime and are separated from Desktop and public APIs.
+- `core-api`, not a provider or Runtime, owns `AgentRun`, `ApprovalRequest`,
+  durable jobs, authorization, and business-database truth.
 
 ## Security Responsibilities
 

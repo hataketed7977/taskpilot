@@ -13,14 +13,17 @@
 ## Runtime Role
 
 The Agent Runtime is a separate per-user companion process distributed,
-signed, and versioned with the Desktop application. It executes Agent work near
-a user-authorized project, receives managed work through authenticated
-contracts, invokes approved Agent/tool adapters, produces execution evidence,
-and reports results to the cloud control plane. The initial product does not
-install it as a system-wide service or accept an arbitrary executable path.
+signed, and versioned with the Desktop application. It exists only for
+`LOCAL_DESKTOP` execution near a user-authorized project: it receives local work
+through authenticated contracts, invokes approved local Agent, CLI, and tool
+adapters, produces execution evidence, and reports results to the cloud control
+plane. The initial product does not install it as a system-wide service or
+accept an arbitrary executable path.
 
-It is not a business service, authorization authority, general shell daemon, or
-OS security sandbox.
+It is not a remote Managed Agent provider-adapter host. `REMOTE_MANAGED` runs are
+started and reconciled server-side and do not require this process, its local
+workspace binding, or Desktop availability. The Runtime is also not a business
+service, authorization authority, general shell daemon, or OS security sandbox.
 
 ## Target Topology
 
@@ -63,9 +66,9 @@ libraries and on-disk schemas are selected in a later implementation change.
 
 ## Local Transport and Lifecycle
 
-In the first phase, Electron Main starts exactly one Runtime child for its own
-application lifecycle from the fixed, signed application installation. Main owns
-three inherited anonymous pipes: Runtime stdin receives protocol input, Runtime
+When `LOCAL_DESKTOP` support is introduced, Electron Main starts at most one
+Runtime child for its own application lifecycle from the fixed, signed
+application installation. Main owns three inherited anonymous pipes: Runtime stdin receives protocol input, Runtime
 stdout emits protocol output only, and Runtime stderr emits logs only. The Runtime
 does not listen on TCP, create a local socket or pipe endpoint, run as a service,
 or accept connections from another client. A Desktop restart starts a new child
@@ -125,8 +128,9 @@ inherited private channel but are still versioned, schema validated, bounded, an
 tied to one child-process lifecycle. Transport provenance is not execution
 authorization.
 
-The Runtime never accepts the Desktop's long-lived user token. Managed execution
-must validate every binding and lifecycle rule in the root
+The Runtime never accepts the Desktop's long-lived user token or a remote
+provider credential. Local managed execution must validate every binding and
+lifecycle rule in the root
 [identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization),
 then match `LocalWorkspaceBindingId` against the active device-local record. A
 stale worker must be fenced before any new side effect or evidence acceptance.
@@ -222,7 +226,9 @@ secret-like content.
 
 ## Cloud Control Plane Boundary
 
-Gateway/Core API authorize managed work and own User, Workspace, Project,
+This boundary carries only `LOCAL_DESKTOP` dispatch, grant, cancellation, and
+evidence traffic. It is not reused as a server-side provider-adapter protocol.
+Gateway/Core API authorize local managed work and own User, Workspace, Project,
 WorkflowRun, StepRun, AgentRun, ApprovalRequest, and durable business state.
 The Runtime submits authenticated, idempotent execution evidence and never
 connects to or mutates Core API business tables.
@@ -234,6 +240,9 @@ either/or behavior.
 
 ## Non-Goals
 
+- No `REMOTE_MANAGED` provider SDK integration, callback ingestion, remote
+  status polling, remote-handle reconciliation, or provider credential custody.
+- No `HYBRID` remote-reasoning/local-tool protocol in the current design.
 - No canonical business state or approval authority.
 - No direct Core API database access.
 - No reuse of a Desktop long-lived user token.

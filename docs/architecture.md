@@ -50,7 +50,7 @@ flowchart LR
     edge["Edge / TLS / WAF"]
     gateway["Kotlin API Gateway"]
     api["Kotlin core-api control plane"]
-    provider["Agent / model providers and tools"]
+    provider["Remote managed-Agent providers"]
     credential["OS credential store"]
     postgres[(PostgreSQL)]
     redis[(Redis technical state)]
@@ -62,29 +62,40 @@ flowchart LR
     gateway --> api
     gateway --> redis
     api --> postgres
+    api -->|provider-neutral adapter| provider
     desktop -->|JSON-RPC 2.0 / JSONL over stdio| runtime
     runtime --> workspace
-    runtime --> provider
-    runtime -->|managed execution and evidence| edge
+    runtime -->|local execution evidence| edge
     desktop -->|secret handles| credential
 ```
 
 The Desktop is the first-party interaction surface. Its sandboxed Renderer uses
 a typed Preload/Main boundary and never owns cloud credentials or sends
 credentialed requests directly. Electron Main owns the authenticated cloud
-client, OS integration, and lifecycle of a bundled Rust Agent Runtime child
-process. In the first phase, Main launches that child from a fixed trusted path
-and communicates through inherited stdin/stdout pipes using JSON-RPC 2.0 with
-one JSON message per line; Runtime stderr is reserved for logs. The Runtime owns
-local Agent/tool execution, process/PTY supervision, logs, Diff, and artifacts.
-It does not own business state or write `core-api` tables.
+client and OS integration. A bundled Rust Agent Runtime child is introduced
+and launched lazily from a fixed trusted path only when a `LOCAL_DESKTOP`
+capability requires it; login, Workspace/Project flows, and `REMOTE_MANAGED` run
+viewing do not depend on that child. Main communicates with a started Runtime
+through inherited stdin/stdout pipes using JSON-RPC 2.0 with one JSON message per
+line; Runtime stderr is reserved for logs. The Runtime owns local Agent/tool
+execution, process/PTY supervision, logs, Diff, and artifacts. It does not own
+business state or write `core-api` tables.
 
-`core-api` remains the owner of AgentRun and approval business truth. Managed
-local execution uses a future authenticated, short-lived execution-grant
+`core-api` remains the owner of AgentRun and approval business truth. An Agent
+Version selects exactly one execution mode. `REMOTE_MANAGED` execution is
+invoked by a server-side provider adapter and does not require Desktop or Agent
+Runtime availability. `LOCAL_DESKTOP` execution is dispatched to the local
+Runtime through a separate authenticated managed-execution surface. Both paths
+report normalized progress, results, cancellation, errors, and artifacts into
+the same AgentRun control-plane lifecycle; provider-specific states and IDs do
+not become TaskPilot identity or business status.
+
+Managed local execution uses a future authenticated, short-lived execution-grant
 contract; the Runtime never receives or stores the Desktop's long-lived user
 token. The grant's issuer, subject/resource bindings, expiry, refresh,
 revocation, replay prevention, and logout behavior must be specified before
-execution is implemented.
+local execution is implemented. Remote provider credentials remain behind
+Core API-managed secret references and are never sent to Desktop.
 
 A business `Workspace` is the cloud tenant scope, not a filesystem path. The
 Runtime represents an authorized local project root with a device-local opaque
@@ -248,9 +259,11 @@ validation, and fixture isolation.
 - Agent Runtime policy and protocol tests run below system E2E; real
   filesystem, process-tree, PTY, journal/recovery, and platform tests remain at
   the Runtime boundary.
-- A system E2E runs packaged TaskPilot Desktop, Agent Runtime, Gateway,
-  Core API, and PostgreSQL across their real boundaries. Third-party identity,
-  model, and Agent providers may be deterministic test doubles at
+- System E2E selects the real boundaries needed by the scenario: Desktop,
+  Gateway, Core API, and PostgreSQL for ordinary product flows; a provider fake
+  at the server-side adapter boundary for `REMOTE_MANAGED`; and packaged Agent
+  Runtime plus its managed-execution surface for `LOCAL_DESKTOP`. Third-party
+  identity and Agent providers may be deterministic test doubles at
   TaskPilot-owned outbound boundaries.
 - System E2E state is prepared through controlled test fixtures or APIs rather
   than repeated UI setup. Test-only setup capabilities are unavailable in
@@ -358,7 +371,10 @@ threshold is an architectural policy change, not a local test workaround.
 - The public API exposes HTTP only; TaskPilot does not publish a public SDK.
 - The future CLI consumes the public HTTP API like any external client.
 - Gateway routes and protects both API surfaces without owning business flows.
-- Agent Runtime uses a distinct authenticated managed-execution surface;
+- Remote managed-Agent providers are integrations behind Core API-owned adapter
+  ports; provider SDK types, credentials, callbacks, and raw status vocabularies
+  do not cross into Desktop or business contracts.
+- Local Agent Runtime uses a distinct authenticated managed-execution surface;
   it does not reuse the Desktop's long-lived user credential or the public API
   as a generic remote shell.
 

@@ -9,7 +9,8 @@
 ## Owns
 
 - External route matching and upstream selection.
-- Route-specific Desktop, Runtime, and public credential validation.
+- Route-specific Desktop, local Runtime, provider-callback, and public
+  credential validation.
 - Trusted principal and tenant-context normalization.
 - Removal of spoofable internal headers.
 - Request correlation and trace propagation.
@@ -48,11 +49,12 @@
 
 ## Route Change Rules
 
-- A new route declares whether it belongs to the Desktop, managed-execution,
-  public, or management surface, plus its authentication mode, timeout, size
-  limit, and rate-limit key.
-- Desktop user credentials are rejected from managed-execution routes, and
-  Runtime credentials are rejected from Desktop and public routes.
+- A new route declares whether it belongs to the Desktop, local
+  managed-execution, provider-callback, public, or management surface, plus its
+  authentication mode, timeout, size limit, and rate-limit key.
+- Desktop, Runtime, provider-callback, and public credentials are rejected from
+  every incompatible route surface. A provider's remote ID is never accepted as
+  TaskPilot tenant, Agent Run, or Attempt identity.
 - A future execution grant remains short-lived and execution-scoped; this
   document does not define its wire contract or let the Gateway decide whether
   an `AgentRun` may advance.

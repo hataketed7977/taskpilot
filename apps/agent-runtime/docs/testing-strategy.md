@@ -25,8 +25,18 @@ locking evidence.
 | Filesystem integration | Real files, symlinks/junctions, canonical roots, rename/delete races, permissions, large/binary data |
 | Process/PTY integration | Output, exit, timeout, cancellation, process-tree cleanup, backpressure, encoding |
 | Journal/recovery | Crash points, torn/corrupt records, replay, snapshots, duplicate cloud acknowledgements |
-| Adapter contract | Multiple Agent/tool implementations obey the same normalized contract |
+| Local adapter contract | Multiple local Agent/CLI/tool implementations obey the same normalized contract without remote-provider concerns |
 | Native system | Supported Windows/macOS artifacts with real process, PTY, path and credential/grant integration boundaries |
+
+## Execution-Mode Boundary
+
+- Runtime accepts only `LOCAL_DESKTOP` assignments. A `REMOTE_MANAGED`, unknown,
+  or future `HYBRID` assignment is rejected before grant evaluation or side
+  effects.
+- Remote provider credentials, SDK payloads, callbacks, statuses, and handles do
+  not appear in Runtime protocol fixtures, logs, journals, or adapter contracts.
+- Remote managed execution remains entirely outside this test target and cannot
+  require a Runtime process to pass.
 
 ## Security and Rejection Cases
 

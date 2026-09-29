@@ -15,7 +15,7 @@
 - One-child-per-Main lifecycle, bundled-binary identity, compatibility and
   capability handshake, resource bounds, cancellation, shutdown, and crash
   recovery.
-- Agent CLI/SDK adapters and structured tool intents.
+- Local Agent CLI/SDK adapters and structured tool intents.
 - Device-local workspace binding identity, canonical path evaluation, and
   revocation for TaskPilot-owned operations.
 - Tool risk evaluation and enforcement of immutable local execution consent,
@@ -31,6 +31,10 @@
   approval authority, or other canonical business decisions.
 - Desktop windows, React UI, native dialogs, or notifications.
 - Core API persistence or Gateway routing policy.
+- Remote Managed Agent provider SDKs, credentials, callbacks, polling, raw
+  statuses, or remote-handle reconciliation.
+- `HYBRID` remote-reasoning/local-tool execution before a separate protocol is
+  approved.
 - Kernel-enforced isolation that has not been separately designed and built.
 
 ## Internal Ownership
@@ -40,7 +44,7 @@
 | `supervisor` | Desktop-owned child lifecycle, stdio session, worker registry, cancellation, shutdown and restart recovery |
 | `protocol` | JSON-RPC 2.0 / JSONL framing, bounded queues and messages, Rust-owned schemas and generated TypeScript/JSON Schema, request lifecycle and compatibility |
 | `execution` | Run context, limits, cancellation, structured results |
-| `agents` | Provider/CLI/SDK adaptation to normalized Agent interactions |
+| `agents` | Local Agent/CLI/SDK adaptation to normalized local interactions; no remote Managed Agent provider adapters |
 | `tools` | Intent schemas, policy evaluation, local-consent binding, dispatch |
 | `workspace` | `LocalWorkspaceBindingId` registration, root canonicalization, revocation, TaskPilot-owned file operations |
 | `process` | Process tree, PTY, output, timeout, termination and platform adapters |
@@ -71,9 +75,10 @@
 Environment variables, command lines, workspace contents, logs, Diff, artifacts,
 and provider responses may contain secrets. Owners minimize collection, apply
 explicit redaction/retention/upload policy, and keep raw local evidence outside
-the workspace behind restrictive per-user native ACLs. Provider credentials
-never enter command lines, journals, logs, Diff, artifacts, or protocol output;
-environment injection is allowed only when an adapter cannot use a safer
-short-lived handle and must be minimized and scrubbed. Security scanning,
+the workspace behind restrictive per-user native ACLs. Remote Managed Agent credentials never enter the Runtime at all. Credentials
+required by an approved local adapter never enter command lines, journals, logs,
+Diff, artifacts, or protocol output; environment injection is allowed only when
+that local adapter cannot use a safer short-lived handle and must be minimized
+and scrubbed. Security scanning,
 checksums, and OS file permissions are defense in depth, not proof that data is
 non-sensitive or tamper-proof.

@@ -17,12 +17,18 @@ business rule enforcement, authorization, PostgreSQL persistence, first-party
 Desktop API controllers, public HTTP API controllers, workflow orchestration,
 and the control-plane state for Agent execution.
 
-Long-running Agent work executes in the separately operated Agent Runtime
-described by the root architecture. It never writes Core API tables directly and is
-not a second source of business truth. `core-api` remains authoritative for
-`AgentRun`, `ApprovalRequest`, durable dispatch, domain authorization, and all
-business-state transitions. The Runtime submits authenticated, idempotent
-execution evidence through the managed-execution surface.
+Long-running Agent work follows the immutable execution mode pinned by the
+selected Agent Version and copied onto the Agent Run. `REMOTE_MANAGED` work is
+started and reconciled through a server-side provider adapter; the provider owns
+the remote computation, while `core-api` owns its control-plane integration.
+`LOCAL_DESKTOP` work is dispatched through the separately operated Agent Runtime
+and its authenticated managed-execution surface. The Runtime never writes Core
+API tables directly and is not a second source of business truth.
+
+`core-api` remains authoritative for `AgentRun`, `ApprovalRequest`, executor
+selection, durable dispatch, domain authorization, and all business-state
+transitions. Both execution paths submit normalized, idempotent lifecycle data;
+only local execution depends on Desktop or Agent Runtime availability.
 
 ## Architecture Posture
 
@@ -55,7 +61,8 @@ implementation shape.
   publication where used
 - PostgreSQL and Flyway
 - Springdoc OpenAPI
-- Database-backed durable jobs and leases for initial Agent dispatch
+- Database-backed durable jobs for Agent dispatch and reconciliation; claim
+  leases and execution grants for local Runtime execution
 
 Compatible stable versions are selected when initialization begins.
 
@@ -68,7 +75,7 @@ Use the four coarse areas from the business model as the starting point:
 | `access` | User identity, login/session integration, Workspace and membership authorization |
 | `project` | Project membership, Work Items and types, Boards, comments, and custom values |
 | `automation` | Workflow definitions and versions, Workflow Runs, Step Runs, approval, transition evaluation, and orchestration |
-| `agent` | Provider Connections, Agents and versions, Project Agent Bindings, Agent Runs, attempts, artifacts, durable dispatch, and managed-execution/provider protocols |
+| `agent` | Provider Connections, Agents and versions, Project Agent Bindings, Agent Runs, attempts, artifacts, execution-mode routing, durable dispatch, server-side provider adapters, and local managed-execution protocol |
 
 These names are initial code areas, not permanent service boundaries. A new
 module or split requires evidence of an independent ownership, permission,
@@ -224,8 +231,8 @@ Use durable jobs or reliable publication only for a concrete boundary:
 
 | Need | Mechanism |
 | --- | --- |
-| Start or retry long-running Agent execution | Database-backed durable job and lease |
-| Provider callback/result | Authenticated idempotent internal command |
+| Start or retry long-running Agent execution | Database-backed durable job; local claims additionally use a fenced lease |
+| Provider callback or polling observation | Authenticated, idempotent normalized application command |
 | External side effect with uncertain outcome | Idempotency key plus reconciliation job |
 | Realtime client progress | Transport notification backed by authoritative reload |
 | Audit and future statistics | Append-oriented audit/business-fact record |
@@ -235,21 +242,49 @@ Ordinary local updates use direct calls. In-process notifications never hide
 validation needed before commit. Event payloads do not contain credentials,
 persistence entities, security contexts, or unbounded output.
 
-## Agent Runtime Managed-Execution Protocol
+## Agent Execution Boundary
 
-The Core API owns Agent Run state, attempts, dispatch intent, cancellation
-intent, retry limits, leases, result/artifact references, and execution-grant
-issuance and server-side validation. Its grant conforms to the root
+The Core API selects one executor route from the execution mode pinned to the
+Agent Run. Selection is explicit and durable; a retry or reconciliation cannot
+silently switch the run between remote and local execution.
+
+### Remote managed execution
+
+`REMOTE_MANAGED` runs use a server-side provider-neutral port. The port's
+conceptual responsibilities are capability discovery and validation, start,
+status/progress observation, cancellation, result retrieval, and reconciliation.
+This document intentionally does not freeze a Kotlin interface or provider
+framework before the first adapter proves the shape.
+
+Provider callbacks and polling observations enter the same idempotent application
+commands. An adapter maps provider-specific status, progress, results, errors,
+and cancellation semantics into TaskPilot's normalized model; unsupported
+capabilities remain explicit instead of being simulated. Every remote handle is
+namespaced by `ProviderConnectionId`, provider kind, remote object kind, and
+remote ID. It never replaces `AgentRunId` or `AttemptId`.
+
+Provider SDK types, credentials, raw callback payloads, raw status vocabularies,
+and remote identifiers remain inside server-side infrastructure. Provider
+credentials are resolved from protected secret references and never sent to
+Desktop or Agent Runtime. The first Volcengine Managed Agent integration follows
+this boundary without making its SDK the application contract.
+
+### Local Desktop execution
+
+`LOCAL_DESKTOP` runs use durable dispatch plus the separate Agent Runtime
+managed-execution surface. Core API owns Agent Run state, attempts, dispatch and
+cancellation intent, retry limits, leases, result/artifact references, and
+execution-grant issuance and server-side validation. The grant conforms to the
+root
 [identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization),
 includes the registered opaque `LocalWorkspaceBindingId`, and neither requires
 nor treats a raw local path as cloud business identity.
 
 The Agent Runtime:
 
-- claims a durable job with an expiring lease and fencing token;
+- claims a local dispatch with an expiring lease and fencing token;
 - accepts only a grant whose bindings and lifecycle checks remain valid;
-- resolves protected credentials through an approved short-lived runtime path;
-- invokes the selected provider and tools;
+- invokes approved local Agent, CLI, and tool adapters;
 - reports heartbeat, bounded progress, artifacts, result, and reconciliation
   data through authenticated idempotent endpoints;
 - observes cancellation and timeout policies; and
@@ -257,9 +292,15 @@ The Agent Runtime:
 
 Claiming, heartbeat, grant renewal/revocation, lease expiry and fencing,
 cancellation, retry, duplicate result, and `OutcomeUnknown` reconciliation
-semantics must be specified and tested before real provider execution is
-enabled. A Core API `ApprovalRequest` is canonical workflow approval; a
-device-local `Local Execution Consent` is separate evidence and cannot advance it.
+semantics must be specified and tested before local Agent execution is enabled.
+Only this local route requires an execution grant, `LocalWorkspaceBindingId`, or
+Agent Runtime claim lease. A Core API `ApprovalRequest` is canonical workflow
+approval; a device-local `Local Execution Consent` is separate evidence and
+cannot advance it.
+
+`HYBRID` remote reasoning with local tool execution is deferred. It must receive
+an explicit authorization, callback, replay, cancellation, and failure protocol
+before either existing route is stretched to support it.
 
 ## Security and Tenancy
 

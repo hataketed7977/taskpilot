@@ -34,19 +34,23 @@ Exact Gradle commands must be added when the Gateway project is initialized.
 - Missing, expired, malformed, and wrong-audience credentials.
 - Forged tenant, principal, role, and correlation headers.
 - Tenant context derived from each supported trusted source.
-- Desktop, managed-execution, and public credentials rejected from every
-  incompatible route surface.
+- Desktop, local managed-execution, provider-callback, and public credentials
+  rejected from every incompatible route surface.
 - Forged Runtime identity, expired or replayed execution credentials, and
   cross-Workspace/Project/run context rejected once the grant contract exists.
 - Required execution-grant claims, including `LocalWorkspaceBindingId`, survive
   trusted forwarding unchanged; missing, malformed, duplicated, or conflicting
   claims fail closed, and a raw local path is never accepted as tenant identity.
+- Invalid provider callback signatures or tokens, replayed callbacks, oversized
+  payloads, wrong provider routes, and raw remote IDs presented as TaskPilot
+  identity fail before upstream application handling.
 - Management endpoints inaccessible through public routes.
 - Secrets and tokens absent from logs and error bodies.
 
 ## Required Routing Cases
 
-- Desktop, managed-execution, and public API route separation.
+- Desktop, local managed-execution, provider-callback, and public API route
+  separation.
 - Versioned public route selection.
 - Unknown routes return a stable transport-level response.
 - Request-size rejection occurs before upstream forwarding.

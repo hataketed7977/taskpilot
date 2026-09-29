@@ -32,7 +32,7 @@ is intentionally synchronous.
 3. Implement the smallest clear behavior.
 4. Refactor without changing the observable contract.
 5. Run the focused suite, affected capability suite, architecture checks, and
-   relevant PostgreSQL/API/Agent Runtime tests.
+   relevant PostgreSQL/API/executor-boundary tests.
 
 Exact commands are added after the toolchain exists.
 
@@ -45,7 +45,7 @@ Exact commands are added after the toolchain exists.
 | Capability integration | Spring Modulith/application slice | Capability wiring and supported cross-capability calls |
 | PostgreSQL | Testcontainers PostgreSQL | Migrations, constraints, JSONB, indexes, optimistic/concurrent writes, leases |
 | API contract | MockMvc/WebTestClient and generated OpenAPI | Auth, DTO mapping, errors, versions, idempotency, Desktop/managed-execution/public separation |
-| Agent Runtime/provider | Fake authenticated Agent Runtime and provider adapters | Claim, heartbeat, progress, result, cancellation, timeout, reconciliation |
+| Executor boundary | Separate remote-provider and authenticated local-Runtime fakes | Capability validation, start/claim, observation/heartbeat, progress, result, cancellation, timeout, reconciliation |
 | Full application | Small Spring Boot suite | Startup, security chain, main cross-capability assembly |
 
 Mocks replace only true external boundaries or another capability's narrow
@@ -111,7 +111,7 @@ Also prove:
 - two concurrent decisions or results produce one legal winner and one stable
   conflict/idempotent replay.
 
-### Agent Runtime
+### Agent execution
 
 - Project Agent Slots resolve to an allowed exact Agent Version.
 - Agent Run history is unaffected by later Agent versions.
@@ -138,8 +138,9 @@ Also prove:
 ## API Cases
 
 - Desktop, managed-execution, and public API generate separate OpenAPI groups.
-- Internal Agent Runtime/provider endpoints are not exposed as public API.
-- Persistence and provider SDK types never appear in schemas.
+- Local Runtime and provider-callback endpoints are not exposed as public API.
+- Persistence entities, provider SDK types, raw provider status/callback data,
+  credentials, and remote handles never appear in Desktop or public schemas.
 - Stable error codes cover authorization, validation, conflict, stale version,
   unsupported definition, and idempotency conflict.
 - Public breaking changes fail compatibility checks once a baseline exists.
@@ -147,10 +148,39 @@ Also prove:
   synchronized.
 - Allowed actions aid presentation but never bypass a negative command check.
 
-## Durable Job and Agent Runtime Cases
+## Durable Job and Agent Execution Cases
 
-- Only one Agent Runtime worker holds a valid claim lease.
-- Expired claims recover safely; stale heartbeats and results are rejected.
+Shared control-plane cases:
+
+- An Agent Run pins exactly one execution mode and executor route; retry and
+  reconciliation never switch it implicitly.
+- A durable job and its authorizing Agent Run state commit atomically.
+- Duplicate progress, artifact, result, cancellation, callback, and polling
+  observations are idempotent.
+- Retry limit, timeout, backoff, cancellation, and reconciliation transitions
+  are deterministic under a controlled clock.
+- Normalized capabilities reject unsupported Agent Versions before execution
+  and detect relevant provider capability drift before remote start.
+- Logs and errors do not expose Provider Connection secrets or raw provider
+  payloads.
+
+Remote-provider fake cases:
+
+- Capability discovery, start, status/progress, cancellation, result, and
+  reconciliation map into the normalized executor contract.
+- Callback and polling paths produce the same idempotent application commands.
+- Provider-specific statuses and errors cannot leak into Agent Run state or
+  Desktop/public DTOs.
+- Remote handles are scoped by `ProviderConnectionId`, provider kind, remote
+  object kind, and remote ID; cross-connection collisions cannot cross runs.
+- Core API restart, duplicate callbacks, delayed observations, provider timeout,
+  partial output, cancellation races, and uncertain side effects remain
+  observable and reconcilable without Agent Runtime availability.
+
+Local-Runtime fake cases:
+
+- Only one Agent Runtime worker holds a valid claim lease; expired claims recover
+  safely and stale heartbeats or results are rejected.
 - Grant issuance and validation reject every missing or mismatched root-contract
   binding, including User, Workspace, Project, Agent Run, Attempt, job claim,
   lease/fencing token, Agent Version, `LocalWorkspaceBindingId`, Runtime instance,
@@ -158,15 +188,9 @@ Also prove:
 - A raw local path is neither required grant material nor accepted as cloud
   Workspace identity; a revoked or re-registered local binding cannot authorize
   an existing grant.
-- Duplicate claim, progress, artifact, result, and cancellation submissions are
-  idempotent.
-- A durable job and its authorizing Agent Run state commit atomically.
 - Core API restart and Agent Runtime loss do not leave unobservable active work.
-- Retry limit, timeout, backoff, cancellation, and reconciliation transitions
-  are deterministic under a controlled clock.
 - An Agent Runtime instance cannot access another Workspace's run or Core API
   tables.
-- Logs and errors do not expose Provider Connection secrets.
 
 ## Realtime Cases
 
@@ -196,8 +220,9 @@ Once initialized:
 - A reusable builder never defaults to a global tenant.
 - Clocks, identifiers, randomness, retry, and leases are controlled.
 - Tests cleanly isolate database state and can run in parallel where declared.
-- Provider fakes model timeout, duplicate callback, partial output, uncertain
-  side effect, and cancellation rather than only success.
+- Remote-provider and local-Runtime fakes are distinct; each models timeout,
+  duplication, partial output, uncertain side effects, cancellation, and
+  executor-specific failures rather than only success.
 
 ## Coverage and Defect Detection
 
@@ -217,5 +242,6 @@ Once initialized, a Core API change is incomplete until:
 - Spring Modulith verification passes.
 - PostgreSQL/migration tests pass when persistence changes.
 - API generation and compatibility/type checks pass when contracts change.
-- Agent Runtime/provider failure tests pass when execution changes.
+- Remote-provider and local-Runtime failure tests pass when their execution
+  paths change.
 - Kotlin compile, lint, and formatting checks pass.
