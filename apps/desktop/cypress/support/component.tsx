@@ -1,0 +1,13 @@
+import '@testing-library/cypress/add-commands';
+import { mount } from 'cypress/react';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/newsreader';
+import '../../src/renderer/styles.css';
+
+declare module 'cypress' {
+  interface Chainable {
+    mount: typeof mount;
+  }
+}
+
+Cypress.Commands.add('mount', mount);

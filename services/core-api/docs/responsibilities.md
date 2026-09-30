@@ -10,12 +10,31 @@
 
 ## Current Implemented Responsibility
 
-**Current:** `core-api` currently owns only its runnable application shell and
-engineering guardrails: the four declared capability boundaries, fail-closed
-health-only HTTP exposure with a fail-closed fallback, architecture tests,
-separated test source sets, executable Boot JAR verification, and the Core API
-quality task. It does not yet implement any business use case or
-persist business state.
+**Current:** `core-api` owns its runnable application shell and engineering
+guardrails: four declared capability boundaries, explicit Spring Security
+routes, architecture tests, separated test source sets, executable Boot JAR
+verification, and the Core API quality task. The implemented `access` slice
+owns first-party email/password/OTP registration and login, password reset,
+opaque sessions and refresh recovery, `CurrentUserView`, Organization Workspace
+list/create, creator Membership, and server-side Workspace authorization. The
+implemented narrow `project` slice owns Workspace-scoped read-only Project list
+queries with both Workspace and Project Membership checks. Spring JDBC/Flyway
+owns the corresponding PostgreSQL persistence, uniqueness, transaction,
+idempotency, locking, expiry, pagination, and concurrency semantics. Runtime
+OpenAPI documents these Desktop endpoints outside Production. Project creation
+and other Project mutations, Agent execution, workflow behavior, and the
+remaining capability targets are not implemented.
+
+The `access` infrastructure also owns the concrete production verification-mail
+transport behind its provider-neutral port. The current adapter uses Spring's
+standard SMTP sender, requires an explicit sender address and SMTP host, and
+fails startup unless STARTTLS is required or implicit TLS is enabled. Deployment owns
+provider selection and injects SMTP username/password through its runtime or CI
+secret store; those credentials must not enter source, configuration examples,
+logs, API payloads, or test fixtures. Unit and ordinary CI tests use the
+explicit capture adapter. Local development uses the separate `local &
+!production` adapter, which can send plaintext SMTP only to loopback Mailpit;
+it is not a deployable provider configuration.
 
 The responsibilities below are the approved **Target** allocation for future
 changes. A future item becomes Current only when its production implementation
@@ -83,10 +102,19 @@ shape per concept.
 
 ### Access and project setup
 
-- Provision a Personal Workspace.
-- Create an Organization Workspace and manage Workspace membership.
-- Create a Project and manage Project Members.
-- Resolve an actor's allowed Project actions.
+- List an authenticated User's accessible Workspaces.
+- Create an Organization Workspace and its creator Membership atomically and
+  idempotently.
+- Preserve one Workspace/Membership model so a later Personal Workspace type can
+  reuse the same ownership and authorization path without being provisioned now.
+- For the first implementation slice, list only Projects for which the
+  authenticated User has both an effective Workspace Membership and a matching
+  Project Membership in the requested Workspace.
+- Keep Project creation, Project Member management, and other Project mutations
+  as later use cases; controlled test fixtures may create records without
+  exposing production creation APIs.
+- Resolve an actor's allowed Project actions when those later mutations are
+  introduced.
 
 ### Work management
 

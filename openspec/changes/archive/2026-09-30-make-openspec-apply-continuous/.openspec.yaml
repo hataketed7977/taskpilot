@@ -1,0 +1,5 @@
+schema: taskpilot-sdd
+created: 2026-09-30
+goal: 让 OpenSpec apply 在所有支持的 Agent 中将整个 Change 作为连续执行目标，除非 all_done、用户中断或真实
+  blocker，否则不因阶段汇报而停止
+skip_specs: true

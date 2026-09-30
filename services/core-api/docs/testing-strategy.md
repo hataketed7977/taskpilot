@@ -17,9 +17,9 @@ points from the repository root:
 | --- | --- |
 | `./gradlew :services:core-api:test` | Fast JUnit, Spring Modulith graph verification, ArchUnit production scan, and independently reported `rule-id/case-id` rule self-tests; its classpath excludes Testcontainers |
 | `./gradlew :services:core-api:moduleTest` | Four standalone capability contexts plus application startup, explicit fail-closed security fallback, and health-only Actuator exposure |
-| `./gradlew :services:core-api:integrationTest` | Required real `postgres:17-alpine` Testcontainers connection and an integration-test-only Flyway probe migration; no test, no Docker, H2 fallback, or silent skip fails rather than passing |
+| `./gradlew :services:core-api:integrationTest` | Required real `postgres:17-alpine` Testcontainers connection, all production Flyway migrations from empty PostgreSQL, access-identity atomicity/uniqueness/concurrency tests, verification challenge/continuation/rate-limit locking and concurrency tests, and the separate integration-test-only probe; no Docker, H2 fallback, or silent skip fails rather than passing |
 | `./gradlew :services:core-api:verifyBuildContract` | Source-set ownership, required integration-test presence, Detekt source coverage, dependency coordinates, task graph, fixed-version, and executable Boot JAR boundary checks |
-| `./gradlew :services:core-api:qualityCheck` | The complete Core API gate: compile, ktlint, Detekt, all three test layers, build-contract verification, and Kover XML/HTML/threshold verification |
+| `./gradlew :services:core-api:qualityCheck` | The complete routine Core API gate: compile, ktlint, Detekt, all three test layers, build-contract verification, and Kover XML/HTML/threshold verification |
 
 Kover aggregates `test`, `moduleTest`, and `integrationTest` over the same main
 production classes and enforces 80% line and 75% branch coverage. Its only
@@ -33,11 +33,49 @@ changed executable coverage once later changes mix new and existing code.
 
 Detekt scans Kotlin under `main`, `test`, `moduleTest`, and `integrationTest`;
 its test-source exceptions are limited to test naming, HTTP status literals,
-and test-only constant-returning probes. The test-only Flyway script lives
-under `src/integrationTest/resources` and is excluded from the executable Boot
-JAR. There is no production schema migration yet.
-The broader scenarios and tools below remain **Target** until their owning
-features exist.
+and test-only constant-returning probes. The production access-identity and verification-security Flyway migrations live
+under `src/main/resources/db/migration` and are required in the executable Boot
+JAR. The test-only probe remains under `src/integrationTest/resources` and is
+excluded from that JAR. Unit tests cover email normalization, password policy,
+Argon2id parameter/salt behavior, dummy-hash authentication, opportunistic
+rehash, OTP/continuation security policy, purpose/template mapping, delivery
+outcome semantics, configuration fail-closed behavior, and secret-safe mail
+events. SMTP adapter tests cover purpose-specific messages, sender/recipient
+validation, provider failure classification, explicit host, and required transport TLS
+fail-closed assembly without making a network connection. PostgreSQL tests
+cover the production schema, stable identifiers,
+identity uniqueness and rollback, challenge/continuation expiry and atomic
+consumption, resend supersession, shared rate-limit state, and concurrency. The
+broader scenarios and tools below remain **Target** until their owning features
+exist.
+
+The full-application integration suite also owns an opt-in packaged Desktop
+journey. With `TASKPILOT_PACKAGED_SYSTEM_JOURNEY=true`, it starts the current
+platform's already-built Electron artifact in Node mode, loads Main/Preload from
+`app.asar`, and drives authentication, Workspace onboarding, and the read-only
+Project list against this suite's real Core API, PostgreSQL, and capture-mail
+fixture while using the native OS credential backend. The test does not create
+a window and remains opt-in so the ordinary Core API gate neither builds nor
+requires a Desktop package. Native packaged-window and cross-platform release
+evidence remain separate Desktop gates.
+
+The repeatable local mail smoke runs against Compose PostgreSQL and Mailpit with
+Core API's explicit `local` profile. It requests registration, login OTP, and
+password-reset codes through HTTP, reads the actual SMTP messages from Mailpit,
+uses each code to complete its flow, and reports only flow names and boundary
+names. It does not print OTPs, passwords, tokens, or generated `.env.local`
+values. This proves local assembly and SMTP protocol integration; ordinary unit
+and CI tests still use the capture adapter when infrastructure semantics are not
+under test.
+
+A real external-provider verification-mail smoke is a release-environment gate,
+not a Change-completion, local, or pull-request dependency. Run registration,
+login OTP, and password reset through the production adapter with
+`taskpilot.verification.smtp.from`, standard `spring.mail.host`/port/TLS
+properties, and credentials supplied only by the runtime secret store. Record
+only provider-safe identifiers and outcomes; never persist the recipient, OTP,
+password, or SMTP secret as test evidence. Without this smoke, the corresponding
+deployment cannot be called mail-provider release-ready.
 
 ## Principles
 
@@ -87,12 +125,38 @@ contract. Do not mock the state transition or use case under test.
 
 ### Workspace and access
 
-- Personal Workspace provisioning is idempotent.
-- Organization membership and Project membership are distinct.
+- Organization Workspace creation and creator Membership commit atomically;
+  retries with the same idempotency key return the same Workspace and conflicting
+  reuse is rejected.
+- The initial flow never auto-provisions a Personal Workspace; future Personal
+  support must reuse the same Workspace Membership and authorization model.
+- Workspace membership and Project membership are distinct.
 - Cross-Workspace reads and writes fail even with a valid identifier.
 - Removing or disabling membership affects subsequent authorization without
   rewriting unrelated business history.
 - An Agent cannot satisfy human membership or approval requirements.
+
+### Initial Project discovery
+
+- The read-only Project list first requires an effective Workspace Membership,
+  then returns only Projects with an effective Project Membership for the same
+  User and Workspace.
+- A globally unique `ProjectId` cannot bypass the path Workspace scope. Missing
+  and inaccessible Workspaces produce the same `404 WORKSPACE_NOT_FOUND`
+  contract so existence is not enumerable.
+- PostgreSQL tests cover Project/Project Membership constraints and controlled
+  malformed cross-Workspace fixtures; the query excludes invalid rows and emits
+  only redacted integrity evidence.
+- API/OpenAPI tests freeze the path, optional opaque cursor, default/ranged
+  limit, exact `{ projectId, workspaceId, name }` item shape, conditional
+  `nextCursor`, and stable `400/401/404/503` errors.
+- Cursor tests prove a value cannot be interpreted by the client or reused in a
+  different Workspace. Main consumer fixtures reject a page when any item has a
+  mismatched `workspaceId`.
+- Empty authorized results are successful real data, not a frontend placeholder.
+  Production routes, use cases, schemas, and OpenAPI contain no Project create
+  operation or `canCreateProject`; Project rows are prepared through controlled
+  test fixtures.
 
 ### Work Items and custom fields
 
@@ -176,8 +240,12 @@ Also prove:
 - Stable error codes cover authorization, validation, conflict, stale version,
   unsupported definition, and idempotency conflict.
 - Public breaking changes fail compatibility checks once a baseline exists.
-- Desktop API changes fail generated Desktop transport type checks until
-  synchronized.
+- In the initial Desktop phase, runtime OpenAPI contract tests for
+  authentication/session, Workspace list/create, and read-only Project list,
+  together with Desktop Main adapter fixtures, detect consumed-shape drift; no
+  generated Desktop client or
+  breaking-compatibility gate is required until a later Change establishes a
+  versioned contract lifecycle.
 - Allowed actions aid presentation but never bypass a negative command check.
 
 ## Durable Job and Agent Execution Cases
@@ -275,7 +343,9 @@ a Core API change is incomplete until all applicable items below also pass:
 - Relevant business-model scenarios and critical branches pass.
 - Spring Modulith verification passes.
 - PostgreSQL/migration tests pass when persistence changes.
-- API generation and compatibility/type checks pass when contracts change.
+- Applicable runtime OpenAPI contract and consumer-adapter checks pass when API
+  contracts change; generation and compatibility gates apply only to surfaces
+  whose owning Change has established that lifecycle.
 - Remote-provider and local-Runtime failure tests pass when their execution
   paths change.
 - Kotlin compile, lint, and formatting checks pass.

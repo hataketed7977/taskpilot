@@ -10,9 +10,16 @@
 
 ## Runtime Role
 
-The Gateway is an independently deployable Kotlin/Spring service between the
-external edge and `core-api`. It provides technical policy enforcement without
-owning business workflows.
+This document describes a **future optional Target**, not an initialized MVP
+service. The current Desktop topology is Desktop Main → deployment edge/TLS →
+Core API, and Core API is the only application-layer Resource Server. Gateway
+initialization requires a separate OpenSpec Change justified by multiple
+backends, multiple API surfaces, or centralized technical edge policy.
+
+If introduced, the Gateway is an independently deployable Kotlin/Spring service
+between the external edge and `core-api`. It provides technical policy
+enforcement without owning business workflows, and it never replaces Core API's
+independent authentication or final authorization.
 
 ## Technology Direction
 
@@ -27,22 +34,24 @@ Use the Spring Cloud release train to select compatible stable versions.
 
 ## Request Pipeline
 
+The following pipeline applies only after that future Gateway is initialized.
+
 ```mermaid
 flowchart LR
     client["Client"]
     edge["Edge / WAF"]
     correlation["Correlation"]
-    auth["Authentication"]
-    tenant["Tenant Context"]
+    auth["Route Credential Policy"]
+    tenant["Trusted Context"]
     limits["Rate / Size Limits"]
     route["Route Policy"]
     core["core-api"]
-    idp["OIDC Provider"]
+    credential["Route-specific Credential Verifier"]
     redis[("Redis")]
     telemetry["Telemetry"]
 
     client --> edge --> correlation --> auth --> tenant --> limits --> route --> core
-    auth --> idp
+    auth -.->|future, per route| credential
     limits --> redis
     correlation --> telemetry
     route --> telemetry
@@ -52,6 +61,8 @@ Filter ordering is explicit and tested. Untrusted inbound headers are removed
 before trusted internal context is written.
 
 ## Route Boundaries
+
+These are possible future route classes, not current MVP endpoints.
 
 | Route class | Target | Policy |
 | --- | --- | --- |
@@ -78,13 +89,15 @@ maps a raw provider identifier directly to TaskPilot business identity.
 - User, Runtime, or callback source identity is derived only from credentials
   accepted for the selected route class; Desktop, Runtime, provider callback,
   and public credentials are not interchangeable.
-- Tenant identity is derived from trusted claims, approved host mapping, or API
-  credentials.
+- Trusted context is derived only from a route's accepted credential contract;
+  no global OIDC/JWT assumption applies to Desktop, Runtime, callbacks, or public
+  clients.
 - Client-provided internal identity and tenant headers are stripped.
 - Normalized identity and tenant context are forwarded only on trusted internal
   routes.
-- `core-api` independently verifies membership, execution scope, resource
-  binding, and domain authorization.
+- `core-api` independently authenticates the principal and verifies membership,
+  execution scope, resource binding, and domain authorization; Gateway-produced
+  context is never sufficient on its own.
 - Gateway validation and normalization never turn identity or tenant context
   into proof of resource ownership or permission to advance an `AgentRun`.
 

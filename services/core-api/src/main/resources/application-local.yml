@@ -1,0 +1,32 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:${TASKPILOT_POSTGRES_PORT:5432}/taskpilot
+    username: taskpilot
+    password: ${TASKPILOT_POSTGRES_PASSWORD}
+  flyway:
+    enabled: true
+  mail:
+    host: 127.0.0.1
+    port: ${TASKPILOT_SMTP_PORT:1025}
+    properties:
+      mail.smtp.connectiontimeout: 3000
+      mail.smtp.timeout: 3000
+      mail.smtp.writetimeout: 3000
+
+taskpilot:
+  authentication:
+    enabled: true
+    token-pepper-base64: ${TASKPILOT_AUTH_TOKEN_PEPPER_BASE64}
+    recovery-key-base64: ${TASKPILOT_AUTH_RECOVERY_KEY_BASE64}
+    terms-version: "2026-09-01"
+  verification:
+    enabled: true
+    pepper-base64: ${TASKPILOT_VERIFICATION_PEPPER_BASE64}
+    request-maximum-attempts: 100
+    mail-adapter: local
+    smtp:
+      from: no-reply@taskpilot.local

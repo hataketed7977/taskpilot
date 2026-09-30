@@ -22,14 +22,44 @@ that does not change the application Kotlin version.
 The implemented application is deliberately limited to:
 
 - one Spring Boot application rooted at `ai.taskpilot.coreapi`;
-- four empty capability boundaries named `access`, `project`, `automation`, and
-  `agent`, each declared as a Spring Modulith module;
-- a fail-closed Spring Security chain that permits only Actuator health,
-  liveness, and readiness endpoints, rejects every other route, and does not
-  install Spring Boot's generated default user; and
+- four capability boundaries named `access`, `project`, `automation`, and
+  `agent`, each declared as a Spring Modulith module; `access` and the narrow
+  read-only portion of `project` currently contain business code;
+- the first access identity slice: User, EmailIdentity, PasswordCredential, and
+  TermsAcceptance models; authoritative Unicode/IDNA email normalization;
+  password policy, Argon2id hashing, dummy-hash authentication, and
+  opportunistic rehash seams;
+- explicit Spring JDBC persistence and production Flyway migrations for access
+  identity, verification challenges, auth continuations, shared verification
+  rate-limit buckets, opaque sessions and refresh recovery, Workspace and
+  Workspace Membership, Project and Project Membership, with atomicity,
+  uniqueness, locking, expiry, authorization, and concurrency semantics verified
+  against real PostgreSQL;
+- the purpose-scoped verification-security slice for registration email proof,
+  login email OTP, and password reset: six-digit CSPRNG codes, peppered
+  namespaced digests, resend/attempt policy, atomic challenge and continuation
+  consumption, and three-dimension PostgreSQL rate limiting;
+- a provider-neutral verification-mail port with an explicit test capture
+  adapter, a loopback-only local Mailpit adapter, and a production SMTP
+  transport. The local adapter activates only under `local & !production` and
+  accepts plaintext SMTP only at `127.0.0.1`. Production assembly requires an
+  explicit sender and host plus required STARTTLS or implicit TLS. The shared
+  wrapper maps delivered, definite-failure, timeout, and outcome-unknown results
+  and emits only fingerprinted correlation/provider identifiers, template
+  category, result, and duration. Deployed SMTP credentials come only from
+  runtime secret injection and are not repository configuration;
+- a host-run local development profile backed by Compose PostgreSQL 17 and
+  Mailpit. Root tooling creates a mode-`0600`, Git-ignored `.env.local`, waits
+  for infrastructure health, and starts Core API so Spring Boot applies all
+  production Flyway migrations before Desktop use. This stack is a development
+  topology, not a production manifest or external-provider proof;
+- a fail-closed Spring Security chain that permits only the explicit anonymous
+  authentication endpoints and Actuator probes, authenticates protected Desktop
+  routes with opaque access credentials, rejects every other route, and does not
+  install Spring Boot's generated default user;
 - executable module-graph, technical-dependency, standalone-module, startup,
-  health, PostgreSQL/Flyway test-channel, static-analysis, executable Boot JAR,
-  and coverage gates.
+  health, PostgreSQL/Flyway, static-analysis, executable Boot JAR, and coverage
+  gates.
 
 The ArchUnit rules use independently reported `rule-id/case-id` fixtures for
 model dependencies on MVC, Security, Jakarta Persistence, Spring Data, Spring
@@ -41,14 +71,20 @@ surface package segments are fixed as `desktopapi`, `publicapi`, and
 `managedapi`; a future Change that renames or adds a surface must update the
 owning architecture contract and fixtures together.
 
-There are no business controllers, use cases, tables, production migrations,
-persistence-framework choice, provider adapters, durable jobs, or
-managed-execution protocols yet. Everything below that describes those
-capabilities remains **Target** unless explicitly marked Current.
+The Current first-use surface exposes Desktop authentication/current-user,
+Workspace list/create, and Workspace-scoped read-only Project list controllers,
+with runtime OpenAPI enabled outside Production. Provider, durable-job, workflow,
+Agent-execution, and managed-execution persistence and behavior remain
+unimplemented. The current persistence choice is explicit Spring JDBC plus
+Flyway; everything below that describes later capabilities remains **Target**
+unless explicitly marked Current.
 
 ## Runtime Role
 
-`core-api` is one Kotlin/Spring Boot application. It owns application use cases,
+`core-api` is one Kotlin/Spring Boot application. For the MVP it is also the
+only application-layer Resource Server: Desktop Main reaches it through the
+deployment edge/TLS boundary, and Core API validates its own opaque Desktop
+access token before constructing an authenticated principal. It owns application use cases,
 business rule enforcement, authorization, PostgreSQL persistence, first-party
 Desktop API controllers, public HTTP API controllers, workflow orchestration,
 and the control-plane state for Agent execution.
@@ -111,8 +147,8 @@ Use the four coarse areas from the business model as the starting point:
 
 | Area | Backend responsibility |
 | --- | --- |
-| `access` | User identity, login/session integration, Workspace and membership authorization |
-| `project` | Project membership, Work Items and types, Boards, comments, and custom values |
+| `access` | User identity, login/session integration, Workspace, Workspace Membership, and narrow membership authorization facts |
+| `project` | Project, Project Membership, authorized Project list, Work Items and types, Boards, comments, and custom values |
 | `automation` | Workflow definitions and versions, Workflow Runs, Step Runs, approval, transition evaluation, and orchestration |
 | `agent` | Provider Connections, Agents and versions, Project Agent Bindings, Agent Runs, attempts, artifacts, execution-mode routing, durable dispatch, server-side provider adapters, and local managed-execution protocol |
 
@@ -231,6 +267,37 @@ class hierarchy.
 - Physical ER diagrams and migration rules are added here only after a schema
   exists.
 
+## Initial Workspace-Scoped Project Discovery
+
+The first Project Work implementation is deliberately read-only. It persists the
+minimum Project and Project Membership facts needed for authorized discovery and
+serves:
+
+`GET /desktop/v1/workspaces/{workspaceId}/projects`
+
+The query accepts only optional opaque `cursor` and integer `limit` parameters;
+`limit` defaults to 50 and is restricted to 1–100. A successful page contains
+`items` whose exact fields are `projectId`, `workspaceId`, and `name`, plus
+`nextCursor` only when another page exists. Cursors are opaque and bound to one
+Workspace. The repeated item `workspaceId` lets Desktop reject a mismatched or
+late page before publishing it.
+
+Access remains the owner of User/session, Workspace, and Workspace Membership.
+Project Work owns Project, Project Membership, Project list transport, and
+Project-level authorization. Project Work consumes a narrow synchronous Access
+contract that answers the trusted `UserId + WorkspaceId` membership fact; it
+must not read Access private tables. It then returns only Projects for which the
+same User has an effective Project Membership aligned to that Workspace. A
+unique `ProjectId` cannot bypass the parent scope, and malformed cross-Workspace
+relationships are rejected or excluded with a redacted integrity signal.
+
+Invalid/unknown query input maps to `400 VALIDATION_FAILED`; missing or invalid
+session to `401 AUTHENTICATION_REQUIRED`; both missing and inaccessible
+Workspaces to `404 WORKSPACE_NOT_FOUND`; and a safe read outage to
+`503 PROJECTS_TEMPORARILY_UNAVAILABLE`, optionally with `retryAfterSeconds`.
+Controlled database fixtures prepare Project rows for tests because this slice
+does not add a Project create use case or endpoint.
+
 ## Query and Read Models
 
 Queries do not need to reconstruct write-oriented model objects. Each screen or
@@ -261,8 +328,13 @@ same application use cases:
   errors.
 - The server remains authoritative for permissions and allowed actions.
 
-The Desktop, managed-execution, and public OpenAPI documents are generated
-and verified independently.
+The initial Desktop surface exposes runtime-generated OpenAPI JSON and Swagger
+UI for authentication/session, Workspace list/create, and read-only Project
+list, and verifies them with runtime contract tests. Main adapter fixtures cover
+the consumed shape; this phase does not require a committed standalone schema,
+generated Desktop client, or breaking-change compatibility gate. Managed-
+execution and public API contract lifecycles remain separate and are established
+by the Changes that initialize those surfaces.
 
 ## Durable Jobs and Notifications
 
@@ -343,8 +415,15 @@ before either existing route is stretched to support it.
 
 ## Security and Tenancy
 
-- The Gateway may normalize trusted context; Core API independently authenticates
-  the principal and authorizes every resource action.
+- For the MVP, Core API issues high-entropy opaque Desktop access and refresh
+  tokens, stores only peppered token digests in primary session records, and
+  validates expiry, session-family state, rotation/recovery state, and User
+  status before application use cases. Malformed, expired, revoked, or unknown
+  credentials fail closed.
+- The deployment edge does not create trusted identity. A future Gateway may
+  apply route-specific credential validation or normalize trusted context as
+  defense in depth, without assuming OIDC/JWT, but Core API still independently
+  authenticates the principal and authorizes every resource action.
 - Workspace and Project membership are checked by application use cases, not by
   UI role names.
 - Provider Connections contain secret references, never credential material in

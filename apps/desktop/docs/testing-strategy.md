@@ -13,17 +13,40 @@
 
 Use the lowest reliable layer for each risk and add packaged/native tests only
 for boundaries that unit or Renderer integration tests cannot prove. Tests and
-production behavior land together. Exact frameworks and commands are recorded
-when the application toolchain is initialized.
+production behavior land together.
 
-## Planned Test Layers
+**Current:** Vitest owns Main, Renderer, architecture, and coverage checks;
+Cypress component tests own browser-level first-use interaction; Vite and
+TypeScript own production builds; electron-builder owns unpacked packaged builds.
+Run `pnpm --filter @taskpilot/desktop qualityCheck` for the complete portable
+Desktop gate, `pnpm --filter @taskpilot/desktop test:e2e` for Cypress component
+journeys, and `pnpm --filter @taskpilot/desktop test:packaged-native` for the
+current host's packaged artifact and native credential lifecycle. `test:e2e`
+uses `cypress run --component` in headless Electron; it must not open Cypress GUI
+or a visible application window. A development Change can complete with the
+portable gates plus current-host packaged/native evidence. Installation,
+signing/notarization or signed-installer behavior, native credential integration,
+and final visual smoke are recorded separately on macOS arm64 and Windows x64
+before claiming that platform is release-ready.
+
+The opt-in Core API system test selected by
+`TASKPILOT_PACKAGED_SYSTEM_JOURNEY=true` launches the current platform's
+packaged Electron binary with `ELECTRON_RUN_AS_NODE=1`, loads the compiled
+Main/Preload modules from `app.asar`, and crosses typed IPC into the real Core
+API/PostgreSQL fixture, capture-mail adapter, and native OS credential backend.
+It intentionally creates no `BrowserWindow`, and the normal Core API gate does
+not build or require a Desktop package. This proves packaged code and native
+credential boundaries, not packaged window layout, keyboard behavior, visual
+error states, signing, installer, or the other operating system.
+
+## Test Layers
 
 | Layer | Owns |
 | --- | --- |
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
 | Main/Preload contract | Channel allowlist, schema validation, serialization, authorization and capability exposure |
-| Main integration | Window lifecycle, callback routing, credential adapter, authenticated cloud client, lazy fixed-path Runtime launch, JSON-RPC/JSONL stdio, backpressure and child supervision with owned test doubles |
+| Main integration | Window lifecycle, opaque-session refresh/recovery, credential adapter, authenticated cloud client, lazy fixed-path Runtime launch, JSON-RPC/JSONL stdio, backpressure and child supervision with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
 
@@ -57,10 +80,16 @@ when the application toolchain is initialized.
   Main cloud-client session state, and Renderer-visible protected state; the
   previous account cannot remain usable.
 
-The first implementation slice tests system-browser login/callback/session
-restore/logout, Workspace selection, Project list, create Project, and Project
-shell states. Agent execution scenarios are added by later capability changes;
-this Target strategy does not claim those tests exist.
+The first implementation slice tests separate in-app registration/password
+login/email-code login/password-reset flows, complete refresh-response mapping,
+credential-write failure, crash/restart recovery, logout, Workspace
+list/select/create, active Workspace restoration, and a real read-only Project
+list. Project tests cover the fixed HTTP adapter and typed IPC capability,
+protected-API `401` single-flight recovery, environment/`UserId`/`WorkspaceId`
+query scope, Workspace-switch late responses, item-scope mismatch rejection,
+cursor pagination, and distinct loading/data/empty/error states. The same suite
+proves there is no Project create endpoint/capability/CTA and no Runtime startup.
+Project mutations and Agent-execution scenarios remain later capability changes.
 
 ## Agent Presentation Boundary
 
@@ -71,7 +100,8 @@ this Target strategy does not claim those tests exist.
 - A `REMOTE_MANAGED` run remains viewable and reloadable when Agent Runtime is
   not installed, not started, incompatible, or unhealthy.
 - Runtime startup failure affects only `LOCAL_DESKTOP` actions and cannot fail
-  login, Workspace selection, Project list, create Project, or Project shell.
+  authentication, Workspace list/select/create, active Workspace restoration, or
+  the read-only Project list.
 
 ## Renderer Behavior
 
@@ -84,18 +114,24 @@ tests. Main cloud-client tests own the HTTP adapter and credential lifecycle.
 ## Packaged and Native Matrix
 
 Electron uses packaged Chromium on both supported operating systems. The
-release matrix therefore covers:
+portable development gate covers Main/Preload contracts, Renderer behavior,
+headless Chromium interaction, build output, and the current host's packaged
+artifact plus native credential lifecycle. It does not imply that an unexecuted
+platform is release-ready.
 
-- packaged macOS arm64 critical journeys and native integrations;
-- packaged Windows x64 critical journeys and native integrations;
-- architecture-specific artifacts added only when product support declares
-  them;
-- signing/notarization and installer/update checks in their native environment;
+Before releasing a platform, its native matrix additionally covers:
+
+- installation and launch of the platform artifact;
+- macOS Keychain or Windows Credential Manager integration;
+- signing/notarization or signed-installer and update checks;
+- final visual smoke for the critical journey and system prompts;
 - bundled Runtime path resolution, stdio lifecycle, parent-exit behavior, and
-  whole-process-tree cleanup on both operating systems.
+  whole-process-tree cleanup once Runtime ships.
 
 A passing Renderer browser test is not evidence that IPC, packaging,
-credentials, deep links, installers, or process lifecycle work natively.
+credentials, deep links, installers, or process lifecycle work natively. A
+passing macOS native test is not Windows evidence, and vice versa; this limits
+release claims rather than blocking an otherwise portable feature Change.
 
 ## Architecture Regression Checks
 
@@ -108,6 +144,7 @@ owners. Fixture-based allowed/forbidden examples accompany those rules.
 
 After initialization, a Desktop change is incomplete until focused tests,
 strict type checking, lint/formatting, architecture checks, relevant
-accessibility assertions, IPC contract checks, and risk-appropriate packaged or
-native checks pass. Cross-platform release claims require evidence from both
-supported operating systems; emulation or one host alone is insufficient.
+accessibility assertions, IPC contract checks, and risk-appropriate current-host
+packaged or native checks pass. A release claim for macOS or Windows additionally
+requires that platform's native release matrix; emulation or another host is
+insufficient evidence for that platform.

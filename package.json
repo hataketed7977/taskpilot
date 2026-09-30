@@ -1,0 +1,14 @@
+{
+  "name": "taskpilot",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "desktop:quality": "pnpm --filter @taskpilot/desktop qualityCheck",
+    "dev:setup": "node tools/dev/setup-local.mjs",
+    "dev:infra": "node tools/dev/local-infrastructure.mjs up",
+    "dev:infra:down": "node tools/dev/local-infrastructure.mjs down",
+    "dev": "node tools/dev/start-local.mjs",
+    "dev:mail-smoke": "node tools/dev/local-mail-smoke.mjs",
+    "dev:test": "node --test tools/dev/*.test.mjs"
+  }
+}

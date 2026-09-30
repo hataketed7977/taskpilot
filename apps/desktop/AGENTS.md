@@ -3,8 +3,8 @@
 ## Scope
 
 These instructions apply to `apps/desktop/` and inherit
-[`../../AGENTS.md`](../../AGENTS.md). This directory currently owns Target
-documentation only; it does not yet contain a runnable Electron application.
+[`../../AGENTS.md`](../../AGENTS.md). This directory contains a runnable Electron
+first-use slice alongside Target documentation for later Desktop capabilities.
 
 ## Required Navigation
 
@@ -18,6 +18,7 @@ Then read the local document matching the task:
 | [`docs/architecture.md`](docs/architecture.md) | Changing Electron process boundaries, dependencies, data flow, typed IPC, API integration, packaging, or business-facing UI |
 | [`docs/responsibilities.md`](docs/responsibilities.md) | Adding a window, page, component, Hook, IPC capability, state owner, or native integration |
 | [`docs/testing-strategy.md`](docs/testing-strategy.md) | Adding or changing Desktop behavior, security boundaries, packaging, or tests |
+| [`docs/design-foundation.md`](docs/design-foundation.md) | Creating or substantially reshaping login, the application shell, navigation, Workspace or Project surfaces, or shared visual primitives |
 
 Local documents refine the root architecture and implement the root business
 model; they do not redefine product terms or move business truth into the

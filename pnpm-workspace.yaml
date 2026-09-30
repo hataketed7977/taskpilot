@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+allowBuilds:
+  electron: true
+  cypress: true
+  electron-winstaller: true
+confirmModulesPurge: false

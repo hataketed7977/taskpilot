@@ -56,7 +56,7 @@ The following are approved target constraints for the first implementation:
 
 | Topic | Decision |
 | --- | --- |
-| Personal ownership | A personal account receives a `PERSONAL` Workspace; Projects always belong to a Workspace |
+| Workspace entry | The first implementation is Organization-first: users select or explicitly create an `ORGANIZATION` Workspace; `PERSONAL` remains a later compatible type; Projects always belong to a Workspace |
 | Work truth | `WorkItem` is the canonical work record; a Card is a Board projection, not a separate business object |
 | Board terminology | Todo/Doing/Done are Columns; a Swimlane is a configurable horizontal grouping |
 | Workflow concurrency | A WorkItem has at most one active WorkflowRun; previous runs remain history |
@@ -78,7 +78,7 @@ documentation.
 | --- | --- |
 | User | A person who can authenticate and act in TaskPilot |
 | Workspace | The ownership, membership, and data-isolation boundary; either personal or organizational |
-| Workspace Member | A User's membership and role within an organization Workspace |
+| Workspace Member | A User's membership and role within a Workspace, regardless of Workspace type |
 | Project | A Workspace-owned collaboration scope containing people, work, boards, and enabled automation |
 | Project Member | A User who can participate in a Project with a project-level role |
 | Work Item | The canonical record of a piece of work: content, custom values, assignments, and overall lifecycle |
@@ -403,20 +403,30 @@ change patterns make a smaller boundary materially useful.
 
 A Workspace has a type:
 
-- `PERSONAL`: provisioned for one User and not modeled as a separate User-owned
-  Project path.
-- `ORGANIZATION`: supports explicit Workspace membership and organization-level
-  administration.
+- `ORGANIZATION`: the first implementation's only creatable type. It uses
+  explicit Workspace membership and supports organization-level administration.
+- `PERSONAL`: a later compatible type for one User. The first implementation
+  does not automatically provision it, expose a creation choice for it, or give
+  it a separate User-owned Project path.
 
-Every Project, reusable Workflow, Work Item Type, Agent, and Provider Connection
+Both types use the same stable `WorkspaceId`, Workspace Membership model,
+capability contract, and ownership path for lower-level resources. Enabling
+`PERSONAL` later must not introduce a second authorization chain. Every
+Project, reusable Workflow, Work Item Type, Agent, and Provider Connection
 belongs to exactly one Workspace. Cross-Workspace references are invalid.
 
 ### Project
 
 A Project belongs to one Workspace. Project membership may be a subset of the
-Workspace membership and owns project-level roles. An Agent is not a User or a
-Project Member: enabling an Agent grants execution capability, not human access
-or approval authority.
+Workspace membership and owns project-level roles. A User can discover a Project
+in the initial read-only Project list only when both the User's Workspace
+Membership and the User's matching Project Membership are valid in that same
+Workspace. A globally unique `ProjectId` never bypasses the parent Workspace
+scope. The initial list capability does not imply Project creation, membership
+management, or other Project mutations.
+
+An Agent is not a User or a Project Member: enabling an Agent grants execution
+capability, not human access or approval authority.
 
 ## Work Items and Custom Fields
 
@@ -770,7 +780,8 @@ requested" and "execution stopped" are distinct facts.
    are invalid.
 2. A Project belongs to exactly one Workspace.
 3. A Project Member must be an eligible Workspace User under the Project's
-   access policy.
+   access policy; Project discovery requires both memberships to be valid and
+   aligned to the same User and Workspace.
 4. An Agent is never a human member and cannot inherit human permissions or
    approve a human gate.
 5. A Work Item pins an immutable Work Item Type Version.

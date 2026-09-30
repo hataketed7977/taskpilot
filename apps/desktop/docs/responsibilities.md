@@ -15,8 +15,8 @@
 - Provider-neutral typed presentation of cloud state, Agent Run progress,
   normalized capabilities, logs, approvals, Diff, and artifacts without becoming
   their business source of truth.
-- System-browser login initiation and callback handoff at the boundaries later
-  defined by the authentication spec.
+- In-app email authentication interaction, Main-owned opaque-session lifecycle,
+  OS credential persistence, and safe authenticated-state handoff to Renderer.
 - Native dialogs, notifications, credential handles, deep links,
   single-instance behavior, and platform lifecycle integration.
 - Main-owned authenticated Desktop API consumption and, only when a
@@ -60,8 +60,10 @@
 - Main handlers validate identity, schema, scope, and lifecycle before calling
   their owner; Renderer checks are usability, not authorization. A live stdio
   channel is transport reachability, not execution authority.
-- Workspace selection uses a native picker, but authorization enforcement and
-  canonical path checks belong to Runtime.
+- Cloud Workspace selection uses the authenticated Workspace list and stable
+  `WorkspaceId`; only a later `LocalWorkspaceBinding` flow uses a native
+  directory picker, whose canonical path checks and execution enforcement belong
+  to Runtime.
 - High-risk local execution UI explains the immutable evaluated operation and
   records `Local Execution Consent`; Runtime enforces whether that operation may
   execute. A cloud `ApprovalRequest` is rendered and decided through Core API
@@ -79,9 +81,18 @@
 
 ## Initial Interaction Areas
 
-The first implementation slice is login, Workspace selection, Project list,
-create Project, and Project shell. It does not start Agent Runtime or implement
-Agent execution.
+The first implementation slice is in-app email authentication, session
+restore/logout, Workspace list/select/create, active `WorkspaceId` recovery,
+and a read-only Project list loaded through Main/Preload for the active
+Workspace. Main owns the fixed HTTP adapter and response scope validation;
+Preload owns the typed `listProjects` capability; Renderer owns loading, data,
+empty, error, pagination, and stale-response presentation. Project query state
+is isolated by environment, `UserId`, and `WorkspaceId`.
+
+This slice does not start Agent Runtime and does not expose Project creation,
+`canCreateProject`, a Create Project CTA, Project detail/edit/delete, Project
+Member management, or Project-scoped navigation. Those mutations and deeper
+surfaces require later end-to-end changes.
 
 Later Target UI may include Board and Work Item workflows, provider-neutral
 Agent configuration, Run monitoring, approval prompts, logs, Diff review, and

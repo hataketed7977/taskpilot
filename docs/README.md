@@ -66,6 +66,7 @@ flowchart TD
 | [`../apps/desktop/docs/architecture.md`](../apps/desktop/docs/architecture.md) | Target | Electron boundaries, Renderer structure, typed IPC, provider-neutral Agent presentation, native integration, API integration, and packaging |
 | [`../apps/desktop/docs/responsibilities.md`](../apps/desktop/docs/responsibilities.md) | Target | Desktop capability ownership and placement rules |
 | [`../apps/desktop/docs/testing-strategy.md`](../apps/desktop/docs/testing-strategy.md) | Target | Renderer, IPC, packaged Electron, accessibility, and native platform verification |
+| [`../apps/desktop/docs/design-foundation.md`](../apps/desktop/docs/design-foundation.md) | Target | Approved Desktop visual direction, layout grammar, design tokens, typography, interaction states, and first-slice screen wireframes |
 
 ## Agent Runtime Documents
 

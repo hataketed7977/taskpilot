@@ -1,0 +1,17 @@
+appId: ai.taskpilot.desktop
+productName: TaskPilot
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+mac:
+  target:
+    - dir
+  category: public.app-category.productivity
+win:
+  target:
+    - dir
+  artifactName: TaskPilot-${version}-${arch}.${ext}
+asar: true
+npmRebuild: false

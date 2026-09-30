@@ -1,10 +1,10 @@
 # TaskPilot
 
-TaskPilot is planned as a SaaS-ready task and ticket management product whose
-first-party Windows and macOS Desktop client can coordinate Agents working on
-explicitly selected local projects. The repository remains documentation-first
-for product capabilities, while a minimal runnable Core API engineering
-foundation has now been initialized.
+TaskPilot is a SaaS-ready task and ticket management product under active
+implementation. Its first-party Windows and macOS Desktop client is designed to
+coordinate Agents working on explicitly selected local projects. The repository
+currently includes a runnable Desktop first-use slice and a runnable Core API;
+most workflow and Agent-execution capabilities remain approved Target design.
 
 ## Target Architecture
 
@@ -39,11 +39,48 @@ at project-summary level.
 
 ## Current Status
 
-The Core API now has a runnable Kotlin/Spring Boot foundation with four empty
-Spring Modulith capability boundaries, restricted health probes, layered tests,
-and a complete `:services:core-api:qualityCheck` gate. It has no business API,
-business persistence, or production migration yet.
+The Core API currently implements first-party email/password/OTP
+authentication, opaque sessions, Organization Workspace list/create, and a
+Workspace-scoped read-only Project list with PostgreSQL/Flyway persistence,
+runtime OpenAPI in non-production profiles, and a complete
+`:services:core-api:qualityCheck` gate.
 
-Desktop, Agent Runtime, and Gateway remain Target documentation only. API
-specifications, platform packages, and deployment manifests do not exist yet
-and must not be assumed to exist.
+The Electron/React Desktop currently implements the corresponding in-app
+authentication, session recovery, Workspace onboarding, and read-only Project
+list through hardened Main/Preload/Renderer boundaries. Its source, component,
+architecture, coverage, and build gates are executable; signed installers and
+cross-platform native release evidence are not complete. Agent Runtime and
+Gateway remain Target documentation only. The repository includes only a local
+development Compose stack; production deployment manifests do not yet exist.
+
+## Local Development
+
+Prerequisites are JDK 21, Docker, Node.js, and the pinned pnpm version. Install
+JavaScript dependencies once with `pnpm install`, then run:
+
+```bash
+pnpm dev
+```
+
+On first use this command creates a Git-ignored `.env.local` with random
+local-only credentials, starts PostgreSQL 17 and Mailpit with Docker Compose,
+waits for their health checks, starts Core API with the explicit `local`
+profile, applies all Flyway migrations, builds Desktop, and opens the Electron
+app against `http://127.0.0.1:8080`. Mailpit's inbox is available at
+[http://127.0.0.1:8025](http://127.0.0.1:8025).
+
+Useful commands:
+
+```bash
+pnpm dev:infra          # start only PostgreSQL and Mailpit
+pnpm dev:mail-smoke     # verify registration, login OTP, and password reset mail
+pnpm dev:infra:down     # stop local infrastructure; keep PostgreSQL data
+```
+
+`pnpm dev:setup` creates `.env.local` without overwriting an existing file.
+Use `.env.local.example` only as a key reference. Do not commit `.env.local` or
+reuse these local credentials in a deployed environment. Local plaintext SMTP
+is restricted in code to the non-production `local` profile and loopback
+Mailpit; production SMTP still requires STARTTLS or implicit TLS and runtime
+secret injection. A real external mail-provider smoke remains a deployment and
+release responsibility, not a local-development prerequisite.

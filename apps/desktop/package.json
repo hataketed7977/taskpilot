@@ -1,0 +1,62 @@
+{
+  "name": "@taskpilot/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "vite --config vite.config.ts",
+    "build": "vite build --config vite.config.ts && tsc -p tsconfig.main.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.system.json --noEmit",
+    "lint": "eslint src tests cypress scripts vite.config.ts",
+    "test:main": "vitest run --config vitest.config.ts tests/main",
+    "test:renderer": "vitest run --config vitest.config.ts tests/renderer",
+    "test:architecture": "vitest run --config vitest.config.ts tests/architecture",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage tests/main tests/renderer tests/architecture",
+    "test:e2e": "cypress run --component",
+    "test:packaged": "pnpm build && electron-builder --dir --config electron-builder.yml",
+    "test:native-credential": "node scripts/native-credential-smoke.mjs",
+    "test:packaged-native": "pnpm test:packaged && pnpm test:native-credential",
+    "qualityCheck": "pnpm typecheck && pnpm lint && pnpm test:main && pnpm test:renderer && pnpm test:architecture && pnpm test:coverage && pnpm build",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "latest",
+    "@fontsource-variable/newsreader": "latest",
+    "@napi-rs/keyring": "2.1.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@cypress/react": "^10.0.1",
+    "@cypress/vite-dev-server": "^8.0.0",
+    "@eslint/js": "latest",
+    "@testing-library/cypress": "^10.1.3",
+    "@testing-library/dom": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@testing-library/user-event": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "@vitest/coverage-v8": "latest",
+    "cypress": "latest",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "eslint": "latest",
+    "eslint-plugin-react-hooks": "latest",
+    "eslint-plugin-react-refresh": "latest",
+    "globals": "latest",
+    "jsdom": "latest",
+    "typescript": "6.0.2",
+    "typescript-eslint": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring-darwin-arm64": "2.1.0",
+    "@napi-rs/keyring-win32-x64-msvc": "2.1.0"
+  }
+}

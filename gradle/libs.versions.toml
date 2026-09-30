@@ -12,6 +12,9 @@ detekt-kotlin = "2.0.21"
 ktlint-plugin = "14.2.0"
 ktlint-engine = "1.8.0"
 kover = "0.9.10"
+icu4j = "78.3"
+bouncycastle = "1.86"
+springdoc = "3.1.1"
 
 [libraries]
 spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
@@ -21,6 +24,9 @@ testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgr
 postgresql = { module = "org.postgresql:postgresql", version = "42.7.13" }
 flyway-core = { module = "org.flywaydb:flyway-core", version = "12.4.0" }
 flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version = "12.4.0" }
+icu4j = { module = "com.ibm.icu:icu4j", version.ref = "icu4j" }
+bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+springdoc-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

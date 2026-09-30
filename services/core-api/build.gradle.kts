@@ -52,10 +52,18 @@ dependencies {
     implementation(platform(libs.spring.modulith.bom))
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")
+    implementation(libs.icu4j)
+    implementation(libs.bouncycastle)
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-mail")
+    implementation(libs.springdoc.webmvc.ui)
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation(libs.flyway.postgresql)
+    runtimeOnly(libs.postgresql)
     implementation("org.springframework.modulith:spring-modulith-starter-core")
 
     testImplementation(platform(libs.spring.modulith.bom))
@@ -327,15 +335,26 @@ val verifyBuildContract =
                 check(jar.manifest.mainAttributes.getValue("Start-Class") == "ai.taskpilot.coreapi.CoreApiApplicationKt") {
                     "Executable runtime JAR has an unexpected Start-Class"
                 }
+                check(entries.contains("BOOT-INF/classes/db/migration/V1__create_access_identity.sql")) {
+                    "Executable runtime JAR does not contain the production access-identity migration"
+                }
+                check(entries.contains("BOOT-INF/classes/db/migration/V2__create_verification_security.sql")) {
+                    "Executable runtime JAR does not contain the production verification-security migration"
+                }
+                check(entries.contains("BOOT-INF/classes/db/migration/V4__create_workspaces.sql")) {
+                    "Executable runtime JAR does not contain the production workspace migration"
+                }
+                check(entries.contains("BOOT-INF/classes/db/migration/V5__create_projects.sql")) {
+                    "Executable runtime JAR does not contain the production project migration"
+                }
                 check(
                     entries.none { entry ->
                         entry.contains("Test.class") ||
                             entry.contains("architecturefixtures", ignoreCase = true) ||
-                            entry.contains("db/migration", ignoreCase = true) ||
                             entry.contains("db/integration", ignoreCase = true) ||
                             entry.endsWith("V1__integration_probe.sql", ignoreCase = true)
                     },
-                ) { "Executable runtime JAR contains test, fixture, or integration migration content" }
+                ) { "Executable runtime JAR contains test, fixture, or integration-only content" }
             }
 
             val versionCatalog = rootProject.file("gradle/libs.versions.toml").readText()

@@ -1,6 +1,14 @@
 spring:
   application:
     name: taskpilot-core-api
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  servlet:
+    multipart:
+      enabled: false
+  flyway:
+    enabled: false
 management:
   endpoint:
     health:
@@ -11,3 +19,10 @@ management:
     web:
       exposure:
         include: health
+
+springdoc:
+  api-docs:
+    enabled: ${TASKPILOT_API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${TASKPILOT_SWAGGER_UI_ENABLED:true}
+    persist-authorization: false
