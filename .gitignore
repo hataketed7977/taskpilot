@@ -21,6 +21,15 @@ Desktop.ini
 !.env.example
 !.env.*.example
 *.local
+local.properties
+
+# Private keys, signing certificates, and keystores
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
 
 # Logs, diagnostics, and temporary files
 *.log
@@ -31,6 +40,8 @@ logs/
 *.stackdump
 hs_err_pid*
 replay_pid*
+*.hprof
+*.jfr
 .tmp/
 tmp/
 temp/
@@ -52,20 +63,22 @@ node_modules/
 
 # Java, Kotlin, and Gradle
 .gradle/
+.kotlin/
 **/build/
 *.class
 
 # Build and test outputs
 **/dist/
 **/out/
+/apps/desktop/release/
 coverage/
 .nyc_output/
 playwright-report/
 blob-report/
 test-results/
-cypress/screenshots/
-cypress/videos/
-cypress/downloads/
+**/cypress/screenshots/
+**/cypress/videos/
+**/cypress/downloads/
 
 # Python helper scripts and local virtual environments
 __pycache__/
