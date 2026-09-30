@@ -213,20 +213,23 @@ components described elsewhere in this document already exist.
 
 ```mermaid
 flowchart LR
-    explore["Explore + decision tree"]
+    explore["Evidence + explore"]
+    model["Proportionate business modeling"]
     confirm["Human proposal confirmation"]
     plan["Proposal / Specs / Design / Test Plan"]
     apply["Apply"]
     checks["Focused and affected checks"]
+    feedback["Model-drift audit + owner-doc feedback"]
     verify["Optional independent verify"]
     sync["Delta spec sync"]
     archive["Archive"]
 
-    explore --> confirm --> plan --> apply --> checks --> sync --> archive
+    explore --> model --> confirm --> plan --> apply --> checks --> feedback --> sync --> archive
     confirm -->|not ready| explore
     checks -. high risk or user request .-> verify
     verify -->|blocking finding| apply
-    verify -->|no blocker| sync
+    verify -->|no blocker| feedback
+    apply -->|new domain evidence| model
 ```
 
 - A possible Change starts in read-only exploration, not proposal authoring.
@@ -235,6 +238,19 @@ flowchart LR
   `grill-with-tree` where available or an equivalent cross-Agent interaction.
   Proposal artifacts may be written only after the user confirms the resulting
   scope, decisions, non-goals, and proposal action.
+- Every feature performs a proportionate business-modeling pass before planning
+  is complete. The pass starts from concrete scenarios and analyzes the
+  affected canonical language, identity, ownership/reference/cardinality,
+  lifecycle, invariants, authorization and tenant scope, version/history, real
+  asynchronous boundaries, and material failure or recovery paths. Lightweight
+  Event Storming, example mapping, relationship diagrams, state machines,
+  decision trees, and threat modeling are selected by risk; none implies
+  tactical DDD, event sourcing, or one code artifact per analysis concept.
+- The Change records its model impact and the owner documents expected to
+  receive stable conclusions. A no-model-change conclusion is acceptable only
+  when it points to the existing approved rule being implemented. Decisions
+  that alter behavior, data ownership, security, or task ordering are resolved
+  before apply; safely deferred details name their later resolution gate.
 - Before implementation, `test-plan.md` maps changed scenarios and material
   risks to the lowest reliable verification layer, names focused and affected
   commands, and records any justified automation gaps. It references this
@@ -250,7 +266,10 @@ flowchart LR
   type and risk. Do not manufacture failing tests, fixtures, or Red/Green phases
   merely to demonstrate process compliance.
 - Apply should continue through the selected Change's pending tasks and pause
-  only when a concrete blocker requires user action.
+  only when a concrete blocker requires user action. An implementation
+  discovery that changes the approved model or contract is such a decision
+  boundary: update the Change and the owning source of truth before encoding the
+  new rule in further production code.
 - After implementation, run the focused and affected checks declared by the
   Change's test plan. Applicable coverage, architecture, contract, database,
   browser, packaged Desktop, and system gates remain blocking when the owning
@@ -263,6 +282,14 @@ flowchart LR
   main spec. A Change with `skip_specs: true` reports that no delta sync is
   applicable; this marker never waives implementation verification or strict
   validation.
+- Before delta-spec sync and archive, compare the implemented code, migrations,
+  APIs, tests, and operational evidence with the planned model. Reconcile drift
+  and feed stable product semantics into `docs/business-model.md`, cross-project
+  contracts into this architecture, delegated details into child documents,
+  and observable behavior into main OpenSpec specs. Update Current/Target status
+  from evidence. Documentation should normally evolve with its owning slice;
+  this final audit is a reconciliation gate, not a final catch-all authoring
+  phase. If no owner document changes, the Change records why.
 - The canonical test tools, layer ownership, critical scenarios, and local
   commands remain in the Desktop, Agent Runtime, Gateway, and Core API
   [testing strategies](#subproject-documentation). This workflow only requires

@@ -92,6 +92,76 @@ checkpoint and obtain explicit confirmation unless that exact scope and
 proposal action were already confirmed in the current conversation. If product
 scope or behavior remains uncertain, continue exploration instead of guessing.
 
+### Business Modeling and Documentation Feedback
+
+Every future feature that adds or changes product behavior must include a
+proportionate business-modeling pass before its implementation plan is treated
+as complete. This is a semantic design gate, not a requirement to adopt
+tactical DDD or to produce a fixed set of diagrams.
+
+1. Inspect the current code, tests, main specs, active Change artifacts, and
+   owning documents before asking the user to repeat known facts.
+2. State the feature's actors, goal, scope, non-goals, and affected canonical
+   terms. Analyze the dimensions that can change correctness: stable identity;
+   ownership, references, and cardinality; lifecycle and transitions;
+   invariants and uniqueness; authorization and tenant scope; versioning and
+   history; synchronous and asynchronous boundaries; and important rejection,
+   failure, recovery, concurrency, and abuse scenarios.
+3. Use the smallest useful modeling methods for the risk. Preferred tools
+   include lightweight Event Storming for facts and policies, concrete
+   scenario/example mapping for behavior, relationship maps for identity and
+   cardinality, state machines for lifecycles, decision trees for ambiguous
+   choices, and threat modeling for trust boundaries. Do not mechanically turn
+   analysis artifacts into aggregates, repositories, commands, events,
+   listeners, modules, or tables.
+4. Resolve every decision that would change observable behavior, the logical
+   model, security, data ownership, acceptance scenarios, or implementation
+   ordering before proposal readiness. A deliberately deferred detail must name
+   why it is safe to defer and what later feature or gate must resolve it.
+5. Record the resulting model impact in the Change. A feature with no change to
+   product terms, relationships, lifecycles, or invariants must say so and
+   identify the already-approved rule it implements; silence is not a model
+   assessment.
+
+Modeling depth is proportional to novelty, ambiguity, reversibility cost, and
+risk. A small correction implementing an unambiguous approved rule needs only
+an evidence-backed no-model-change statement. A new core concept, relationship,
+lifecycle, authorization rule, persisted invariant, or cross-boundary workflow
+requires explicit model artifacts and concrete scenarios before implementation.
+
+Implementation is also a source of evidence. When a slice reveals a missing or
+incorrect business assumption, do not hide the decision in code or defer all
+documentation until the end: pause that slice, update and re-approve the
+Change's affected proposal/spec/design/test-plan artifacts, update the owning
+source-of-truth document when the stable rule has changed, and then continue.
+
+Before sync or archive, perform a model-drift and documentation-feedback audit
+against the implemented code, migrations, APIs, tests, and operational
+evidence. Feed stable conclusions back to their owners:
+
+- product vocabulary, identities, relationships, lifecycles, and business
+  invariants to [`docs/business-model.md`](docs/business-model.md);
+- cross-project boundaries and confirmed technical contracts to
+  [`docs/architecture.md`](docs/architecture.md);
+- delegated implementation responsibilities and verification commands to the
+  nearest child documents;
+- observable capability behavior to the applicable main OpenSpec specs through
+  delta-spec sync.
+
+Update `Current`, `Target`, `Proposed`, and `Deprecated` statements to match the
+evidence. Documentation owed by one implementation slice should be updated in
+that slice; the final audit detects drift and reconciles cross-slice conclusions
+rather than postponing all documentation work. If no owning document changes,
+record the evidence-backed reason in the Change. Structural validation or
+passing tests alone do not prove semantic alignment.
+
+This policy applies prospectively to features proposed after its adoption. An
+already in-flight Change continues under its approved artifacts and does not
+gain new modeling headings, tasks, or archive conditions solely because this
+policy or schema changed, unless the user explicitly chooses to migrate it.
+This grandfathering does not authorize silently changing that Change's already
+approved behavior or contracts in code.
+
 Use the OpenSpec Skills by phase:
 
 | Situation | Skill |

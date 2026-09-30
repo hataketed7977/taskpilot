@@ -13,10 +13,24 @@ artifacts:
     Sections:
     - **Why**: 1-2 sentences on the problem or opportunity. What problem does this solve? Why now?
     - **What Changes**: Bullet list of changes. Be specific about new capabilities, modifications, or removals. Mark breaking changes with **BREAKING**.
+    - **Business Model Impact**: For a product-behavior change, summarize the
+      proportionate modeling pass: affected actors and canonical terms; stable
+      identities; ownership, references, and cardinality; lifecycle and
+      invariants; authorization or tenant scope; version/history semantics;
+      asynchronous boundaries; and material rejection, failure, recovery,
+      concurrency, or abuse scenarios. Include only dimensions that matter to
+      this Change, but explicitly identify the approved rule when the conclusion
+      is "no model change". Name the lightweight methods used, such as concrete
+      examples, Event Storming, a relationship map, state machine, decision
+      tree, or threat model; do not imply tactical DDD from those methods.
     - **Capabilities**: Identify which specs will be created or modified:
       - **New Capabilities**: List capabilities being introduced. Each becomes a new `specs/<capability-path>/spec.md`. Use kebab-case for path segments you introduce (e.g., `user-auth` or `identity/user-auth`) and follow the project's existing spec organization.
       - **Modified Capabilities**: List existing capabilities whose REQUIREMENTS are changing. Only include if spec-level behavior changes (not just implementation details). Each needs a delta spec file. Use the exact existing path under `openspec/specs/`. Leave empty if no requirement changes.
     - **Impact**: Affected code, APIs, dependencies, or systems.
+    - **Documentation Impact**: Name the owning business-model, architecture,
+      child, and main-spec documents that implementation slices must update.
+      Identify expected Current/Target transitions. If no owner document should
+      change, give the evidence-backed reason rather than leaving this silent.
 
     IMPORTANT: The Capabilities section is critical. It creates the contract between
     proposal and specs phases. Research existing specs before filling this in:
@@ -163,6 +177,15 @@ artifacts:
     Sections:
     - **Context**: Only the current state and constraints needed to explain the approach. Reference the proposal for motivation instead of restating it (e.g., "See proposal.md - Why").
     - **Goals / Non-Goals**: What this design achieves and explicitly excludes. Don't restate the proposal's scope - add only design-level boundaries.
+    - **Business Model**: Record the methods used and the concrete conclusions
+      required to implement the proposal: identities and relationships,
+      cardinality and ownership, state transitions, invariants and uniqueness,
+      authorization scope, version/history rules, asynchronous boundaries, and
+      material failure, recovery, concurrency, or abuse behavior. Keep only
+      relevant dimensions and point to `docs/business-model.md` rather than
+      duplicating unchanged rules. Event Storming concepts are analysis inputs,
+      not a mandate for matching code types, listeners, modules, repositories,
+      or tables.
     - **Decisions**: Key technical choices with rationale (why X over Y?). Include alternatives considered for each decision.
     - **Risks / Trade-offs**: Known limitations, things that could go wrong. Format: [Risk] → Mitigation
     - **Migration Plan**: Steps to deploy, rollback strategy (if applicable)
@@ -170,7 +193,9 @@ artifacts:
       changing the specs, the approach, or the task breakdown. Omit if none.
 
     Open questions are for genuinely deferrable unknowns, not decisions you
-    skipped. If a question would change the specs, the chosen approach, or
+    skipped. For each deferred decision, explain why deferral is safe and name
+    the later feature or gate that owns resolution. If a question would change
+    the specs, business model, chosen approach, security or data ownership, or
     the task breakdown, resolve it now - ask the user instead of guessing.
 
     Focus on architecture and approach, not line-by-line implementation.
@@ -200,7 +225,13 @@ artifacts:
 
     Required sections:
     - **Scope and Risk**: affected areas, risk class, escaped-defect impact, and explicit non-goals.
-    - **Scenario-to-Test Mapping**: map each important success, rejection, boundary, and recovery risk to an owning verification layer and planned evidence. Include automated tests, contract, real-infrastructure, browser, or system evidence only when they catch a distinct risk.
+    - **Scenario-to-Test Mapping**: map each important success, rejection,
+      boundary, and recovery risk to an owning verification layer and planned
+      evidence. Explicitly cover affected business invariants, lifecycle
+      transitions, authorization or tenant boundaries, and material
+      concurrency, retry, or recovery behavior. Include automated tests,
+      contract, real-infrastructure, browser, or system evidence only when they
+      catch a distinct risk.
     - **Implementation and Verification Approach**: select an approach for each meaningful slice. Use Red-Green-Refactor only for business-feature behavior with a clear automatable boundary; for other work, name the implementation steps and the evidence appropriate to its type and risk.
     - **Verification Commands**: focused commands first, then affected suites and applicable coverage, architecture, contract, database, browser, or system gates. Use commands owned by project documentation; if the toolchain does not exist yet, name the executable gate that the scaffold task must create and validate.
     - **Manual Evidence and Automation Gaps**: record manual acceptance evidence only when it detects a risk that available automation cannot, including the reason, owner, and follow-up. Manual checks do not become tasks.md checkboxes.
@@ -211,6 +242,9 @@ artifacts:
     - When TDD is selected for a business behavior, its tests and production behavior must land in the same task group; never defer all tests to a final phase.
     - Never weaken a requirement, delete an assertion, skip a test, or move production logic into test code merely to make verification pass.
     - Tooling, documentation, workflow, configuration, dependency, generated-file, scaffolding, and exploratory work must not manufacture Red/Green evidence. Select schema validation, lint, build, source review, targeted execution, or other evidence that addresses the actual risk.
+    - Passing tests does not replace the final semantic comparison between the
+      approved model and the implemented code, data, APIs, and operational
+      evidence.
   requires:
   - specs
   - design
@@ -225,9 +259,25 @@ artifacts:
 
     IMPORTANT: Follow the checkbox template exactly. The apply phase tracks only `- [ ]` and `- [x]` tasks.
 
-    Organize tasks into the smallest coherent implementation slices and include the verification evidence required by test-plan.md in the same numbered group. If the test plan selects TDD for a business-feature slice, order that group as Red, Green, and Refactor and ensure the Red failure is caused by the missing behavior rather than compilation, environment, flaky, or unrelated failures.
+    Organize tasks into the smallest coherent implementation slices and include
+    the verification evidence required by test-plan.md and updates to that
+    slice's owning business-model, architecture, child, or contract documents in
+    the same numbered group. If the test plan selects TDD for a business-feature
+    slice, order that group as Red, Green, and Refactor and ensure the Red
+    failure is caused by the missing behavior rather than compilation,
+    environment, flaky, or unrelated failures.
 
-    For work that does not select TDD, describe the direct implementation steps and the risk-matched verification without inventing Red/Green tasks or artificial fixtures. Every task must state its command or other objective completion evidence. Do not create a final catch-all group that first adds tests or documentation owed by earlier work; a final group may contain only broader integration and release gates that span completed slices. Keep manual acceptance guidance outside tasks.md.
+    For work that does not select TDD, describe the direct implementation steps
+    and the risk-matched verification without inventing Red/Green tasks or
+    artificial fixtures. Every task must state its command or other objective
+    completion evidence. Do not create a final catch-all group that first adds
+    tests or documentation owed by earlier work. The final group must include a
+    model-drift and documentation-feedback audit that compares implementation,
+    tests, migrations, APIs, and operational evidence with the approved model;
+    reconciles Current/Target status and cross-slice conclusions; and confirms
+    delta-spec sync readiness. It may also contain broader integration and
+    release gates that span completed slices. Keep manual acceptance guidance
+    outside tasks.md.
 
     Tasks must preserve the verification layers, coverage policy, and boundary ownership in docs/architecture.md and the nearest subproject testing strategy. Reference those sources rather than copying their full matrices.
   requires:
@@ -238,10 +288,39 @@ apply:
   - tasks
   tracks: tasks.md
   instruction: |
-    Read all context files, especially test-plan.md, before editing implementation files. Work on one coherent slice at a time and keep its implementation, tests where applicable, documentation, and verification evidence together.
+    This business-modeling and documentation-feedback policy applies to Changes
+    proposed under the current schema. Do not retrofit a Change that was already
+    in flight when the policy was adopted with new headings, tasks, or archive
+    conditions solely because the schema changed; follow its approved artifacts
+    unless the user explicitly chooses to migrate it. Grandfathering never
+    permits silently changing an approved behavior or contract in code.
+
+    Read all context files before editing implementation files, especially the
+    proposal's Business Model Impact and Documentation Impact, every delta spec,
+    design.md, and test-plan.md. Work on one coherent slice at a time and keep
+    its implementation, tests where applicable, owning documentation, and
+    verification evidence together. A business decision must not exist only in
+    production code.
 
     Follow the implementation and verification approach selected by test-plan.md. For business-feature slices that select TDD, perform a valid Red-Green-Refactor cycle at the owning test layer. For all other work, implement directly and run the schema, lint, build, source review, targeted execution, or other evidence appropriate to the change type and risk. Never weaken a requirement, delete an assertion, skip a test, or move production logic into test code merely to make verification pass, and do not invent failing tests or fixtures for process compliance.
 
-    Mark a checkbox complete only after its stated evidence passes. If implementation reveals a conflict or missing decision in proposal, specs, design, or test-plan, stop and use openspec-update-change; do not silently rewrite the contract during apply. Run focused checks before broader suites and expand by risk according to repository testing documentation. After all tasks pass, run the planned focused and affected checks, then proceed to delta spec sync and archive. Use openspec-verify-change only when the user requests an independent review or the change risk warrants an optional second pass.
+    Mark a checkbox complete only after its stated evidence passes. If
+    implementation reveals a conflict, missing decision, or new domain evidence
+    affecting the business model, proposal, specs, design, or test-plan, pause
+    that slice and use openspec-update-change; obtain any required approval and
+    update the owning source of truth before encoding the new rule in further
+    production code. Do not silently rewrite the contract during apply. Run
+    focused checks before broader suites and expand by risk according to
+    repository testing documentation.
+
+    After all implementation slices and planned checks pass, perform the tasks'
+    model-drift and documentation-feedback audit. Compare code, migrations,
+    APIs, tests, and operational evidence with the approved model; feed stable
+    product semantics, architecture contracts, delegated details, and observable
+    behavior back to their owning documents; reconcile Current/Target status;
+    and record an evidence-backed reason if no owner document changes. Only then
+    proceed to delta spec sync and archive. Use openspec-verify-change only when
+    the user requests an independent review or the change risk warrants an
+    optional second pass.
 
     Continue pending tasks until the selected Change is complete; pause only when a concrete blocker requires user action.

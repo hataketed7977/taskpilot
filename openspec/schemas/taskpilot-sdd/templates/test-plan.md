@@ -6,6 +6,10 @@
 
 ## Scenario-to-Test Mapping
 
+<!-- Include affected business invariants, lifecycle transitions, authorization
+     or tenant boundaries, and material concurrency, retry, and recovery paths.
+     Tests provide evidence but do not replace the final semantic drift audit. -->
+
 | Requirement / Scenario / Risk | Verification Layer | Planned Evidence | Why This Layer |
 | --- | --- | --- | --- |
 | <!-- behavior or risk --> | <!-- unit / module / contract / infrastructure / browser / system / schema / lint / build / review --> | <!-- test, command, or objective evidence --> | <!-- distinct defect detected --> |

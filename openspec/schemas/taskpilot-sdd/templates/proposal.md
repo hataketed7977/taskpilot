@@ -8,6 +8,16 @@
 
 <!-- Describe what will change. Be specific about new capabilities, modifications, or removals. -->
 
+## Business Model Impact
+
+<!-- For a product-behavior change, summarize the proportionate modeling pass:
+     affected actors and canonical terms; stable identities; ownership,
+     references, and cardinality; lifecycle and invariants; authorization or
+     tenant scope; version/history; asynchronous boundaries; and material
+     rejection, failure, recovery, concurrency, or abuse scenarios. Include only
+     relevant dimensions and name the lightweight method(s) used. If there is no
+     model change, identify the existing approved rule this Change implements. -->
+
 ## Capabilities
 
 ### New Capabilities
@@ -29,3 +39,9 @@
 ## Impact
 
 <!-- Affected code, APIs, dependencies, systems -->
+
+## Documentation Impact
+
+<!-- Name the owning business-model, architecture, child, and main-spec documents
+     that implementation slices will update, including expected Current/Target
+     transitions. If none should change, give the evidence-backed reason. -->
