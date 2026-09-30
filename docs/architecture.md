@@ -16,10 +16,13 @@ repository is being formed. Product vocabulary and behavior belong to the
 frontend, Gateway, backend, CLI, or infrastructure decisions until a real
 subproject exists to own the detail.
 
-The repository now contains a runnable Core API engineering foundation and root
-Gradle Wrapper. It does not yet contain business APIs, business persistence,
-production database migrations, or API specifications. Desktop, Agent Runtime,
-and Gateway remain documentation-only boundaries.
+The repository now contains runnable Desktop and Core API subprojects. Their
+current first-use slice covers first-party authentication, session recovery,
+Organization Workspace list/create, and a Workspace-scoped read-only Project
+list, backed by production Flyway migrations and non-production runtime OpenAPI.
+Agent Runtime and Gateway remain documentation-only boundaries; broader product,
+Agent-execution, deployment, signing, and update capabilities below remain
+Target unless explicitly marked Current.
 
 ## Diagram Conventions
 
@@ -49,7 +52,7 @@ flowchart LR
     external["Third-party HTTP clients"]
     cli["Future CLI"]
     edge["Edge / TLS / WAF"]
-    gateway["Kotlin API Gateway"]
+    gateway["Future Kotlin API Gateway"]
     api["Kotlin core-api control plane"]
     provider["Remote managed-Agent providers"]
     credential["OS credential store"]
@@ -59,9 +62,10 @@ flowchart LR
     desktop -->|HTTPS| edge
     external --> edge
     cli --> edge
-    edge --> gateway
-    gateway --> api
-    gateway --> redis
+    edge --> api
+    edge -.->|future centralized edge policy| gateway
+    gateway -.->|future routing| api
+    gateway -.->|optional technical state| redis
     api --> postgres
     api -->|provider-neutral adapter| provider
     desktop -->|JSON-RPC 2.0 / JSONL over stdio| runtime
@@ -109,18 +113,30 @@ and Windows isolation, child-process network policy, whole-process-tree cleanup,
 and sandbox failure and escape behavior. Rust, local consent, and canonical path
 checks do not satisfy that gate by themselves.
 
-Redis is optional technical infrastructure. The Gateway may use it for a proven
-distributed rate-limit requirement. `core-api` adds Redis only for a documented
-cache or coordination use case; Redis never owns business truth.
+For the MVP, Desktop Main reaches the Core API through the deployment edge/TLS
+boundary. That edge may provide transport protection such as TLS termination,
+basic request-size/rate controls, and observability, but it does not create a
+trusted application principal. Core API is the only current application-layer
+Resource Server: it validates the Desktop bearer token and remains responsible
+for every business authorization decision. The Gateway is a future optional
+boundary, not an MVP request hop; introducing it requires a separate Change for
+a proven multi-backend, multi-API-surface, or centralized edge-policy need and
+must not weaken Core API authentication or authorization.
+
+Redis is optional technical infrastructure. A future Gateway may use it for a
+proven distributed rate-limit requirement. `core-api` adds Redis only for a
+documented cache or coordination use case; Redis never owns business truth.
 
 ## Top-Level Project Boundaries
 
 ```text
 taskpilot/
 ├── apps/
-│   ├── desktop/
+│   ├── desktop/              # Current Electron/React first-use slice
 │   │   ├── AGENTS.md
-│   │   └── docs/
+│   │   ├── docs/
+│   │   ├── src/
+│   │   └── tests/
 │   ├── agent-runtime/
 │   │   ├── AGENTS.md
 │   │   └── docs/
@@ -133,7 +149,7 @@ taskpilot/
 │       ├── AGENTS.md
 │       ├── build.gradle.kts
 │       ├── docs/
-│       └── src/               # Current minimal application and layered tests
+│       └── src/               # Current first-use APIs, persistence, and layered tests
 ├── contracts/                 # Future, when API specifications exist
 ├── docs/
 │   ├── README.md              # Documentation knowledge map
@@ -149,8 +165,8 @@ taskpilot/
 ```
 
 Do not create future directories until their project or artifact is actually
-initialized. Core API is the only currently initialized runnable subproject;
-Desktop, Agent Runtime, and Gateway still have documentation owners only. The
+initialized. Desktop and Core API are the currently initialized runnable
+subprojects; Agent Runtime and Gateway still have documentation owners only. The
 future CLI receives the same structure when created.
 
 ## Technology Direction
@@ -191,67 +207,72 @@ platform evidence.
 TaskPilot's repository-level OpenSpec workflow is implemented by the project
 default [`taskpilot-sdd` schema](../openspec/schemas/taskpilot-sdd/schema.yaml),
 its [`test-plan` template](../openspec/schemas/taskpilot-sdd/templates/test-plan.md),
-and the generated workflow Skills routed by [`AGENTS.md`](../AGENTS.md). This
-section describes the cross-project quality gate; it does not mean the Target
-application components described elsewhere in this document already exist.
+and the workflow Skills routed by [`AGENTS.md`](../AGENTS.md). This section
+describes the cross-project quality gate; it does not mean the Target application
+components described elsewhere in this document already exist.
 
 ```mermaid
 flowchart LR
+    explore["Explore + decision tree"]
+    confirm["Human proposal confirmation"]
     plan["Proposal / Specs / Design / Test Plan"]
-    apply["Apply with TDD"]
-    checks["Focused and affected automated checks"]
+    apply["Apply"]
+    checks["Focused and affected checks"]
     verify["Optional independent verify"]
     sync["Delta spec sync"]
     archive["Archive"]
 
-    plan --> apply --> checks --> sync --> archive
+    explore --> confirm --> plan --> apply --> checks --> sync --> archive
+    confirm -->|not ready| explore
     checks -. high risk or user request .-> verify
     verify -->|blocking finding| apply
     verify -->|no blocker| sync
 ```
 
+- A possible Change starts in read-only exploration, not proposal authoring.
+  Existing evidence is inspected first; material ambiguity and high-impact
+  decisions are resolved through a visible decision tree, using
+  `grill-with-tree` where available or an equivalent cross-Agent interaction.
+  Proposal artifacts may be written only after the user confirms the resulting
+  scope, decisions, non-goals, and proposal action.
 - Before implementation, `test-plan.md` maps changed scenarios and material
-  risks to the lowest reliable test layer, names focused and affected commands,
-  and records justified exceptions. It references this document and the nearest
-  child testing strategy rather than repeating their tool and layer matrices.
-- Each executable behavior is delivered as one slice: first prove a valid Red
-  failure caused by the missing or incorrect behavior, then make the smallest
-  clear Green implementation, then Refactor under the focused and
-  risk-appropriate affected protection suite. Compile failures, unavailable
-  environments, flaky tests, and unrelated failures are not Red evidence.
-- Tests and the production behavior they protect land in the same task group.
-  Green cannot be obtained by weakening the approved contract or assertion,
-  skipping a test, or moving production behavior into test code.
-- Documentation-only, generated-file, tooling, dependency, and pure scaffolding
-  changes may record behavioral TDD as not applicable. They still require
-  planned automated structural evidence such as schema validation, fixtures, a
-  self-test, lint, or build; manual observation does not replace an automatable
-  gate.
-- After apply completes, run the focused and affected automated checks declared
-  by the Change's test plan. Applicable coverage, architecture, contract,
-  database, browser, packaged Desktop, and system gates remain blocking when
-  the owning testing strategy requires them.
+  risks to the lowest reliable verification layer, names focused and affected
+  commands, and records any justified automation gaps. It references this
+  document and the nearest child testing strategy rather than repeating their
+  tool and layer matrices.
+- TDD is optional and is appropriate for business-feature behavior with clear,
+  automatable boundaries. When selected, tests and the production behavior they
+  protect land in the same task group, and Green cannot be obtained by weakening
+  the approved contract or assertion, skipping a test, or moving production
+  behavior into test code.
+- Documentation, workflow, configuration, generated-file, dependency,
+  scaffolding, and exploratory changes use verification matched to their actual
+  type and risk. Do not manufacture failing tests, fixtures, or Red/Green phases
+  merely to demonstrate process compliance.
+- Apply should continue through the selected Change's pending tasks and pause
+  only when a concrete blocker requires user action.
+- After implementation, run the focused and affected checks declared by the
+  Change's test plan. Applicable coverage, architecture, contract, database,
+  browser, packaged Desktop, and system gates remain blocking when the owning
+  testing strategy requires them.
 - `openspec-verify-change` is an optional read-only second pass for high-risk
   work or explicit user requests. Its findings return to apply, but routine
   archive readiness does not depend on a verification receipt, policy,
   fingerprint, or repository-specific preflight.
 - Before archive, assess every delta spec and sync it into the corresponding
   main spec. A Change with `skip_specs: true` reports that no delta sync is
-  applicable; this marker never waives implementation tests or strict
+  applicable; this marker never waives implementation verification or strict
   validation.
 - The canonical test tools, layer ownership, critical scenarios, and local
   commands remain in the Desktop, Agent Runtime, Gateway, and Core API
   [testing strategies](#subproject-documentation). This workflow only requires
   each change to select and evidence the relevant parts.
 
-The official workflow Skills are reproducibly refreshed with
-[`tools/openspec/update-workflows.sh`](../tools/openspec/update-workflows.sh),
-which uses temporary OpenSpec profile state instead of modifying a developer's
-global profile and verifies that all seven generated Skills report the installed
-OpenSpec version. Generated Skill files are never edited manually. The isolated
-[`tools/openspec/test-workflow.sh`](../tools/openspec/test-workflow.sh) is the
-semantic regression gate for the schema graph, TDD guidance, strict Change
-validation, and fixture isolation.
+Workflow Skills are managed by the official OpenSpec integration for each Agent.
+Generated Skill files are not edited manually, and the repository does not wrap
+or re-test OpenSpec's own generation, state-machine, or validation behavior.
+Use OpenSpec's official schema and strict validation commands for repository-owned
+artifacts.
 
 ## Cross-Project Testing Boundaries
 
@@ -267,21 +288,24 @@ validation, and fixture isolation.
 - Agent Runtime policy and protocol tests run below system E2E; real
   filesystem, process-tree, PTY, journal/recovery, and platform tests remain at
   the Runtime boundary.
-- System E2E selects the real boundaries needed by the scenario: Desktop,
-  Gateway, Core API, and PostgreSQL for ordinary product flows; a provider fake
-  at the server-side adapter boundary for `REMOTE_MANAGED`; and packaged Agent
-  Runtime plus its managed-execution surface for `LOCAL_DESKTOP`. Third-party
-  identity and Agent providers may be deterministic test doubles at
-  TaskPilot-owned outbound boundaries.
+- System E2E selects the real boundaries needed by the scenario. MVP ordinary
+  product flows use Desktop, the deployment edge/TLS test boundary, Core API,
+  and PostgreSQL; a future Gateway is included only after its own initialization
+  Change. A provider fake sits at the server-side adapter boundary for
+  `REMOTE_MANAGED`; packaged Agent Runtime plus its managed-execution surface is
+  used for `LOCAL_DESKTOP`. Third-party identity and Agent providers may be
+  deterministic test doubles at TaskPilot-owned outbound boundaries.
 - System E2E state is prepared through controlled test fixtures or APIs rather
   than repeated UI setup. Test-only setup capabilities are unavailable in
   production and cannot bypass the business rule under test.
-- Gateway routing, header trust, credential, timeout, and rate-limit matrices
-  remain Gateway integration tests. Core API domain, tenancy, authorization,
-  persistence, migration, concurrency, and idempotency matrices remain Core API
-  tests.
-- OpenAPI compatibility and generated-client checks are contract gates, not a
-  substitute for runtime API or system integration tests.
+- Once initialized, Gateway routing, header trust, credential, timeout, and
+  rate-limit matrices remain Gateway integration tests. Core API authentication,
+  domain, tenancy, authorization, persistence, migration, concurrency, and
+  idempotency matrices remain Core API tests.
+- The initial Desktop API uses runtime OpenAPI contract tests and Swagger UI;
+  generated-client and compatibility gates are introduced only by a later
+  Change with a versioned-contract requirement. No contract gate substitutes
+  for runtime API or system integration tests.
 - Essential security, contract, database, migration, and critical-journey tests
   are blocking before release; nightly execution may broaden coverage but is
   never their only home.
@@ -374,11 +398,26 @@ threshold is an architectural policy change, not a local test workaround.
 
 - The first-party Desktop API and public HTTP API are separate API products.
 - Both may be implemented by `core-api`, but they have separate controllers,
-  transport models, compatibility policies, and OpenAPI documents.
-- Desktop-generated TypeScript transport types belong in the Desktop project.
+  transport models, and compatibility policies. The initial Desktop API exposes
+  runtime-generated OpenAPI and Swagger UI; a committed versioned artifact is
+  not required until a later Change establishes that contract lifecycle.
+- Desktop Main initially owns narrow hand-written transport types checked
+  against runtime OpenAPI contract fixtures. The first contract covers in-app
+  authentication/session lifecycle, Workspace list/create, and read-only Project
+  list for an active `WorkspaceId`; generated TypeScript transport types may be
+  introduced later only with an explicit source-of-truth and drift policy.
+- Core API `access` owns User/session and Workspace Membership authorization;
+  Project Work owns Project, Project Membership, and the Project list query. The
+  latter consumes a narrow trusted Workspace-membership fact and never reads
+  Access private tables. A Project list requires both memberships for the same
+  User and Workspace, and Desktop query state is scoped by environment,
+  `UserId`, and `WorkspaceId`.
 - The public API exposes HTTP only; TaskPilot does not publish a public SDK.
 - The future CLI consumes the public HTTP API like any external client.
-- Gateway routes and protects both API surfaces without owning business flows.
+- In the MVP, the deployment edge routes the Desktop to Core API without
+  producing trusted identity. A future Gateway may route and apply technical
+  policy to multiple API surfaces but never owns business flows or replaces
+  Core API authentication and authorization.
 - Remote managed-Agent providers are integrations behind Core API-owned adapter
   ports; provider SDK types, credentials, callbacks, and raw status vocabularies
   do not cross into Desktop or business contracts.
@@ -388,11 +427,22 @@ threshold is an architectural policy change, not a local test workaround.
 
 ### Identity and Execution Authorization
 
-Desktop identity is established through a future system-browser login contract.
-Gateway normalizes verified identity context; Core API remains authoritative for
-Workspace/Project access and business authorization. Long-lived Desktop
-credentials stay behind OS credential facilities and never enter Renderer or
-Agent Runtime.
+Desktop identity is established through the approved in-app email
+authentication contract: password is the default login method, while email OTP
+is an explicit alternative and also supports registration and password reset.
+Core API owns User credentials, OTP challenges, opaque access tokens, refresh
+session families, session rotation and revocation. Electron Main owns the
+credentialed Desktop client and stores long-lived refresh material only through
+OS credential facilities; Renderer receives only authenticated state and a safe
+`CurrentUserView`. The deployment edge does not normalize or assert identity.
+Core API remains authoritative for Workspace/Project access and business
+authorization. The first authenticated journey establishes an active
+`WorkspaceId`, then loads the real authorized Project list; it does not route
+that query through a Gateway or imply Project creation. A future Gateway may
+apply route-specific credential validation or normalize internal context only as
+defense in depth; credential formats remain route-specific, and Core API still
+independently authenticates and authorizes. Desktop credentials never enter
+Renderer or Agent Runtime.
 
 Before Runtime execution exists, a behavior change must define a short-lived
 execution grant bound to issuer, User, Workspace, Project, Agent Run, Attempt,
@@ -424,12 +474,14 @@ compatibility policies:
   domain permission from role names.
 - Definition validation returns path-addressable diagnostics for visual editors
   without moving canonical DSL rules into the Desktop.
-- `core-api` produces separate OpenAPI artifacts. Desktop API changes and
-  generated Desktop transport types are verified together; public API
-  artifacts additionally receive compatibility checks.
+- In the first Desktop API phase, `core-api` produces runtime OpenAPI JSON and
+  Swagger UI, and runtime contract tests are verified with Main adapter tests.
+  It does not require a committed standalone schema, generated Desktop client,
+  or breaking-change compatibility gate. A later Change may introduce those
+  controls when cross-version or multi-client needs justify them.
 
-Exact status codes, headers, payloads, artifact paths, and generation commands
-are recorded with the first API implementation.
+Exact status codes, headers, payloads, and executable contract-test commands are
+recorded with the first API implementation.
 
 ## Business Model Boundary
 
@@ -474,9 +526,11 @@ extraction constraints belong to the
 
 ## SaaS Direction
 
-Tenant identity and isolation are cross-cutting requirements. The Gateway may
-normalize trusted tenant context, while `core-api` remains responsible for
-authorization and tenant-scoped data access.
+Tenant identity and isolation are cross-cutting requirements. In the MVP,
+`core-api` derives the principal from a verified bearer token and remains
+responsible for authorization and tenant-scoped data access. A future Gateway
+may normalize trusted context as defense in depth, but its output is never
+sufficient proof of membership or permission.
 
 The initial design must permit future plans, quotas, enterprise identity, audit,
 and selected tenant isolation strategies without implementing those

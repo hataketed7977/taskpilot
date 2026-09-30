@@ -6,17 +6,18 @@
 
 ## Scenario-to-Test Mapping
 
-| Requirement / Scenario / Risk | Test Layer | Planned Automated Test | Why This Layer |
+| Requirement / Scenario / Risk | Verification Layer | Planned Evidence | Why This Layer |
 | --- | --- | --- | --- |
-| <!-- behavior or risk --> | <!-- unit / module / contract / infrastructure / browser / system --> | <!-- test name or target --> | <!-- distinct defect detected --> |
+| <!-- behavior or risk --> | <!-- unit / module / contract / infrastructure / browser / system / schema / lint / build / review --> | <!-- test, command, or objective evidence --> | <!-- distinct defect detected --> |
 
-## TDD Slices
+## Implementation and Verification Approach
 
-### Slice 1: <!-- observable behavior -->
+### Slice 1: <!-- coherent behavior or change -->
 
-- **Red:** <!-- smallest test, command, and expected missing-behavior failure -->
-- **Green:** <!-- minimum production behavior needed to pass -->
-- **Refactor:** <!-- structure to improve and protection suite to rerun -->
+<!-- For business-feature behavior with a clear automatable boundary, describe
+     the Red-Green-Refactor approach. For other work, describe direct
+     implementation steps and risk-matched verification; do not invent TDD
+     evidence for process compliance. -->
 
 ## Verification Commands
 
@@ -28,8 +29,7 @@
 
 - `<!-- command -->`: <!-- when and why this broader gate applies -->
 
-## Exceptions and Manual Evidence
+## Manual Evidence and Automation Gaps
 
-<!-- For each justified exception, record why TDD/automation is not applicable,
-     alternative automated structural evidence, any manual acceptance evidence,
-     owner, and follow-up. Write "None" when there are no exceptions. -->
+<!-- Record manual evidence only when it covers a risk unavailable to automation,
+     including the reason, owner, and follow-up. Write "None" when not needed. -->

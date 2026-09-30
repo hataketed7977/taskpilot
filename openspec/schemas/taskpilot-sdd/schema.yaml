@@ -1,7 +1,7 @@
 # Forked from @fission-ai/openspec 1.13.2 built-in spec-driven schema.
 name: taskpilot-sdd
 version: 1
-description: TaskPilot SDD workflow - proposal → specs/design → test plan → TDD tasks → apply → automated checks → spec sync/archive
+description: TaskPilot SDD workflow - proposal → specs/design → risk-based verification plan → tasks → apply → checks → spec sync/archive
 artifacts:
 - id: proposal
   generates: proposal.md
@@ -185,32 +185,32 @@ artifacts:
           - Identify the important success, rejection, boundary, and recovery risks that shape the design.
           - Name the owning test boundary and reference the nearest testing strategy; do not duplicate its full test matrix.
           - Design seams for deterministic tests at the lowest reliable layer without weakening production boundaries.
-          - Record any behavior for which TDD is not applicable and why. Do not invent tests for documentation-only, generated-file, or pure scaffolding work.
+          - Choose implementation and verification techniques that match the change type and risk. Use TDD only where business behavior has a clear automatable boundary; do not invent tests for process compliance.
           - Resolve any question that would change the test plan or task ordering before tasks are authored.
   requires:
   - proposal
 - id: test-plan
   generates: test-plan.md
-  description: Risk-based test plan and Red-Green-Refactor evidence contract
+  description: Risk-based implementation and verification plan
   template: test-plan.md
   instruction: |
-    Create the executable test plan before implementation tasks are written.
+    Create the executable implementation and verification plan before implementation tasks are written.
 
     Read the proposal, every delta spec, the design, docs/architecture.md, and the nearest affected subproject testing strategies. This artifact maps risks and observable scenarios to the lowest reliable test layer; it does not replace those testing strategies.
 
     Required sections:
     - **Scope and Risk**: affected areas, risk class, escaped-defect impact, and explicit non-goals.
-    - **Scenario-to-Test Mapping**: map each important success, rejection, boundary, and recovery scenario to an owning test layer and planned automated test. Include contract, real-infrastructure, browser, or system evidence only when they catch a distinct boundary risk.
-    - **TDD Slices**: for each behavior slice, state the Red test and expected failure reason, the minimum Green behavior, and the Refactor protection suite. A compile, environment, or unrelated failure is not valid Red evidence.
+    - **Scenario-to-Test Mapping**: map each important success, rejection, boundary, and recovery risk to an owning verification layer and planned evidence. Include automated tests, contract, real-infrastructure, browser, or system evidence only when they catch a distinct risk.
+    - **Implementation and Verification Approach**: select an approach for each meaningful slice. Use Red-Green-Refactor only for business-feature behavior with a clear automatable boundary; for other work, name the implementation steps and the evidence appropriate to its type and risk.
     - **Verification Commands**: focused commands first, then affected suites and applicable coverage, architecture, contract, database, browser, or system gates. Use commands owned by project documentation; if the toolchain does not exist yet, name the executable gate that the scaffold task must create and validate.
-    - **Exceptions and Manual Evidence**: identify work where TDD or automation is genuinely not applicable, with the reason, alternative automated structural evidence, manual acceptance evidence if needed, owner, and follow-up. Manual checks do not become tasks.md checkboxes.
+    - **Manual Evidence and Automation Gaps**: record manual acceptance evidence only when it detects a risk that available automation cannot, including the reason, owner, and follow-up. Manual checks do not become tasks.md checkboxes.
 
     Rules:
     - Prefer meaningful behavior and branch coverage over test count or a mechanical 100% target.
     - Do not repeat the same behavior at every layer. Use the lowest reliable layer and add broader tests only for distinct integration or browser risk.
-    - Tests and their production behavior must land in the same task group; never defer all tests to a final phase.
-    - Never weaken a requirement, delete an assertion, skip a test, or move production logic into test code merely to obtain Green.
-    - A tooling, documentation, generated-file refresh, or pure scaffolding change may mark behavioral TDD not applicable, but must still define schema, fixture, self-test, lint, build, or other automated evidence appropriate to the change.
+    - When TDD is selected for a business behavior, its tests and production behavior must land in the same task group; never defer all tests to a final phase.
+    - Never weaken a requirement, delete an assertion, skip a test, or move production logic into test code merely to make verification pass.
+    - Tooling, documentation, workflow, configuration, dependency, generated-file, scaffolding, and exploratory work must not manufacture Red/Green evidence. Select schema validation, lint, build, source review, targeted execution, or other evidence that addresses the actual risk.
   requires:
   - specs
   - design
@@ -225,16 +225,11 @@ artifacts:
 
     IMPORTANT: Follow the checkbox template exactly. The apply phase tracks only `- [ ]` and `- [x]` tasks.
 
-    For each executable behavior slice, keep tests and production code in the same numbered group and order the work as:
-    1. **Red** — add or modify the smallest automated test, run the focused command, and confirm it fails for the expected missing behavior. Compile errors, environment failures, and unrelated failures are not valid Red evidence.
-    2. **Green** — implement the smallest clear production behavior that satisfies the contract, then run the focused test and relevant nearby tests.
-    3. **Refactor** — improve structure without changing behavior and rerun the focused/affected protection suite.
+    Organize tasks into the smallest coherent implementation slices and include the verification evidence required by test-plan.md in the same numbered group. If the test plan selects TDD for a business-feature slice, order that group as Red, Green, and Refactor and ensure the Red failure is caused by the missing behavior rather than compilation, environment, flaky, or unrelated failures.
 
-    Every task must state its command or automated completion evidence. Do not create a final catch-all group that first adds tests or documentation owed by earlier behavior. A final group may contain only broader integration and release gates that span completed slices.
+    For work that does not select TDD, describe the direct implementation steps and the risk-matched verification without inventing Red/Green tasks or artificial fixtures. Every task must state its command or other objective completion evidence. Do not create a final catch-all group that first adds tests or documentation owed by earlier work; a final group may contain only broader integration and release gates that span completed slices. Keep manual acceptance guidance outside tasks.md.
 
-    For documentation-only, generated-file, tooling, dependency, or pure scaffolding work that test-plan.md marks as not applicable to behavioral TDD, do not invent Red/Green tasks. Use the planned schema validation, fixture, self-test, lint, build, or other automated structural evidence instead. Keep manual acceptance guidance outside tasks.md.
-
-    Tasks must preserve the test layers, coverage policy, and boundary ownership in docs/architecture.md and the nearest subproject testing strategy. Reference those sources rather than copying their full matrices.
+    Tasks must preserve the verification layers, coverage policy, and boundary ownership in docs/architecture.md and the nearest subproject testing strategy. Reference those sources rather than copying their full matrices.
   requires:
   - test-plan
   - design
@@ -243,13 +238,10 @@ apply:
   - tasks
   tracks: tasks.md
   instruction: |
-    Read all context files, especially test-plan.md, before editing implementation files. Work on one behavior slice at a time and keep its tests, production code, and documentation together.
+    Read all context files, especially test-plan.md, before editing implementation files. Work on one coherent slice at a time and keep its implementation, tests where applicable, documentation, and verification evidence together.
 
-    For each behavioral slice:
-    1. Red: add or update the smallest test at the owning layer. Run its focused command and confirm the failure is caused by the specified behavior being absent or incorrect. Record the command and concise expected failure reason in progress reporting. Do not accept compile, environment, flaky, or unrelated failures as Red.
-    2. Green: implement the smallest clear behavior that satisfies the spec. Run the focused test and relevant nearby tests. Never obtain Green by deleting assertions, skipping tests, weakening the approved contract, or moving production logic into tests.
-    3. Refactor: improve structure while preserving observable behavior, then rerun focused and risk-appropriate affected checks.
+    Follow the implementation and verification approach selected by test-plan.md. For business-feature slices that select TDD, perform a valid Red-Green-Refactor cycle at the owning test layer. For all other work, implement directly and run the schema, lint, build, source review, targeted execution, or other evidence appropriate to the change type and risk. Never weaken a requirement, delete an assertion, skip a test, or move production logic into test code merely to make verification pass, and do not invent failing tests or fixtures for process compliance.
 
-    For a task explicitly marked TDD-not-applicable by test-plan.md, run its planned automated structural evidence instead of inventing a behavioral test. Mark a checkbox complete only after its stated evidence passes. Manual observation alone does not complete an automatable task.
+    Mark a checkbox complete only after its stated evidence passes. If implementation reveals a conflict or missing decision in proposal, specs, design, or test-plan, stop and use openspec-update-change; do not silently rewrite the contract during apply. Run focused checks before broader suites and expand by risk according to repository testing documentation. After all tasks pass, run the planned focused and affected checks, then proceed to delta spec sync and archive. Use openspec-verify-change only when the user requests an independent review or the change risk warrants an optional second pass.
 
-    If implementation reveals a conflict or missing decision in proposal, specs, design, or test-plan, stop and use openspec-update-change; do not silently rewrite the contract during apply. Run focused checks before broader suites and expand by risk according to repository testing documentation. After all tasks pass, run the planned focused and affected automated checks, then proceed to delta spec sync and archive. Use openspec-verify-change only when the user requests an independent review or the change risk warrants an optional second pass.
+    Continue pending tasks until the selected Change is complete; pause only when a concrete blocker requires user action.

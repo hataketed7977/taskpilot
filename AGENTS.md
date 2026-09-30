@@ -37,35 +37,66 @@ it and apply only the parts compatible with this repository.
 ### OpenSpec / SDD Routing
 
 TaskPilot uses the repository-local OpenSpec installation for spec-driven
-development. The generated workflow Skills under `.agents/skills/` own the
-detailed procedures; refresh the repository workflow set with
-[`tools/openspec/update-workflows.sh`](tools/openspec/update-workflows.sh)
-rather than copying their instructions into this file or changing the user's
-global OpenSpec profile.
+development. The workflow Skills under `.agents/skills/` own the detailed
+procedures, while the repository-local schema and configuration own TaskPilot's
+project policy. Generated Skills must not be edited manually; use the official
+OpenSpec commands appropriate to the Agent integration instead of repository
+wrapper scripts or changes to a user's global OpenSpec profile.
 
-Create or update an OpenSpec change before implementation when work does any of
-the following:
+Create or update an OpenSpec Change before implementation only when the intended
+outcome is a product or system change and it does any of the following:
 
 - adds or changes user-visible behavior, business rules, or acceptance
   scenarios;
-- changes architecture, process or module boundaries, API contracts, persisted
-  data, authorization, security, build, deployment, or cross-project test
-  strategy;
+- changes architecture or module boundaries, API contracts, persisted data,
+  authorization, security, build, deployment, or cross-project test strategy;
 - spans more than one subproject or needs an explicit migration or rollout
   decision; or
-- is explicitly requested as OpenSpec, SDD, a specification, or a proposal.
+- the user explicitly asks to create or update an OpenSpec Change, proposal, or
+  specification for that product or system change.
 
-A separate OpenSpec change is not required for read-only investigation, typo or
-link corrections, generated-instruction refreshes, or a small local correction
-whose expected behavior is already unambiguously owned by an approved spec and
-whose public contracts do not change. If scope or behavior is uncertain, use
-OpenSpec rather than silently treating the work as a small correction.
+Merely mentioning OpenSpec, discussing its workflow, invoking an existing
+Change, or asking to repair repository development instructions is not a request
+to create another Change. Changes whose subject is OpenSpec itself—including
+repository governance, Agent routing, configuration, schema, templates,
+workflow Skills, or helper scripts—are edited directly after the intended
+policy is agreed; never create a nested OpenSpec Change to modify the OpenSpec
+process. Validate those edits with official OpenSpec commands.
+
+A separate OpenSpec Change is also not required for read-only investigation,
+typo or link corrections, generated-instruction refreshes, or a small local
+correction whose expected behavior is already unambiguously owned by an approved
+spec and whose public contracts do not change.
+
+Identifying a possible OpenSpec-sized change does not authorize creating or
+updating Change artifacts. The default discovery path is:
+
+1. Start in `openspec-explore` without creating a Change or writing proposal
+   artifacts.
+2. Inspect existing code and source-of-truth documents before asking questions.
+3. For substantial ambiguity, competing designs, or high-impact decisions, use
+   `grill-with-tree` when that capability is available. Show a concise decision
+   tree, batch independent high-risk questions, recommend defaults, and make
+   scope, decisions, risks, and non-goals explicit. Agents without that Skill
+   must follow the same interaction pattern rather than skipping the analysis.
+4. Present the resulting scope, decisions, non-goals, and remaining risks as a
+   proposal-readiness checkpoint.
+5. Create or update an OpenSpec Change only after the user explicitly confirms
+   that checkpoint and authorizes proposal/Change creation. Agreement to explore,
+   investigate, or discuss options is not proposal authorization.
+
+A user who explicitly invokes `openspec-propose` or directly asks to create a
+proposal may skip extended exploration only when the material decisions are
+already resolved. Before writing artifacts, still show the compact readiness
+checkpoint and obtain explicit confirmation unless that exact scope and
+proposal action were already confirmed in the current conversation. If product
+scope or behavior remains uncertain, continue exploration instead of guessing.
 
 Use the OpenSpec Skills by phase:
 
 | Situation | Skill |
 | --- | --- |
-| Clarify a problem, investigate options, or reduce ambiguity before committing to a change | `openspec-explore` |
+| Default starting point for a possible Change: inspect evidence, clarify the problem, and reduce ambiguity without creating artifacts | `openspec-explore`, plus `grill-with-tree` for material decisions when available |
 | Turn an agreed goal into a complete proposal, specs, design, and task plan | `openspec-propose` |
 | Revise an existing change's planning artifacts or reconcile inconsistencies among them | `openspec-update-change` |
 | Implement or continue the tasks of a selected, planning-complete change | `openspec-apply-change` |
@@ -75,7 +106,9 @@ Use the OpenSpec Skills by phase:
 
 For Codex CLI or IDE, invoke a Skill with its `$` form, for example
 `$openspec-propose`; in the Codex desktop app, select the corresponding Skill.
-Do not start `openspec-apply-change` merely because planning artifacts exist:
+Do not start `openspec-propose` merely because a request matches a routing
+trigger; proposal creation requires the human confirmation checkpoint above. Do
+not start `openspec-apply-change` merely because planning artifacts exist:
 confirm that scope and decisions are approved and that planning is complete.
 OpenSpec validation proves artifact structure, not implementation correctness;
 implementation still requires focused automated tests, source review, and any
@@ -94,10 +127,19 @@ deployment, or business risk warrants a second read-only pass. Verification
 findings loop back to apply, but routine completion does not require a receipt,
 workspace fingerprint, verification policy, or repository archive preflight.
 
-Generated OpenSpec Skills must not be edited manually. Refresh and verify all
-seven repository workflows with `tools/openspec/update-workflows.sh`; run
-[`tools/openspec/test-workflow.sh`](tools/openspec/test-workflow.sh) after
-changing the schema, workflow guidance, or Skill refresh logic.
+TDD is a development strategy for business-feature behavior with clear,
+automatable boundaries; use Red-Green-Refactor when the Change's test plan finds
+it appropriate. Documentation, workflow, configuration, generated-file,
+dependency, and exploratory work must use verification proportionate to their
+actual risks and must not manufacture failing tests, fixtures, or Red/Green
+phases for process compliance. Product behavior changes still require focused
+automated tests unless the owning test strategy records a justified exception.
+
+Use OpenSpec's official validation commands for repository-owned artifacts:
+`openspec schema validate taskpilot-sdd --verbose` for the project schema and
+`openspec validate --all --strict --no-interactive` for active Changes and
+specs. Do not add repository wrappers that duplicate OpenSpec's own workflow,
+state-machine, generation, or validation behavior.
 
 For Renderer UI work under `apps/desktop/`, do not skip the mandatory design
 and React Skill routing defined in
@@ -145,6 +187,54 @@ change.
   changes.
 - Add or update focused tests for behavior changes.
 - Never describe planned components as already implemented.
+
+## Code Review Scope
+
+A request to review, inspect, audit, or re-review code is read-only unless the
+user explicitly asks to modify files. Do not turn review into implementation,
+refactoring, cleanup, dependency changes, or redesign. A broader audit or
+redesign scope must be explicitly requested; do not infer it from an ordinary
+code-review request.
+
+Review the selected diff and only the directly affected call paths, contracts,
+tests, trust boundaries, and owning documentation needed to judge that diff.
+Do not require unrelated pre-existing issues to be fixed unless the reviewed
+change makes them reachable, depends on them, or materially worsens them. An
+independently critical security, privacy, or data-loss issue may be reported
+separately, but must be identified as pre-existing and must not silently expand
+the current change's scope.
+
+A blocking finding must satisfy all of the following:
+
+1. It is introduced, worsened, or made reachable by the reviewed change.
+2. It conflicts with current executable behavior, an approved requirement, or
+   an applicable current architecture or contract.
+3. It includes a concrete reachable trigger or failure path, not only a
+   theoretical possibility.
+4. It has material correctness, security, data, compatibility, reliability,
+   performance, or maintainability impact beyond personal style preference.
+5. It identifies a specific location and the smallest safe repair direction.
+
+If an item does not meet that admission gate, do not present it as a blocking
+finding. A useful nearby issue may be listed as an adjacent observation only
+when it is clearly marked as pre-existing or non-blocking; it must not become an
+implicit task for the current change. Omit formatting concerns handled by
+automated tools, merge duplicate findings, and limit non-blocking suggestions
+to the few highest-value items. Finding count is not a quality metric, and zero
+findings is a valid review result.
+
+Do not use Target or Proposed documentation as evidence that unimplemented
+behavior is currently required. Do not recommend a new abstraction, shared
+package, service, dependency, framework, or cross-project mechanism when a
+local correction is complete and safe. Structural redesign requires an
+approved architecture decision, multiple demonstrated use cases, repeated
+defects caused by the current structure, or explicit user authorization.
+
+Every review must state its review target and scope. For a Git diff, report the
+base and head when available. Report in-scope and out-of-scope areas, blocking
+findings, the few material non-blocking suggestions or adjacent observations,
+checks actually run, and remaining unverified risks. Never imply that an
+unexecuted check passed.
 
 ## Documentation Rules
 
