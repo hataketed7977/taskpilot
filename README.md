@@ -55,29 +55,76 @@ development Compose stack; production deployment manifests do not yet exist.
 
 ## Local Development
 
-Prerequisites are JDK 21, Docker, Node.js, and the pinned pnpm version. Install
-JavaScript dependencies once with `pnpm install`, then run:
+Prerequisites are JDK 21, Docker with Compose, Node.js 22.12 or newer, and the
+pinned pnpm version. Install JavaScript dependencies once with `pnpm install`,
+then run:
 
 ```bash
 pnpm dev
 ```
 
-On first use this command creates a Git-ignored `.env.local` with random
-local-only credentials, starts PostgreSQL 17 and Mailpit with Docker Compose,
-waits for their health checks, starts Core API with the explicit `local`
-profile, applies all Flyway migrations, builds Desktop, and opens the Electron
-app against `http://127.0.0.1:8080`. Mailpit's inbox is available at
-[http://127.0.0.1:8025](http://127.0.0.1:8025).
+The command creates a Git-ignored `.env.local` on first use, starts PostgreSQL
+17 and Mailpit through Docker Compose, waits for Core API health, and opens
+Electron against the local API in Desktop development mode. Renderer changes
+use Vite HMR without reopening the window; Main, Preload, or shared-contract
+changes are rebuilt and restart Electron automatically. The development server
+is loopback-only on `http://127.0.0.1:5173`; packaged builds continue loading
+local files with the production CSP. Pressing `Ctrl+C` stops the Desktop and a
+Core API started by that invocation; PostgreSQL and Mailpit remain available
+for the next run.
 
-Useful commands:
+To run only the Desktop development loop against an already running local Core
+API, use `pnpm --filter @taskpilot/desktop dev`. Use
+`pnpm --filter @taskpilot/desktop build` for a production-style local build.
+
+### Lifecycle commands
 
 ```bash
-pnpm dev:infra          # start only PostgreSQL and Mailpit
-pnpm dev:mail-smoke     # verify registration, login OTP, and password reset mail
-pnpm dev:infra:down     # stop local infrastructure; keep PostgreSQL data
+pnpm dev:doctor       # read-only prerequisites, environment, ports, and stale-state diagnosis
+pnpm dev:status       # service ownership, process state, health, and local URLs
+pnpm dev:logs         # last 200 Core API log lines
+pnpm dev:logs --follow
+pnpm dev:logs --service postgres
+pnpm dev:logs --service mailpit --follow
+pnpm dev:restart      # stop this local stack, then start it again
+pnpm dev:stop         # stop owned host processes and Compose containers; keep database data
+pnpm dev:smoke        # headless registration, login OTP, and password-reset mail smoke
 ```
 
-`pnpm dev:setup` creates `.env.local` without overwriting an existing file.
+`dev:smoke` starts missing infrastructure and Core API services but never opens
+the Desktop. If Core API was already running for this checkout, the command
+leaves it running; otherwise it stops the temporary Core API after the smoke.
+The legacy focused commands remain available:
+
+```bash
+pnpm dev:setup          # create .env.local without overwriting it
+pnpm dev:infra          # start only PostgreSQL and Mailpit
+pnpm dev:infra:down     # stop infrastructure and retain its PostgreSQL volume
+pnpm dev:mail-smoke     # run only the mail flow against services already running
+```
+
+Local addresses default to:
+
+- Core API: [http://127.0.0.1:8080](http://127.0.0.1:8080)
+- Mailpit inbox: [http://127.0.0.1:8025](http://127.0.0.1:8025)
+- PostgreSQL: `127.0.0.1:5432`
+- Mailpit SMTP: `127.0.0.1:1025`
+
+The PostgreSQL, SMTP, and Mailpit HTTP `TASKPILOT_*_PORT` values in
+`.env.local` can change their infrastructure ports. Core API remains on 8080
+because the current Desktop local transport contract is fixed to that address.
+Runtime state and Core API logs live under the Git-ignored
+`.taskpilot/dev/` directory and are scoped to this checkout. State contains
+only process metadata, never environment values or credentials.
+
+The controller never kills or reuses an unrecognized process just because it
+owns a required port, never runs Flyway repair, and never deletes the database
+volume during normal stop. Use `pnpm dev:doctor` to identify a conflict, then
+free the port or select another one. A service recorded in local state is
+stopped only when its command line proves that it belongs to this checkout.
+Compose container labels are checked the same way so another checkout cannot be
+reused or stopped accidentally.
+
 Use `.env.local.example` only as a key reference. Do not commit `.env.local` or
 reuse these local credentials in a deployed environment. Local plaintext SMTP
 is restricted in code to the non-production `local` profile and loopback

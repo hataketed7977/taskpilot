@@ -5,10 +5,10 @@
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "vite --config vite.config.ts",
-    "build": "vite build --config vite.config.ts && tsc -p tsconfig.main.json",
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm build:renderer && pnpm build:preload && pnpm build:main",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.system.json --noEmit",
-    "lint": "eslint src tests cypress scripts vite.config.ts",
+    "lint": "eslint src tests cypress scripts vite.config.ts vite.preload.config.ts",
     "test:main": "vitest run --config vitest.config.ts tests/main",
     "test:renderer": "vitest run --config vitest.config.ts tests/renderer",
     "test:architecture": "vitest run --config vitest.config.ts tests/architecture",
@@ -18,7 +18,10 @@
     "test:native-credential": "node scripts/native-credential-smoke.mjs",
     "test:packaged-native": "pnpm test:packaged && pnpm test:native-credential",
     "qualityCheck": "pnpm typecheck && pnpm lint && pnpm test:main && pnpm test:renderer && pnpm test:architecture && pnpm test:coverage && pnpm build",
-    "start": "electron ."
+    "start": "electron .",
+    "build:renderer": "vite build --config vite.config.ts",
+    "build:preload": "vite build --config vite.preload.config.ts",
+    "build:main": "tsc -p tsconfig.main.json"
   },
   "dependencies": {
     "@fontsource-variable/inter": "latest",

@@ -5,10 +5,17 @@
   "scripts": {
     "desktop:quality": "pnpm --filter @taskpilot/desktop qualityCheck",
     "dev:setup": "node tools/dev/setup-local.mjs",
-    "dev:infra": "node tools/dev/local-infrastructure.mjs up",
-    "dev:infra:down": "node tools/dev/local-infrastructure.mjs down",
-    "dev": "node tools/dev/start-local.mjs",
+    "dev:infra": "node tools/dev/dev.mjs infra-up",
+    "dev:infra:down": "node tools/dev/dev.mjs infra-down",
+    "dev": "node tools/dev/dev.mjs start",
     "dev:mail-smoke": "node tools/dev/local-mail-smoke.mjs",
-    "dev:test": "node --test tools/dev/*.test.mjs"
+    "dev:test": "node --test tools/dev/*.test.mjs",
+    "dev:stop": "node tools/dev/dev.mjs stop",
+    "dev:restart": "node tools/dev/dev.mjs restart",
+    "dev:status": "node tools/dev/dev.mjs status",
+    "dev:logs": "node tools/dev/dev.mjs logs",
+    "dev:doctor": "node tools/dev/dev.mjs doctor",
+    "dev:smoke": "node tools/dev/dev.mjs smoke",
+    "dev:help": "node tools/dev/dev.mjs help"
   }
 }

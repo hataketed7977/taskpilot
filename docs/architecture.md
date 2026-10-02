@@ -189,10 +189,13 @@ future CLI receives the same structure when created.
   Kotlin DSL for Kotlin projects.
 - Local development: the repository Compose stack owns only PostgreSQL and a
   Mailpit SMTP sink. Core API and Desktop run as host processes through one root
-  command. A generated, Git-ignored `.env.local` supplies local-only database and
-  cryptographic material; the `local` Spring profile binds Core API and plaintext
-  SMTP to loopback and runs production Flyway migrations. This is not a
-  production deployment topology or proof of an external mail provider.
+  controller. A generated, Git-ignored `.env.local` supplies local-only database
+  and cryptographic material; Git-ignored checkout-local state records only
+  process ownership and logs. Compose ownership is verified from checkout-bound
+  container labels. The controller refuses to kill or reuse an unrecognized process and never repairs migrations automatically. The `local`
+  Spring profile binds Core API and plaintext SMTP to loopback and runs production
+  Flyway migrations. This is not a production deployment topology or proof of an
+  external mail provider.
 
 Stable, mutually compatible versions are selected when each subproject is
 initialized. Windows and macOS share product code and protocols, but signing,

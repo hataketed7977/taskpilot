@@ -10,6 +10,16 @@ describe('Desktop IPC boundary', () => {
     expect(() => validateIpcEvent(trusted, { webContentsId: 7, generation: 2 }, 1)).toThrow();
   });
 
+  it('accepts only the fixed development Renderer origin when explicitly scoped', () => {
+    const development = { sender: { id: 7 }, senderFrame: { url: 'http://127.0.0.1:5173/login', parent: null } };
+    expect(() => validateIpcEvent(development, { webContentsId: 7, generation: 1, rendererOrigin: 'http://127.0.0.1:5173' }, 1)).not.toThrow();
+    expect(() => validateIpcEvent(
+      { ...development, senderFrame: { url: 'http://localhost:5173/login', parent: null } },
+      { webContentsId: 7, generation: 1, rendererOrigin: 'http://127.0.0.1:5173' },
+      1,
+    )).toThrow();
+  });
+
   it('registers only explicit capability channels and no generic transport or token getter', () => {
     const registered: string[] = [];
     const ipc = { handle: (channel: string) => registered.push(channel), removeHandler: vi.fn() };

@@ -34,9 +34,14 @@ const schemas = {
 
 type Method = keyof typeof schemas;
 interface EventLike { sender: { id: number }; senderFrame: { url: string; parent: unknown } | null }
-interface WindowScope { webContentsId: number; generation: number }
+interface WindowScope { webContentsId: number; generation: number; rendererOrigin?: string }
+function isTrustedRendererUrl(url: string, rendererOrigin: string | undefined): boolean {
+  if (!rendererOrigin) return url.startsWith('file://');
+  try { return new URL(url).origin === rendererOrigin; } catch { return false; }
+}
+
 export function validateIpcEvent(event: EventLike, scope: WindowScope, generation: number): void {
-  if (event.sender.id !== scope.webContentsId || !event.senderFrame || event.senderFrame.parent !== null || !event.senderFrame.url.startsWith('file://') || generation !== scope.generation) throw new Error('Untrusted IPC caller');
+  if (event.sender.id !== scope.webContentsId || !event.senderFrame || event.senderFrame.parent !== null || !isTrustedRendererUrl(event.senderFrame.url, scope.rendererOrigin) || generation !== scope.generation) throw new Error('Untrusted IPC caller');
 }
 interface IpcRegistrar { handle(channel: string, listener: (event: EventLike, input?: unknown) => unknown): void; removeHandler(channel: string): void }
 type Owners = { auth: AuthCapabilities; workspaces: WorkspaceCapabilities; projects: ProjectCapabilities };

@@ -23,8 +23,12 @@ Desktop gate, `pnpm --filter @taskpilot/desktop test:e2e` for Cypress component
 journeys, and `pnpm --filter @taskpilot/desktop test:packaged-native` for the
 current host's packaged artifact and native credential lifecycle. `test:e2e`
 uses `cypress run --component` in headless Electron; it must not open Cypress GUI
-or a visible application window. A development Change can complete with the
-portable gates plus current-host packaged/native evidence. Installation,
+or a visible application window. The Desktop development-loop regression
+checks cover the fixed loopback Renderer origin, production CSP preservation,
+sandbox-compatible bundled Preload, and the root controller's `dev` command;
+manual editing is not the primary proof of those contracts. A development
+Change can complete with the portable gates plus current-host packaged/native
+evidence. Installation,
 signing/notarization or signed-installer behavior, native credential integration,
 and final visual smoke are recorded separately on macOS arm64 and Windows x64
 before claiming that platform is release-ready.

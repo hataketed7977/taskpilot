@@ -90,6 +90,7 @@ __pycache__/
 venv/
 
 # Local infrastructure state
+.taskpilot/
 *.db
 *.sqlite
 *.sqlite3
