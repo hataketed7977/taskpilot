@@ -12,8 +12,12 @@
 
 **Current:** `core-api` owns its runnable application shell and engineering
 guardrails: four declared capability boundaries, explicit Spring Security
-routes, architecture tests, separated test source sets, executable Boot JAR
-verification, and the Core API quality task. The implemented `access` slice
+routes, architecture tests, a standard `src/test` tree and single complete
+`test` entry, executable Boot JAR verification, and the Core API quality task.
+Spring Modulith fixtures remain runtime-visible in ordinary `src/test/java`,
+while only FQCN-conflicting ArchUnit fixtures use an isolated internal
+compilation subtree under `src/test/architecture-fixtures/java`; neither is a
+second test-suite entry. The implemented `access` slice
 owns first-party email/password/OTP registration and login, password reset,
 opaque sessions and refresh recovery, `CurrentUserView`, Organization Workspace
 list/create, creator Membership, and server-side Workspace authorization. The

@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.jar.JarFile
 
 plugins {
@@ -28,25 +29,11 @@ repositories {
     mavenCentral()
 }
 
-val architectureFixtures = sourceSets.create("architectureFixtures")
-val moduleTest = sourceSets.create("moduleTest")
-val integrationTest = sourceSets.create("integrationTest")
-
-sourceSets.named("test") {
-    compileClasspath += architectureFixtures.output
-    runtimeClasspath += architectureFixtures.output
-}
-
-configurations[architectureFixtures.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
-configurations[moduleTest.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
-configurations[moduleTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
-configurations[integrationTest.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
-configurations[integrationTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
-
-listOf(moduleTest, integrationTest).forEach { sourceSet ->
-    sourceSet.compileClasspath += sourceSets.main.get().output
-    sourceSet.runtimeClasspath += sourceSets.main.get().output
-}
+val architectureFixtures =
+    sourceSets.create("architectureFixtures") {
+        java.setSrcDirs(listOf("src/test/architecture-fixtures/java"))
+        resources.setSrcDirs(emptyList<String>())
+    }
 
 dependencies {
     implementation(platform(libs.spring.modulith.bom))
@@ -67,16 +54,15 @@ dependencies {
     implementation("org.springframework.modulith:spring-modulith-starter-core")
 
     testImplementation(platform(libs.spring.modulith.bom))
+    testImplementation(platform(libs.testcontainers.bom))
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.springframework.modulith:spring-modulith-starter-test")
     testImplementation(libs.archunit.junit5)
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.postgresql)
+    testImplementation(libs.flyway.core)
+    testImplementation(libs.flyway.postgresql)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-
-    add(integrationTest.implementationConfigurationName, platform(libs.testcontainers.bom))
-    add(integrationTest.implementationConfigurationName, libs.testcontainers.postgresql)
-    add(integrationTest.implementationConfigurationName, libs.postgresql)
-    add(integrationTest.implementationConfigurationName, libs.flyway.core)
-    add(integrationTest.implementationConfigurationName, libs.flyway.postgresql)
 }
 
 kotlin {
@@ -98,8 +84,6 @@ detekt {
         files(
             "src/main/kotlin",
             "src/test/kotlin",
-            "src/moduleTest/kotlin",
-            "src/integrationTest/kotlin",
         ),
     )
 }
@@ -161,45 +145,34 @@ kover {
     }
 }
 
+val architectureFixturesClasses = tasks.named(architectureFixtures.classesTaskName)
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
-val moduleTestTask =
-    tasks.register<Test>("moduleTest") {
-        description = "Runs Spring module and application context tests."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        testClassesDirs = moduleTest.output.classesDirs
-        classpath = moduleTest.runtimeClasspath
-        shouldRunAfter(tasks.test)
+tasks.test {
+    dependsOn(architectureFixturesClasses)
+    inputs.files(architectureFixtures.output.classesDirs).withPropertyName("architectureFixturesClasses")
+    doFirst {
+        systemProperty(
+            "taskpilot.architectureFixtures.classesDir",
+            architectureFixtures.output.classesDirs.files
+                .joinToString(File.pathSeparator) { it.absolutePath },
+        )
     }
-
-val integrationTestTask =
-    tasks.register<Test>("integrationTest") {
-        description = "Runs real-infrastructure integration tests."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        testClassesDirs = integrationTest.output.classesDirs
-        classpath = integrationTest.runtimeClasspath
-        failOnNoDiscoveredTests = true
-        shouldRunAfter(moduleTestTask)
-    }
+}
 
 val verifyBuildContract =
     tasks.register("verifyBuildContract") {
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        description = "Verifies Core API source-set, dependency, task, and runtime artifact boundaries."
+        description = "Verifies Core API source layout, dependency, quality-task, and runtime artifact boundaries."
         dependsOn(tasks.named("bootJar"))
 
         doLast {
-            val requiredSourceSets = setOf("main", "test", "architectureFixtures", "moduleTest", "integrationTest")
-            check(sourceSets.names.containsAll(requiredSourceSets)) {
-                "Missing source sets: ${requiredSourceSets - sourceSets.names}"
-            }
             val requiredTasks =
                 setOf(
                     "test",
-                    "moduleTest",
-                    "integrationTest",
                     "verifyBuildContract",
                     "ktlintCheck",
                     "detekt",
@@ -208,67 +181,36 @@ val verifyBuildContract =
                     "koverVerify",
                     "qualityCheck",
                 )
-            check(tasks.names.containsAll(requiredTasks)) { "Missing test/build tasks: ${requiredTasks - tasks.names}" }
+            check(tasks.names.containsAll(requiredTasks)) { "Missing build tasks: ${requiredTasks - tasks.names}" }
             check("qualityCheck" !in rootProject.tasks.names) {
                 "A root qualityCheck is forbidden; use :services:core-api:qualityCheck"
             }
 
-            fun transitiveDependenciesOf(task: Task): Set<String> {
-                val visited = mutableSetOf<Task>()
-
-                fun visit(current: Task) {
-                    current.taskDependencies.getDependencies(current).forEach { dependency ->
-                        if (visited.add(dependency)) {
-                            visit(dependency)
-                        }
-                    }
-                }
-
-                visit(task)
-                return visited.map { it.name }.toSet()
-            }
-
-            val fastTest = tasks.named<Test>("test").get()
-            val fastDependencies = transitiveDependenciesOf(fastTest)
-            check("moduleTest" !in fastDependencies && "integrationTest" !in fastDependencies) {
-                "test must not depend on moduleTest or integrationTest"
-            }
-            val fastClasspath = fastTest.classpath.files.joinToString("\n") { it.name.lowercase() }
-            check("testcontainers" !in fastClasspath) { "test runtime classpath must not contain Testcontainers" }
-
-            val requiredTestFiles =
-                setOf(
-                    "CoreApiModularityTest.kt",
-                    "ModulithViolationFixtureTest.kt",
-                    "CoreApiArchitectureTest.kt",
-                    "ArchitectureRuleSelfTest.kt",
-                    "CoreApiArchitectureRules.kt",
+            val removedSourceDirectories =
+                listOf(
+                    file("src/moduleTest"),
+                    file("src/integrationTest"),
+                    file("src/architectureFixtures"),
                 )
-            val testFiles = fileTree("src/test").files.map { it.name }.toSet()
-            check(testFiles.containsAll(requiredTestFiles)) {
-                "src/test is missing required foundation tests: ${requiredTestFiles - testFiles}"
+            check(removedSourceDirectories.none { it.exists() }) {
+                "Removed source directories remain: ${removedSourceDirectories.filter { it.exists() }}"
             }
-            val requiredModuleTests =
-                setOf(
-                    "CapabilityModuleTests.kt",
-                    "CoreApiApplicationSmokeTest.kt",
-                    "CoreApiHealthHttpTest.kt",
-                )
-            val moduleTestFiles = fileTree("src/moduleTest").files.map { it.name }.toSet()
-            check(moduleTestFiles.containsAll(requiredModuleTests)) {
-                "src/moduleTest is missing required foundation tests: ${requiredModuleTests - moduleTestFiles}"
+            val productionJavaFiles = fileTree("src/main") { include("**/*.java") }.files
+            check(productionJavaFiles.isEmpty()) {
+                "Core API production Java sources remain: $productionJavaFiles"
             }
-            val integrationTestFiles =
-                fileTree("src/integrationTest/kotlin")
-                    .matching { include("**/*Test.kt", "**/*Test.java") }
-                    .files
-                    .map { it.relativeTo(file("src/integrationTest/kotlin")).invariantSeparatorsPath }
+
+            val testTask = tasks.named<Test>("test").get()
+            val fixtureOutput =
+                architectureFixtures.output.classesDirs.files
+                    .map { it.canonicalFile }
                     .toSet()
-            val requiredIntegrationTestFiles =
-                setOf("ai/taskpilot/coreapi/PostgreSqlFoundationIntegrationTest.kt")
-            check(integrationTestFiles.containsAll(requiredIntegrationTestFiles)) {
-                "integrationTest is missing required real-infrastructure tests: " +
-                    "${requiredIntegrationTestFiles - integrationTestFiles}"
+            val fixtureOutputOnTestRuntime =
+                testTask.classpath.files
+                    .map { it.canonicalFile }
+                    .intersect(fixtureOutput)
+            check(fixtureOutputOnTestRuntime.isEmpty()) {
+                "Isolated ArchUnit fixture output leaked onto the test runtime classpath: $fixtureOutputOnTestRuntime"
             }
 
             val detektSources =
@@ -281,12 +223,9 @@ val verifyBuildContract =
                 listOf(
                     file("src/main/kotlin").canonicalFile,
                     file("src/test/kotlin").canonicalFile,
-                    file("src/moduleTest/kotlin").canonicalFile,
-                    file("src/integrationTest/kotlin").canonicalFile,
                 )
             check(requiredDetektSourceRoots.all { required -> detektSources.any { it.startsWith(required) } }) {
-                "Detekt does not cover every Kotlin source set: " +
-                    requiredDetektSourceRoots.filterNot { required -> detektSources.any { it.startsWith(required) } }
+                "Detekt does not cover the standard Kotlin source roots"
             }
 
             val prohibitedCoordinates =
@@ -377,8 +316,6 @@ val qualityCheck =
             tasks.named("ktlintCheck"),
             tasks.named("detekt"),
             tasks.test,
-            moduleTestTask,
-            integrationTestTask,
             verifyBuildContract,
             tasks.named("koverXmlReport"),
             tasks.named("koverHtmlReport"),
@@ -394,8 +331,6 @@ verifyBuildContract.configure {
                 "ktlintCheck",
                 "detekt",
                 "test",
-                "moduleTest",
-                "integrationTest",
                 "verifyBuildContract",
                 "koverXmlReport",
                 "koverHtmlReport",
@@ -410,26 +345,6 @@ verifyBuildContract.configure {
                 .toSet()
         check(actualQualityDependencies.containsAll(requiredQualityDependencies)) {
             "qualityCheck is missing direct dependencies: ${requiredQualityDependencies - actualQualityDependencies}"
-        }
-
-        listOf("koverXmlReport", "koverHtmlReport", "koverVerify").forEach { reportTaskName ->
-            val reportTask = tasks.named(reportTaskName).get()
-            val visited = mutableSetOf<Task>()
-
-            fun visit(current: Task) {
-                current.taskDependencies.getDependencies(current).forEach { dependency ->
-                    if (visited.add(dependency)) {
-                        visit(dependency)
-                    }
-                }
-            }
-
-            visit(reportTask)
-            val dependencyNames = visited.map { it.name }.toSet()
-            val missingTestLayers = setOf("test", "moduleTest", "integrationTest") - dependencyNames
-            check(missingTestLayers.isEmpty()) {
-                "$reportTaskName does not aggregate test layers: $missingTestLayers"
-            }
         }
     }
 }

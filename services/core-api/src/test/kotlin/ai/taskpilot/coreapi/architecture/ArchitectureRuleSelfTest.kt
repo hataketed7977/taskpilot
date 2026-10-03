@@ -1,18 +1,28 @@
 package ai.taskpilot.coreapi.architecture
 
+import com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage
+import com.tngtech.archunit.core.domain.JavaClasses
 import com.tngtech.archunit.core.importer.ClassFileImporter
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
+import java.io.File
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFailsWith
 
 class ArchitectureRuleSelfTest {
-    private val importer = ClassFileImporter()
+    private val fixtureClasses: JavaClasses by lazy {
+        val classesDirectory =
+            requireNotNull(System.getProperty(ARCHITECTURE_FIXTURES_CLASSES_PROPERTY)) {
+                "Missing $ARCHITECTURE_FIXTURES_CLASSES_PROPERTY system property"
+            }
+        ClassFileImporter().importPaths(classesDirectory.split(File.pathSeparatorChar).map(Path::of))
+    }
 
     @Test
     fun `allowed fixtures satisfy every rule`() {
-        val classes = importer.importPackages("ai.taskpilot.architecturefixtures.archunit.allowed")
+        val classes = fixturePackages("ai.taskpilot.architecturefixtures.archunit.allowed")
         CoreApiArchitectureRules.rules.values.forEach { it.check(classes) }
     }
 
@@ -21,7 +31,7 @@ class ArchitectureRuleSelfTest {
         forbiddenCases.map { case ->
             DynamicTest.dynamicTest("${case.ruleId}/${case.caseId}") {
                 val rule = requireNotNull(CoreApiArchitectureRules.rules[case.ruleId])
-                val classes = importer.importPackages(*case.packages.toTypedArray())
+                val classes = fixturePackages(*case.packages.toTypedArray())
                 val failure =
                     assertFailsWith<AssertionError>("expected ${case.ruleId}/${case.caseId} violation") {
                         rule.check(classes)
@@ -32,6 +42,9 @@ class ArchitectureRuleSelfTest {
                 case.expectedTarget?.let { assertContains(failure.message.orEmpty(), it) }
             }
         }
+
+    private fun fixturePackages(vararg packageNames: String): JavaClasses =
+        fixtureClasses.that(resideInAnyPackage(*packageNames.map { "$it.." }.toTypedArray()))
 
     private data class ForbiddenCase(
         val ruleId: String,
@@ -46,6 +59,8 @@ class ArchitectureRuleSelfTest {
     }
 
     private companion object {
+        const val ARCHITECTURE_FIXTURES_CLASSES_PROPERTY = "taskpilot.architectureFixtures.classesDir"
+
         val forbiddenCases =
             listOf(
                 frameworkCase("mvc", "org.springframework.web.servlet.DispatcherServlet"),

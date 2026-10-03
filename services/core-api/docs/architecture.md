@@ -17,7 +17,25 @@ subproject. The root Gradle Wrapper includes only this subproject and pins JDK
 21, Kotlin 2.3.21, Spring Boot 4.1.1, Spring Modulith 2.1.1, ArchUnit 1.5.1,
 JUnit 6.0.3, Testcontainers 2.0.5, Detekt 1.23.8, ktlint 1.8.0, and Kover
 0.9.10. Detekt runs with its compatible isolated Kotlin 2.0.21 tool classpath;
-that does not change the application Kotlin version.
+that does not change the application Kotlin version. Handwritten production
+source is Kotlin-only under `src/main/kotlin`; Spring Modulith module metadata is
+carried by annotation-only Kotlin marker classes, so `src/main` contains no Java
+source. All test code, resources, and fixtures are physically owned by
+`src/test`, and the standard `test` task is the single complete test-suite entry.
+
+The two architecture-fixture categories retain only the isolation their loading
+mechanisms require. Spring Modulith fixtures are ordinary `src/test/java` output
+on the test runtime and use an explicit import option so test packages are
+scanned. FQCN-conflicting ArchUnit fixtures are compiled from
+`src/test/architecture-fixtures/java` by an internal dependency-isolated source
+set and imported by explicit class-output paths; that source set is not an
+additional test task and its output does not leak onto the normal test runtime.
+Detekt scans the two standard Kotlin roots, Kover measures main production
+classes from standard `test` execution with unchanged 80% line and 75% branch
+thresholds, and `qualityCheck` combines the complete suite with compile, format,
+static-analysis, build-contract, and coverage gates. This layout change does not
+alter capability boundaries, API or persistence contracts, authorization,
+tenancy, lifecycle, concurrency, or recovery behavior.
 
 The implemented application is deliberately limited to:
 

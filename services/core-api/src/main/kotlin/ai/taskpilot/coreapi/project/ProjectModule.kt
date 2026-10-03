@@ -1,4 +1,9 @@
 package ai.taskpilot.coreapi.project
 
+import org.springframework.modulith.ApplicationModule
+import org.springframework.modulith.PackageInfo
+
 /** Public marker for the project capability boundary. */
-object ProjectModule
+@PackageInfo
+@ApplicationModule(displayName = "Project", allowedDependencies = ["access"])
+class ProjectModule

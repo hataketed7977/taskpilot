@@ -2,16 +2,10 @@ naming:
   FunctionNaming:
     excludes:
       - '**/test/**'
-      - '**/moduleTest/**'
-      - '**/integrationTest/**'
 style:
   FunctionOnlyReturningConstant:
     excludes:
       - '**/test/**'
-      - '**/moduleTest/**'
-      - '**/integrationTest/**'
   MagicNumber:
     excludes:
       - '**/test/**'
-      - '**/moduleTest/**'
-      - '**/integrationTest/**'

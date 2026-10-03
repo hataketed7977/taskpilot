@@ -10,44 +10,57 @@
 
 ## Current Executable Foundation
 
-**Current:** the initialized Core API exposes these independent Gradle entry
-points from the repository root:
+**Current:** the initialized Core API keeps all test code, test resources, and
+architecture fixtures under `src/test`. The standard Gradle `test` task is the
+single complete suite entry and therefore requires a working container runtime
+for its PostgreSQL-backed tests. Developers keep the fast feedback loop by using
+JUnit selectors on that task rather than separate source sets or test tasks.
 
 | Command | Current purpose |
 | --- | --- |
-| `./gradlew :services:core-api:test` | Fast JUnit, Spring Modulith graph verification, ArchUnit production scan, and independently reported `rule-id/case-id` rule self-tests; its classpath excludes Testcontainers |
-| `./gradlew :services:core-api:moduleTest` | Four standalone capability contexts plus application startup, explicit fail-closed security fallback, and health-only Actuator exposure |
-| `./gradlew :services:core-api:integrationTest` | Required real `postgres:17-alpine` Testcontainers connection, all production Flyway migrations from empty PostgreSQL, access-identity atomicity/uniqueness/concurrency tests, verification challenge/continuation/rate-limit locking and concurrency tests, and the separate integration-test-only probe; no Docker, H2 fallback, or silent skip fails rather than passing |
-| `./gradlew :services:core-api:verifyBuildContract` | Source-set ownership, required integration-test presence, Detekt source coverage, dependency coordinates, task graph, fixed-version, and executable Boot JAR boundary checks |
-| `./gradlew :services:core-api:qualityCheck` | The complete routine Core API gate: compile, ktlint, Detekt, all three test layers, build-contract verification, and Kover XML/HTML/threshold verification |
+| `./gradlew :services:core-api:test` | Complete unit, architecture, module-context, startup/health, HTTP, Flyway, and real PostgreSQL suite; unavailable containers fail visibly rather than causing skips or an H2 fallback |
+| `./gradlew :services:core-api:test --tests '*Architecture*'` | Focused architecture checks without starting PostgreSQL |
+| `./gradlew :services:core-api:test --tests 'ai.taskpilot.coreapi.*ModuleTest'` | Four standalone capability contexts using the standard test runtime |
+| `./gradlew :services:core-api:test --tests '*IntegrationTest'` | All Testcontainers PostgreSQL, Flyway, HTTP, persistence, and opt-in system-journey integration classes |
+| `./gradlew :services:core-api:verifyBuildContract` | Standard-layout, fixture isolation, Detekt roots, dependency coordinates, fixed versions, quality tasks, and executable Boot JAR boundary checks |
+| `./gradlew :services:core-api:qualityCheck` | Complete routine Core API gate: compile, ktlint, Detekt, standard `test`, build-contract verification, and Kover XML/HTML/threshold verification |
 
-Kover aggregates `test`, `moduleTest`, and `integrationTest` over the same main
-production classes and enforces 80% line and 75% branch coverage. Its only
-explicit exclusions are the exact four empty capability marker objects and the
-empty architecture-root marker. Package descriptors and compiler-generated
-artifacts do not contribute executable lines. The application entry point and
-security configuration remain included. Because every current production line
-was introduced by the foundation Change, this first whole-module result is an
+All production and test Kotlin code is in `src/main/kotlin` and
+`src/test/kotlin`. Test-only Java is limited to architecture fixtures under
+`src/test`: Spring Modulith fixtures live in ordinary `src/test/java`, remain on
+the standard test runtime, and are scanned with an explicit ArchUnit import
+option so test-output packages are not silently excluded. FQCN-conflicting
+ArchUnit fixtures live in `src/test/architecture-fixtures/java`; the internal
+`architectureFixtures` compilation source set has no `testImplementation`
+inheritance, is absent from the normal test runtime classpath, and its output
+paths are supplied explicitly to the self-test importer. This internal
+compilation boundary is not another test-suite entry.
+
+Kover aggregates execution of the standard `test` task over main production
+classes and enforces 80% line and 75% branch coverage. Its only explicit
+exclusions are the exact four annotation-only capability marker classes and the
+empty architecture-root marker. The application entry point and security
+configuration remain included. Because every current production line was
+introduced by the foundation Change, this first whole-module result is an
 equivalent bootstrap changed-code gate. It is not a substitute for diff-aware
 changed executable coverage once later changes mix new and existing code.
 
-Detekt scans Kotlin under `main`, `test`, `moduleTest`, and `integrationTest`;
-its test-source exceptions are limited to test naming, HTTP status literals,
-and test-only constant-returning probes. The production access-identity and verification-security Flyway migrations live
-under `src/main/resources/db/migration` and are required in the executable Boot
-JAR. The test-only probe remains under `src/integrationTest/resources` and is
+Detekt scans only Kotlin under `src/main/kotlin` and `src/test/kotlin`; its
+test-source exceptions are limited to test naming, HTTP status literals, and
+test-only constant-returning probes. Production Flyway migrations live under
+`src/main/resources/db/migration` and are required in the executable Boot JAR.
+The test-only probe lives under `src/test/resources/db/integration` and is
 excluded from that JAR. Unit tests cover email normalization, password policy,
 Argon2id parameter/salt behavior, dummy-hash authentication, opportunistic
 rehash, OTP/continuation security policy, purpose/template mapping, delivery
 outcome semantics, configuration fail-closed behavior, and secret-safe mail
 events. SMTP adapter tests cover purpose-specific messages, sender/recipient
-validation, provider failure classification, explicit host, and required transport TLS
-fail-closed assembly without making a network connection. PostgreSQL tests
-cover the production schema, stable identifiers,
-identity uniqueness and rollback, challenge/continuation expiry and atomic
-consumption, resend supersession, shared rate-limit state, and concurrency. The
-broader scenarios and tools below remain **Target** until their owning features
-exist.
+validation, provider failure classification, explicit host, and required
+transport TLS fail-closed assembly without making a network connection.
+PostgreSQL tests cover the production schema, stable identifiers, identity
+uniqueness and rollback, challenge/continuation expiry and atomic consumption,
+resend supersession, shared rate-limit state, and concurrency. The broader
+scenarios and tools below remain **Target** until their owning features exist.
 
 The full-application integration suite also owns an opt-in packaged Desktop
 journey. With `TASKPILOT_PACKAGED_SYSTEM_JOURNEY=true`, it starts the current
