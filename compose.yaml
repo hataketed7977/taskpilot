@@ -1,4 +1,4 @@
-name: taskpilot-local
+name: ${TASKPILOT_COMPOSE_PROJECT}
 
 services:
   postgres:
@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: taskpilot
       POSTGRES_USER: taskpilot
-      POSTGRES_PASSWORD: ${TASKPILOT_POSTGRES_PASSWORD:?Run pnpm dev:setup to create .env.local}
+      POSTGRES_PASSWORD: ${TASKPILOT_POSTGRES_PASSWORD:?Run pnpm bootstrap to create .env.local}
     ports:
       - "127.0.0.1:${TASKPILOT_POSTGRES_PORT:-5432}:5432"
     volumes:

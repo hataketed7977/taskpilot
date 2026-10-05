@@ -66,10 +66,18 @@ The implemented application is deliberately limited to:
   and emits only fingerprinted correlation/provider identifiers, template
   category, result, and duration. Deployed SMTP credentials come only from
   runtime secret injection and are not repository configuration;
-- a host-run local development profile backed by Compose PostgreSQL 17 and
-  Mailpit. Root tooling creates a mode-`0600`, Git-ignored `.env.local`, waits
-  for infrastructure health, and starts Core API so Spring Boot applies all
-  production Flyway migrations before Desktop use. This stack is a development
+- a host-run local development profile backed by checkout-isolated Compose
+  PostgreSQL 17 and Mailpit. Root pnpm tooling is only the orchestration entry:
+  Gradle Wrapper owns dependency resolution and Kotlin compilation, while Spring
+  Boot is the only local Flyway migration runner. A mode-`0600`, Git-ignored
+  `.env.local` supplies the checkout's Compose identity and loopback ports. It
+  may also explicitly select external SMTP for a manual real-inbox development
+  check; launcher validation requires a complete configuration and either
+  required STARTTLS or implicit SSL, then the Core API uses the same guarded
+  production adapter. Automated auth smoke remains Mailpit-only. The controller
+  waits for infrastructure and Core API health before Desktop use, and migration
+  failure leaves the database available for diagnosis without
+  automatic repair, checksum mutation, or reset. This stack is a development
   topology, not a production manifest or external-provider proof;
 - a fail-closed Spring Security chain that permits only the explicit anonymous
   authentication endpoints and Actuator probes, authenticates protected Desktop

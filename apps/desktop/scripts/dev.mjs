@@ -6,7 +6,11 @@ import electronPath from 'electron';
 import { build as viteBuild, createServer } from 'vite';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
-const devServerUrl = 'http://127.0.0.1:5173';
+const devServerPort = Number(process.env.TASKPILOT_DESKTOP_DEV_SERVER_PORT ?? 5173);
+if (!Number.isInteger(devServerPort) || devServerPort < 1 || devServerPort > 65_535) {
+  throw new Error('TASKPILOT_DESKTOP_DEV_SERVER_PORT must be an integer between 1 and 65535.');
+}
+const devServerUrl = `http://127.0.0.1:${devServerPort}`;
 const electronSources = [
   path.join(appRoot, 'src/main'),
   path.join(appRoot, 'src/preload'),
@@ -59,7 +63,7 @@ const server = await createServer({
   configFile: path.join(appRoot, 'vite.config.ts'),
   server: {
     host: '127.0.0.1',
-    port: 5173,
+    port: devServerPort,
     strictPort: true,
   },
 });

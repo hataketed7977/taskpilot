@@ -13,6 +13,7 @@ import {
   ensureLocalEnvironment,
   localEnvironmentPath,
   readLocalEnvironment,
+  verificationMailEnvironment,
 } from './local-environment.mjs';
 import { classifyComposeProject, parseComposePs } from './compose-manager.mjs';
 import { coreApiHealth, mailpitHealth, waitForHealth } from './health-checks.mjs';
@@ -22,7 +23,7 @@ import {
   inspectRecordedService,
   isProcessAlive,
   recordService,
-  stopProcessTree,
+  stopProcessAndWait,
   stopRecordedService,
 } from './process-manager.mjs';
 import {
@@ -32,7 +33,7 @@ import {
   prerequisiteChecks,
 } from './preflight.mjs';
 
-const supportedCommands = new Set(['start', 'stop', 'restart', 'status', 'logs', 'doctor', 'smoke', 'infra-up', 'infra-down', 'help']);
+const supportedCommands = new Set(['start', 'api', 'desktop', 'stop', 'restart', 'status', 'logs', 'doctor', 'smoke', 'help']);
 const logServices = new Set(['core-api', 'postgres', 'mailpit']);
 
 export function parseCli(argv) {
@@ -71,18 +72,30 @@ function composeArgs(...args) {
   return ['compose', '--env-file', localEnvironmentPath, ...args];
 }
 
-function environmentAndConfig({ create = true } = {}) {
+function environmentAndConfig({ create = false } = {}) {
+  if (!create && !existsSync(localEnvironmentPath)) {
+    throw new Error('Missing .env.local. Run pnpm bootstrap before starting TaskPilot.');
+  }
   const values = create ? ensureLocalEnvironment() : readLocalEnvironment(localEnvironmentPath);
   const config = localConfiguration(values);
+  const verificationMail = verificationMailEnvironment(values);
   return {
     values,
     config,
     environment: {
       ...process.env,
       ...values,
+      ...verificationMail,
+      TASKPILOT_COMPOSE_PROJECT: config.composeProject,
+      TASKPILOT_POSTGRES_PORT: String(config.postgresPort),
+      TASKPILOT_SMTP_PORT: String(config.smtpPort),
+      TASKPILOT_MAILPIT_HTTP_PORT: String(config.mailpitHttpPort),
+      TASKPILOT_CORE_API_PORT: String(config.coreApiPort),
+      TASKPILOT_DESKTOP_DEV_SERVER_PORT: String(config.desktopDevServerPort),
       SPRING_PROFILES_ACTIVE: 'local',
       SERVER_PORT: String(config.coreApiPort),
       TASKPILOT_CORE_API_URL: config.coreApiUrl,
+      TASKPILOT_DESKTOP_DEV_SERVER_URL: config.desktopDevServerUrl,
       TASKPILOT_MAILPIT_URL: config.mailpitUrl,
     },
   };
@@ -104,7 +117,7 @@ function inspectComposeProject(environment) {
 function assertComposeOwnership(environment) {
   const project = inspectComposeProject(environment);
   if (project.status === 'unowned') {
-    throw new Error('Docker Compose project taskpilot-local belongs to another checkout. TaskPilot will not reuse or stop it; stop that checkout first.');
+    throw new Error(`Docker Compose project ${environment.TASKPILOT_COMPOSE_PROJECT} belongs to another checkout. TaskPilot will not reuse or stop it.`);
   }
   if (project.status === 'unavailable') {
     throw new Error('Docker Compose project ownership could not be inspected. TaskPilot will not start or stop infrastructure without proving ownership.');
@@ -126,9 +139,31 @@ async function assertInfrastructurePortsAvailable(config, environment) {
   }
 }
 
+export function projectDependencyChecks(root = repositoryRoot) {
+  const required = [
+    ['pnpm workspace dependencies', path.join(root, 'node_modules', '.modules.yaml')],
+    ['Desktop Vite', path.join(root, 'apps', 'desktop', 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite')],
+    ['Desktop Electron', path.join(root, 'apps', 'desktop', 'node_modules', 'electron')],
+  ];
+  const checks = required.map(([name, target]) => ({ name, target, ok: existsSync(target) }));
+  const lockfile = path.join(root, 'pnpm-lock.yaml');
+  const installedLockfile = path.join(root, 'node_modules', '.pnpm', 'lock.yaml');
+  checks.push({
+    name: 'pnpm lockfile state',
+    target: installedLockfile,
+    ok: existsSync(lockfile) && existsSync(installedLockfile) && readFileSync(lockfile).equals(readFileSync(installedLockfile)),
+  });
+  return checks;
+}
+
+function assertProjectDependencies() {
+  const missing = projectDependencyChecks().filter(check => !check.ok);
+  if (missing.length) throw new Error(`Project dependencies are missing (${missing.map(check => check.name).join(', ')}). Run pnpm bootstrap.`);
+}
+
 async function startInfrastructure(config, environment) {
   await assertInfrastructurePortsAvailable(config, environment);
-  run('docker', composeArgs('up', '-d', '--wait'), { env: environment, stdio: 'inherit' });
+  run('docker', composeArgs('up', '-d', '--wait', '--pull', 'never'), { env: environment, stdio: 'inherit' });
 }
 
 function inspectCoreApi() {
@@ -142,7 +177,42 @@ async function assertCoreApiPortAvailable(config) {
   throw new Error(portConflictMessage(config.coreApiPort, 'Core API'));
 }
 
-function startCoreApi(environment, config) {
+export function waitForSpawn(child, label = 'Child process') {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      child.removeListener('spawn', onSpawn);
+      child.removeListener('error', onError);
+    };
+    const onSpawn = () => {
+      cleanup();
+      if (!Number.isInteger(child.pid) || child.pid <= 0) {
+        reject(new Error(`${label} started without a valid PID.`));
+        return;
+      }
+      resolve(child);
+    };
+    const onError = error => {
+      cleanup();
+      reject(new Error(`${label} failed to start: ${error.message}`, { cause: error }));
+    };
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
+  });
+}
+
+async function recordStartedProcess(name, child, service, label) {
+  await waitForSpawn(child, label);
+  child.once('error', error => console.error(`${label} process error: ${error.message}`));
+  try {
+    recordService(name, { ...service, pid: child.pid, startedAt: new Date().toISOString() });
+  } catch (error) {
+    await stopProcessAndWait(child.pid);
+    throw error;
+  }
+  return child;
+}
+
+async function startCoreApi(environment, config) {
   const existing = inspectCoreApi();
   if (existing.status === 'owned') return { process: null, started: false, pid: existing.pid };
   if (existing.status === 'stale') forgetService('coreApi');
@@ -164,35 +234,38 @@ function startCoreApi(environment, config) {
   } finally {
     closeSync(logFd);
   }
-  child.once('error', error => console.error(`Core API process error: ${error.message}`));
-  recordService('coreApi', {
-    pid: child.pid,
-    startedAt: new Date().toISOString(),
-    logPath: coreApiLogPath,
-  });
+  await recordStartedProcess('coreApi', child, { logPath: coreApiLogPath }, 'Core API');
   return { process: child, started: true, pid: child.pid, config };
 }
 
-async function ensureCoreApi(environment, config) {
+async function ensureCoreApi(environment, config, lifecycle = {}) {
   await assertCoreApiPortAvailable(config);
-  const started = startCoreApi(environment, config);
+  const started = await startCoreApi(environment, config);
+  lifecycle.onStarted?.(started);
   try {
+    if (lifecycle.isStopping?.()) throw new Error('Core API startup was interrupted');
     if (!await coreApiHealth(config.coreApiUrl)) {
       await waitForHealth(() => coreApiHealth(config.coreApiUrl), {
-        isAlive: () => !started.process || isProcessAlive(started.pid),
+        isAlive: () => !lifecycle.isStopping?.() && (!started.process || isProcessAlive(started.pid)),
       });
     }
     return started;
   } catch (error) {
     if (started.started) {
-      stopOwnedChild('coreApi', started.process);
+      if (lifecycle.cleanupOnFailure !== false) await stopOwnedChild('coreApi', started.process);
       error.message = `${error.message}. See ${coreApiLogPath}`;
     }
     throw error;
   }
 }
 
-function startDesktop(environment) {
+async function assertDesktopPortAvailable(config) {
+  if (await isPortOpen(config.desktopDevServerPort)) {
+    throw new Error(portConflictMessage(config.desktopDevServerPort, 'Desktop Vite'));
+  }
+}
+
+async function startDesktop(environment, lifecycle = {}) {
   const existing = inspectRecordedService('desktop');
   if (existing.status === 'owned') {
     throw new Error(`Desktop is already running for this checkout with PID ${existing.pid}.`);
@@ -209,50 +282,184 @@ function startDesktop(environment) {
     stdio: 'inherit',
     windowsHide: true,
   });
-  recordService('desktop', { pid: desktop.pid, startedAt: new Date().toISOString() });
+  await recordStartedProcess('desktop', desktop, {}, 'Desktop');
+  lifecycle.onStarted?.(desktop);
+  if (lifecycle.isStopping?.()) throw new Error('Desktop startup was interrupted');
   return desktop;
 }
 
-function stopOwnedChild(name, child) {
+async function stopOwnedChild(name, child) {
   if (!child) return;
-  if (isProcessAlive(child.pid)) stopProcessTree(child.pid, { signal: 'SIGTERM' });
+  if (child.exitCode !== null || child.signalCode !== null) {
+    forgetService(name);
+    return;
+  }
+  const stopped = await stopProcessAndWait(child.pid);
+  if (!stopped) throw new Error(`Failed to stop ${name} process tree (PID ${child.pid}); state was preserved.`);
   forgetService(name);
 }
 
-async function commandStart() {
+export function waitForChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      child.removeListener('exit', onExit);
+      child.removeListener('error', onError);
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      resolve({ code, signal });
+    };
+    const onError = error => {
+      cleanup();
+      reject(error);
+    };
+    child.once('exit', onExit);
+    child.once('error', onError);
+  });
+}
+
+export function childExitedUnexpectedly(exit, stopping = false) {
+  return !stopping && (exit.signal !== null || exit.code !== 0);
+}
+
+function exitDescription(exit) {
+  return exit.signal ? `signal ${exit.signal}` : `code ${exit.code ?? 'unknown'}`;
+}
+
+async function commandApi() {
   assertPrerequisites();
   const { config, environment } = environmentAndConfig();
   await startInfrastructure(config, environment);
   let core;
-  let desktop;
   let stopping = false;
+  let cleanupPromise;
   const cleanup = () => {
-    if (stopping) return;
     stopping = true;
-    stopOwnedChild('desktop', desktop);
-    if (core?.started) stopOwnedChild('coreApi', core.process);
+    if (!core?.started || !core.process) return Promise.resolve();
+    return cleanupPromise ??= stopOwnedChild('coreApi', core.process);
   };
   const onSignal = signal => {
-    console.log(`\nReceived ${signal}; stopping TaskPilot host processes. PostgreSQL and Mailpit remain running.`);
-    cleanup();
+    if (stopping) return;
+    console.log(`\nReceived ${signal}; stopping Core API. PostgreSQL and Mailpit remain running.`);
+    void cleanup().catch(error => console.error(`Core API cleanup failed: ${error.message}`));
   };
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
   try {
-    core = await ensureCoreApi(environment, config);
+    core = await ensureCoreApi(environment, config, {
+      isStopping: () => stopping,
+      onStarted: started => { core = started; },
+      cleanupOnFailure: false,
+    });
     console.log(`Core API is healthy: ${config.coreApiUrl}`);
     console.log(`Mailpit inbox: ${config.mailpitUrl}`);
     console.log(`Core API log: ${coreApiLogPath}`);
-    desktop = startDesktop(environment);
-    const exit = await new Promise((resolve, reject) => {
-      desktop.once('exit', (code, signal) => resolve({ code: code ?? 0, signal }));
-      desktop.once('error', reject);
-    });
-    if (!stopping && exit.code !== 0) throw new Error(`Desktop exited with code ${exit.code}${exit.signal ? ` (${exit.signal})` : ''}`);
+    if (!core.started) {
+      console.log('Core API was already running for this checkout.');
+      return;
+    }
+    const exit = await waitForChild(core.process);
+    if (childExitedUnexpectedly(exit, stopping)) throw new Error(`Core API exited unexpectedly with ${exitDescription(exit)}`);
   } finally {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
-    cleanup();
+    if (core?.started) await cleanup();
+  }
+}
+
+export function assertDesktopCoreApi(recorded, healthy, coreApiUrl) {
+  if (recorded.status !== 'owned') {
+    throw new Error(`Core API ownership is not recorded for this checkout at ${coreApiUrl}. Run pnpm dev:api or pnpm dev.`);
+  }
+  if (!healthy) {
+    throw new Error(`Core API is not healthy at ${coreApiUrl}. Run pnpm dev:api or pnpm dev.`);
+  }
+}
+
+async function commandDesktop() {
+  assertProjectDependencies();
+  const { config, environment } = environmentAndConfig();
+  const recordedCoreApi = inspectCoreApi();
+  assertDesktopCoreApi(recordedCoreApi, await coreApiHealth(config.coreApiUrl), config.coreApiUrl);
+  await assertDesktopPortAvailable(config);
+  let desktop;
+  let stopping = false;
+  let cleanupPromise;
+  const cleanup = () => {
+    stopping = true;
+    if (!desktop) return Promise.resolve();
+    return cleanupPromise ??= stopOwnedChild('desktop', desktop);
+  };
+  const onSignal = signal => {
+    if (stopping) return;
+    console.log(`\nReceived ${signal}; stopping Desktop.`);
+    void cleanup().catch(error => console.error(`Desktop cleanup failed: ${error.message}`));
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+  try {
+    desktop = await startDesktop(environment, {
+      isStopping: () => stopping,
+      onStarted: started => { desktop = started; },
+    });
+    const exit = await waitForChild(desktop);
+    if (childExitedUnexpectedly(exit, stopping)) throw new Error(`Desktop exited unexpectedly with ${exitDescription(exit)}`);
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    if (desktop) await cleanup();
+  }
+}
+
+async function commandStart() {
+  assertPrerequisites();
+  assertProjectDependencies();
+  const { config, environment } = environmentAndConfig();
+  await assertDesktopPortAvailable(config);
+  await startInfrastructure(config, environment);
+  let core;
+  let desktop;
+  let stopping = false;
+  let desktopCleanupPromise;
+  let coreCleanupPromise;
+  const cleanup = async () => {
+    stopping = true;
+    const stops = [];
+    if (desktop) stops.push(desktopCleanupPromise ??= stopOwnedChild('desktop', desktop));
+    if (core?.started && core.process) stops.push(coreCleanupPromise ??= stopOwnedChild('coreApi', core.process));
+    const results = await Promise.allSettled(stops);
+    const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+    if (failures.length) throw new AggregateError(failures, 'One or more TaskPilot host processes failed to stop.');
+  };
+  const onSignal = signal => {
+    if (stopping) return;
+    console.log(`\nReceived ${signal}; stopping TaskPilot host processes. PostgreSQL and Mailpit remain running.`);
+    void cleanup().catch(error => console.error(`Host-process cleanup failed: ${error.message}`));
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+  try {
+    core = await ensureCoreApi(environment, config, {
+      isStopping: () => stopping,
+      onStarted: started => { core = started; },
+      cleanupOnFailure: false,
+    });
+    console.log(`Core API is healthy: ${config.coreApiUrl}`);
+    console.log(`Mailpit inbox: ${config.mailpitUrl}`);
+    console.log(`Core API log: ${coreApiLogPath}`);
+    desktop = await startDesktop(environment, {
+      isStopping: () => stopping,
+      onStarted: started => { desktop = started; },
+    });
+    const exit = await waitForChild(desktop);
+    if (childExitedUnexpectedly(exit, stopping)) throw new Error(`Desktop exited unexpectedly with ${exitDescription(exit)}`);
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    await cleanup();
   }
 }
 
@@ -260,35 +467,52 @@ function stopResult(name, result) {
   if (result.status === 'stopped') console.log(`Stopped ${name} (PID ${result.pid}).`);
   else if (result.status === 'stale') console.log(`Removed stale ${name} state (PID ${result.pid}).`);
   else if (result.status === 'unowned') console.warn(`Refused to stop ${name} PID ${result.pid}: ownership could not be proven.`);
+  else if (result.status === 'stop-failed') console.warn(`Failed to stop ${name} PID ${result.pid}; state was preserved.`);
   else console.log(`${name} was not recorded as running.`);
 }
 
-function commandStop({ stopInfrastructure = true } = {}) {
-  let local = null;
-  if (stopInfrastructure && existsSync(localEnvironmentPath)) {
-    local = environmentAndConfig({ create: false });
-    assertComposeOwnership(local.environment);
-  }
+export function stopHostServices(stopService = stopRecordedService) {
+  return Promise.allSettled([
+    Promise.resolve().then(() => stopService('desktop')).then(result => ({ label: 'Desktop', result })),
+    Promise.resolve().then(() => stopService('coreApi')).then(result => ({ label: 'Core API', result })),
+  ]);
+}
+
+async function commandStop({ stopInfrastructure = true } = {}) {
   const inspections = {
     desktop: inspectRecordedService('desktop'),
     coreApi: inspectRecordedService('coreApi'),
   };
   const unsafe = Object.entries(inspections).filter(([, result]) => result.status === 'unowned');
   if (unsafe.length) {
-    throw new Error(`Refusing a partial stop because ownership could not be proven for ${unsafe.map(([name, result]) => `${name} PID ${result.pid}`).join(', ')}. No process or container was stopped.`);
+    throw new Error(`Refusing to stop host processes because ownership could not be proven for ${unsafe.map(([name, result]) => `${name} PID ${result.pid}`).join(', ')}.`);
   }
-  const desktop = stopRecordedService('desktop');
-  const core = stopRecordedService('coreApi');
-  stopResult('Desktop', desktop);
-  stopResult('Core API', core);
-  if (stopInfrastructure) {
-    if (local) {
-      run('docker', composeArgs('down'), { env: local.environment, stdio: 'inherit' });
-      console.log('Stopped PostgreSQL and Mailpit containers; the PostgreSQL volume was kept.');
-    } else {
-      console.log('No .env.local exists; infrastructure stop was skipped.');
+  const stops = await stopHostServices();
+  const failures = [];
+  for (const stop of stops) {
+    if (stop.status === 'rejected') {
+      failures.push(stop.reason);
+      console.warn(`Host-process stop failed: ${stop.reason.message}`);
+      continue;
     }
+    stopResult(stop.value.label, stop.value.result);
+    if (stop.value.result.status === 'stop-failed') failures.push(new Error(`${stop.value.label} did not stop`));
   }
+  if (failures.length) throw new AggregateError(failures, 'One or more host processes did not stop; infrastructure was left running and process state was preserved.');
+  if (!stopInfrastructure) return;
+  if (!existsSync(localEnvironmentPath)) {
+    console.log('No .env.local exists; infrastructure stop was skipped.');
+    return;
+  }
+  const { environment } = environmentAndConfig({ create: false });
+  const project = inspectComposeProject(environment);
+  if (project.status === 'unavailable') {
+    console.warn('Docker is unavailable; host processes were stopped but PostgreSQL and Mailpit could not be stopped.');
+    return;
+  }
+  if (project.status === 'unowned') throw new Error('Refusing to stop a Docker Compose project whose checkout ownership cannot be proven.');
+  run('docker', composeArgs('down'), { env: environment, stdio: 'inherit' });
+  console.log('Stopped PostgreSQL and Mailpit containers; the PostgreSQL volume was kept.');
 }
 
 async function composeStatus(environment) {
@@ -309,7 +533,7 @@ function serviceLabel(result) {
 
 async function commandStatus() {
   if (!existsSync(localEnvironmentPath)) {
-    console.log('Local environment: missing (.env.local); run pnpm dev or pnpm dev:setup.');
+    console.log('Local environment: missing (.env.local); run pnpm bootstrap.');
     return;
   }
   let local;
@@ -327,7 +551,7 @@ async function commandStatus() {
     coreApiHealth(local.config.coreApiUrl),
     mailpitHealth(local.config.mailpitUrl),
   ]);
-  console.log('TaskPilot local status');
+  console.log(`TaskPilot local status (${local.config.composeProject})`);
   if (infrastructure.ownership === 'unowned') {
     console.log('- Compose ownership: CONFLICT (project belongs to another checkout)');
   } else if (infrastructure.ownership === 'unavailable') {
@@ -336,7 +560,7 @@ async function commandStatus() {
   console.log(`- PostgreSQL: ${infrastructure.postgres ? 'container running' : 'not running'} (127.0.0.1:${local.config.postgresPort})`);
   console.log(`- Mailpit: ${infrastructure.mailpit ? 'container running' : 'not running'}; HTTP ${mailpitHealthy ? 'ready' : 'not ready'} (${local.config.mailpitUrl})`);
   console.log(`- Core API: ${serviceLabel(core)}; HTTP ${coreHealthy ? 'UP' : 'not ready'} (${local.config.coreApiUrl})`);
-  console.log(`- Desktop: ${serviceLabel(desktop)}`);
+  console.log(`- Desktop: ${serviceLabel(desktop)}; Vite ${local.config.desktopDevServerUrl}`);
 }
 
 function environmentPermission() {
@@ -346,13 +570,24 @@ function environmentPermission() {
 }
 
 function describePortOwner(port) {
-  if (process.platform === 'win32') {
-    const result = run('netstat.exe', ['-ano', '-p', 'tcp'], { allowFailure: true });
-    const line = String(result.stdout).split(/\r?\n/).find(item => item.includes(`:${port} `) && /LISTENING/i.test(item));
-    return line?.trim() ?? 'unknown process';
+  try {
+    if (process.platform === 'win32') {
+      const result = run('netstat.exe', ['-ano', '-p', 'tcp'], { allowFailure: true });
+      const line = String(result.stdout).split(/\r?\n/).find(item => item.includes(`:${port} `) && /LISTENING/i.test(item));
+      return line?.trim() ?? 'unknown process';
+    }
+    const result = run('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { allowFailure: true });
+    return String(result.stdout).split(/\r?\n/).filter(Boolean).slice(1, 3).join(' | ') || 'unknown process';
+  } catch {
+    return 'unknown process';
   }
-  const result = run('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { allowFailure: true });
-  return String(result.stdout).split(/\r?\n/).filter(Boolean).slice(1, 3).join(' | ') || 'unknown process';
+}
+
+export function doctorHasBlockingProblems(prerequisites, environmentState, dependencies) {
+  return prerequisites.some(check => !check.ok)
+    || dependencies.some(check => !check.ok)
+    || environmentState.startsWith('invalid')
+    || environmentState.includes('must not');
 }
 
 async function commandDoctor() {
@@ -360,38 +595,51 @@ async function commandDoctor() {
   const checks = prerequisiteChecks();
   for (const check of checks) console.log(`- ${check.ok ? 'PASS' : 'FAIL'} ${check.name}: ${check.detail}`);
   let config = localConfiguration({});
-  let envState = 'missing; pnpm dev will create it';
+  let composeEnvironment = { ...process.env, TASKPILOT_COMPOSE_PROJECT: config.composeProject };
+  let environmentValid = true;
+  let envState = 'missing; pnpm bootstrap will create it';
   if (existsSync(localEnvironmentPath)) {
     try {
       const values = readLocalEnvironment();
       config = localConfiguration(values);
+      composeEnvironment = { ...process.env, ...values, TASKPILOT_COMPOSE_PROJECT: config.composeProject };
       const permission = environmentPermission();
       envState = `valid, ${permission.detail}${permission.ok ? '' : ' (must not be readable by group/others)'}`;
     } catch (error) {
+      environmentValid = false;
       envState = `invalid: ${error.message}`;
     }
   }
   console.log(`- ${envState.startsWith('valid') || envState.startsWith('missing') ? 'PASS' : 'FAIL'} .env.local: ${envState}`);
-  const ports = [
-    [config.postgresPort, 'PostgreSQL'],
-    [config.smtpPort, 'Mailpit SMTP'],
-    [config.mailpitHttpPort, 'Mailpit HTTP'],
-    [config.coreApiPort, 'Core API'],
-  ];
-  for (const [port, purpose] of ports) {
-    const open = await isPortOpen(port);
-    console.log(`- INFO port ${port} (${purpose}): ${open ? `in use — ${describePortOwner(port)}` : 'available'}`);
+  if (environmentValid) {
+    const ports = [
+      [config.postgresPort, 'PostgreSQL'],
+      [config.smtpPort, 'Mailpit SMTP'],
+      [config.mailpitHttpPort, 'Mailpit HTTP'],
+      [config.coreApiPort, 'Core API'],
+      [config.desktopDevServerPort, 'Desktop Vite'],
+    ];
+    for (const [port, purpose] of ports) {
+      const open = await isPortOpen(port);
+      console.log(`- INFO port ${port} (${purpose}): ${open ? `in use — ${describePortOwner(port)}` : 'available'}`);
+    }
+    const compose = existsSync(localEnvironmentPath)
+      ? inspectComposeProject(composeEnvironment)
+      : { status: 'absent', services: new Set() };
+    const composeDetail = compose.status === 'owned'
+      ? `owned by this checkout; running: ${[...compose.services].join(', ') || 'none'}`
+      : compose.status;
+    console.log(`- INFO Compose project ${config.composeProject}: ${composeDetail}`);
+  } else {
+    console.log('- INFO ports and Compose: skipped until .env.local is valid');
   }
-  const compose = inspectComposeProject({ ...process.env });
-  const composeDetail = compose.status === 'owned'
-    ? `owned by this checkout; running: ${[...compose.services].join(', ') || 'none'}`
-    : compose.status;
-  console.log(`- INFO Compose project: ${composeDetail}`);
+  const dependencies = projectDependencyChecks();
+  for (const check of dependencies) console.log(`- ${check.ok ? 'PASS' : 'FAIL'} ${check.name}: ${check.ok ? 'installed' : `missing (${check.target})`}`);
   const core = inspectCoreApi();
   const desktop = inspectRecordedService('desktop');
   console.log(`- INFO recorded Core API: ${serviceLabel(core)}`);
   console.log(`- INFO recorded Desktop: ${serviceLabel(desktop)}`);
-  if (checks.some(check => !check.ok) || envState.startsWith('invalid') || envState.includes('must not')) {
+  if (doctorHasBlockingProblems(checks, envState, dependencies)) {
     throw new Error('Doctor found one or more blocking problems.');
   }
 }
@@ -434,27 +682,13 @@ async function commandLogs(service, follow) {
   run('docker', args, { env: environment, stdio: 'inherit' });
 }
 
-async function commandInfrastructureUp() {
-  const { config, environment } = environmentAndConfig();
-  await startInfrastructure(config, environment);
-  console.log(`PostgreSQL is ready on 127.0.0.1:${config.postgresPort}.`);
-  console.log(`Mailpit inbox: ${config.mailpitUrl}`);
-}
-
-function commandInfrastructureDown() {
-  if (!existsSync(localEnvironmentPath)) {
-    console.log('No .env.local exists; infrastructure stop was skipped.');
-    return;
-  }
-  const { environment } = environmentAndConfig({ create: false });
-  assertComposeOwnership(environment);
-  run('docker', composeArgs('down'), { env: environment, stdio: 'inherit' });
-  console.log('Stopped PostgreSQL and Mailpit containers; the PostgreSQL volume was kept.');
-}
 
 async function commandSmoke() {
   assertPrerequisites();
-  const { config, environment } = environmentAndConfig();
+  const { values, config, environment } = environmentAndConfig();
+  if ((values.TASKPILOT_VERIFICATION_MAIL_MODE ?? 'mailpit') !== 'mailpit') {
+    throw new Error('dev:smoke is Mailpit-only; verify external SMTP manually with a test inbox.');
+  }
   await startInfrastructure(config, environment);
   const core = await ensureCoreApi(environment, config);
   try {
@@ -465,7 +699,7 @@ async function commandSmoke() {
     if (result.status !== 0) throw new Error('Local mail smoke failed.');
   } finally {
     if (core.started) {
-      stopOwnedChild('coreApi', core.process);
+      await stopOwnedChild('coreApi', core.process);
       console.log('Stopped the Core API started only for this smoke run.');
     } else {
       console.log('Kept the pre-existing Core API running.');
@@ -474,23 +708,23 @@ async function commandSmoke() {
 }
 
 function printHelp() {
-  console.log(`TaskPilot local development\n\nCommands:\n  pnpm dev              Start infrastructure and Core API, then open Desktop\n  pnpm dev:stop         Stop this checkout's Desktop/Core API and Compose services\n  pnpm dev:restart      Stop and start the complete local stack\n  pnpm dev:status       Show state, ownership, health, and local URLs\n  pnpm dev:logs         Show Core API logs (add --follow)\n  pnpm dev:doctor       Diagnose tools, environment, ports, and stale state\n  pnpm dev:smoke        Run headless registration/login/reset mail smoke\n\nLog options:\n  --service core-api|postgres|mailpit\n  --follow, -f`);
+  console.log(`TaskPilot local development\n\nCommands:\n  pnpm bootstrap        Install locked dependencies, compile Core API, and pull missing images\n  pnpm dev              Start infrastructure and Core API, then open Desktop\n  pnpm dev:api          Start infrastructure and Core API only\n  pnpm dev:desktop      Open Desktop against this checkout's running Core API\n  pnpm dev:stop         Stop this checkout's Desktop/Core API and Compose services\n  pnpm dev:restart      Stop and start the complete local stack\n  pnpm dev:status       Show state, ownership, health, and local URLs\n  pnpm dev:logs         Show Core API logs (add --follow)\n  pnpm dev:doctor       Diagnose tools, dependencies, ports, and stale state\n  pnpm dev:smoke        Run headless registration/login/reset mail smoke\n  pnpm check            Run complete launcher, Desktop, and Core API quality gates\n\nLog options:\n  --service core-api|postgres|mailpit\n  --follow, -f`);
 }
 
 export async function runCli(argv = process.argv.slice(2)) {
   const options = parseCli(argv);
   if (options.command === 'help') printHelp();
   else if (options.command === 'start') await commandStart();
-  else if (options.command === 'stop') commandStop();
+  else if (options.command === 'api') await commandApi();
+  else if (options.command === 'desktop') await commandDesktop();
+  else if (options.command === 'stop') await commandStop();
   else if (options.command === 'restart') {
-    commandStop();
+    await commandStop();
     await commandStart();
   } else if (options.command === 'status') await commandStatus();
   else if (options.command === 'doctor') await commandDoctor();
   else if (options.command === 'logs') await commandLogs(options.service, options.follow);
   else if (options.command === 'smoke') await commandSmoke();
-  else if (options.command === 'infra-up') await commandInfrastructureUp();
-  else if (options.command === 'infra-down') commandInfrastructureDown();
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);

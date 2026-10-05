@@ -56,78 +56,90 @@ development Compose stack; production deployment manifests do not yet exist.
 ## Local Development
 
 Prerequisites are JDK 21, Docker with Compose, Node.js 22.12 or newer, and the
-pinned pnpm version. Install JavaScript dependencies once with `pnpm install`,
-then run:
+pinned pnpm version. Prepare a checkout once, then start it:
 
 ```bash
+pnpm bootstrap
 pnpm dev
 ```
 
-The command creates a Git-ignored `.env.local` on first use, starts PostgreSQL
-17 and Mailpit through Docker Compose, waits for Core API health, and opens
-Electron against the local API in Desktop development mode. Renderer changes
-use Vite HMR without reopening the window; Main, Preload, or shared-contract
-changes are rebuilt and restart Electron automatically. The development server
-is loopback-only on `http://127.0.0.1:5173`; packaged builds continue loading
-local files with the production CSP. Pressing `Ctrl+C` stops the Desktop and a
-Core API started by that invocation; PostgreSQL and Mailpit remain available
-for the next run.
+`bootstrap` is the explicit, network-capable preparation step. It validates the
+system tools, creates or extends the Git-ignored `.env.local` without replacing
+credentials or existing values, installs exactly `pnpm-lock.yaml`, compiles the
+Desktop and Core API, and pulls only missing PostgreSQL and Mailpit images. It
+does not install or upgrade JDK, Docker, Node.js, or pnpm.
 
-To run only the Desktop development loop against an already running local Core
-API, use `pnpm --filter @taskpilot/desktop dev`. Use
-`pnpm --filter @taskpilot/desktop build` for a production-style local build.
+`dev` is the repeatable runtime path. It validates tools and installed JavaScript
+dependencies, starts PostgreSQL 17 and Mailpit through Docker Compose, starts the
+Core API through the Gradle Wrapper, waits for Spring Boot to compile, validate
+and apply Flyway migrations, and become healthy, then opens Electron. Renderer
+changes use Vite HMR; Main, Preload, or shared-contract changes rebuild and
+restart Electron. Pressing `Ctrl+C` stops host processes started by that
+invocation but keeps PostgreSQL and Mailpit available for the next run.
 
 ### Lifecycle commands
 
 ```bash
-pnpm dev:doctor       # read-only prerequisites, environment, ports, and stale-state diagnosis
-pnpm dev:status       # service ownership, process state, health, and local URLs
-pnpm dev:logs         # last 200 Core API log lines
-pnpm dev:logs --follow
-pnpm dev:logs --service postgres
-pnpm dev:logs --service mailpit --follow
-pnpm dev:restart      # stop this local stack, then start it again
+pnpm dev:api          # infrastructure plus Gradle/Spring Boot Core API, no Desktop
+pnpm dev:desktop      # Desktop only; require this checkout's Core API to be healthy
+pnpm dev:doctor       # read-only tools, dependencies, ports, ownership, and stale-state diagnosis
+pnpm dev:status       # process/container ownership, health, and actual local URLs
+pnpm dev:logs         # Core API log; add --follow or --service postgres|mailpit
+pnpm dev:restart      # stop this checkout, then start the complete local stack
 pnpm dev:stop         # stop owned host processes and Compose containers; keep database data
 pnpm dev:smoke        # headless registration, login OTP, and password-reset mail smoke
+pnpm check            # complete launcher, Desktop, and Core API quality gates
 ```
 
-`dev:smoke` starts missing infrastructure and Core API services but never opens
-the Desktop. If Core API was already running for this checkout, the command
-leaves it running; otherwise it stops the temporary Core API after the smoke.
-The legacy focused commands remain available:
+`dev:api` and the complete `dev` entry still run Kotlin through
+`./gradlew :services:core-api:bootRun`; pnpm only owns cross-project development
+orchestration. `dev:desktop` refuses to start unless the configured Core API is both
+healthy and recorded as owned by this checkout. `dev:smoke` may temporarily start infrastructure and Core API, never
+opens Desktop, and stops only the Core API it started.
 
-```bash
-pnpm dev:setup          # create .env.local without overwriting it
-pnpm dev:infra          # start only PostgreSQL and Mailpit
-pnpm dev:infra:down     # stop infrastructure and retain its PostgreSQL volume
-pnpm dev:mail-smoke     # run only the mail flow against services already running
-```
+Each newly bootstrapped checkout receives a deterministic
+`TASKPILOT_COMPOSE_PROJECT` and a persisted set of distinct loopback ports for
+PostgreSQL, Mailpit SMTP/HTTP, Core API, and Vite. The values are written to
+`.env.local`, propagated through Compose, Spring Boot, Vite, Electron, and the
+Desktop HTTP transport, and may be edited when that checkout is stopped. An
+existing `.env.local` is extended with its legacy `taskpilot-local` project and
+ports so the existing database volume remains visible; it is never silently
+moved or reset.
 
-Local addresses default to:
+The controller never takes over an unrecognized process or changes a persisted
+port automatically. Use `pnpm dev:doctor` to identify a conflict, then stop the
+owner or edit the stopped checkout's `.env.local`. On macOS and Linux, process shutdown sends a
+graceful signal, waits, and escalates after a timeout; Windows terminates the
+owned process tree directly. Ownership state is deleted only after confirmed exit. Docker unavailability does not prevent owned host
+processes from stopping. If a host process cannot stop, its state and
+infrastructure are preserved rather than orphaning it from PostgreSQL.
 
-- Core API: [http://127.0.0.1:8080](http://127.0.0.1:8080)
-- Mailpit inbox: [http://127.0.0.1:8025](http://127.0.0.1:8025)
-- PostgreSQL: `127.0.0.1:5432`
-- Mailpit SMTP: `127.0.0.1:1025`
+Every newly bootstrapped checkout owns a separate Compose project and PostgreSQL
+volume, so branches with different Flyway histories do not migrate the same database.
+A legacy checkout keeps its existing project and volume for compatibility.
+Spring Boot is the only local migration runner. A compile, migration, or health
+failure prevents Desktop startup and leaves infrastructure running for
+diagnosis; the launcher never runs Flyway repair, edits migration checksums,
+deletes a volume, or resets data automatically. Rebase-time migration version
+conflicts must be resolved in source before retrying.
 
-The PostgreSQL, SMTP, and Mailpit HTTP `TASKPILOT_*_PORT` values in
-`.env.local` can change their infrastructure ports. Core API remains on 8080
-because the current Desktop local transport contract is fixed to that address.
-Runtime state and Core API logs live under the Git-ignored
-`.taskpilot/dev/` directory and are scoped to this checkout. State contains
-only process metadata, never environment values or credentials.
-
-The controller never kills or reuses an unrecognized process just because it
-owns a required port, never runs Flyway repair, and never deletes the database
-volume during normal stop. Use `pnpm dev:doctor` to identify a conflict, then
-free the port or select another one. A service recorded in local state is
-stopped only when its command line proves that it belongs to this checkout.
-Compose container labels are checked the same way so another checkout cannot be
-reused or stopped accidentally.
+Runtime ownership state and Core API logs live under the Git-ignored
+`.taskpilot/dev/` directory and contain no credentials. All services bind only
+to loopback. Packaged Desktop builds continue to load local Renderer files with
+the production CSP.
 
 Use `.env.local.example` only as a key reference. Do not commit `.env.local` or
 reuse these local credentials in a deployed environment. Local plaintext SMTP
 is restricted in code to the non-production `local` profile and loopback
-Mailpit; production SMTP still requires STARTTLS or implicit TLS and runtime
-secret injection. A real external mail-provider smoke remains a deployment and
-release responsibility, not a local-development prerequisite.
+Mailpit. The default `pnpm dev` path therefore needs no mail-provider account,
+and `pnpm dev:smoke` remains a deterministic Mailpit-only registration, login
+code, and password-reset check.
+
+For an optional real-inbox development smoke, set
+`TASKPILOT_VERIFICATION_MAIL_MODE=external` and the documented
+`TASKPILOT_EXTERNAL_SMTP_*` values in `.env.local`, then restart the Core API.
+The launcher rejects incomplete credentials, invalid ports, plaintext transport,
+and simultaneous STARTTLS/implicit-SSL selection before startup. External SMTP
+uses the existing production mail adapter, which independently requires either
+required STARTTLS or implicit SSL. Request one code at a time from the Desktop
+and inspect the test inbox manually; automated smoke never sends provider mail.

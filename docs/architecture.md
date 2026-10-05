@@ -187,15 +187,25 @@ future CLI receives the same structure when created.
   short-lived technical cache or coordination use case.
 - Build: pnpm for JavaScript projects, Cargo for the Rust Runtime, and Gradle
   Kotlin DSL for Kotlin projects.
-- Local development: the repository Compose stack owns only PostgreSQL and a
-  Mailpit SMTP sink. Core API and Desktop run as host processes through one root
-  controller. A generated, Git-ignored `.env.local` supplies local-only database
-  and cryptographic material; Git-ignored checkout-local state records only
-  process ownership and logs. Compose ownership is verified from checkout-bound
-  container labels. The controller refuses to kill or reuse an unrecognized process and never repairs migrations automatically. The `local`
-  Spring profile binds Core API and plaintext SMTP to loopback and runs production
-  Flyway migrations. This is not a production deployment topology or proof of an
-  external mail provider.
+- Local development: the root pnpm commands are a cross-project entry point,
+  not the owner of Kotlin compilation or database migration. Explicit
+  `bootstrap` validates system prerequisites, installs the locked JavaScript
+  graph, precompiles Desktop and Core API, and pulls missing images; routine
+  `dev` delegates Core API compilation/runtime to the Gradle Wrapper and Flyway
+  execution to Spring Boot. Compose owns only PostgreSQL and a Mailpit SMTP sink.
+  Each new checkout has a deterministic Compose project, independent PostgreSQL
+  volume, and persisted loopback ports propagated through Compose, Spring Boot,
+  Vite, Electron, and Desktop transport. Existing local environments retain
+  their legacy project and ports to preserve data. Git-ignored state records
+  only process ownership and logs. The controller proves ownership, waits for
+  confirmed process exit before forgetting state, never takes over unknown
+  processes, and never repairs or resets migrations automatically. The `local`
+  profile binds Core API and default plaintext SMTP to loopback and applies
+  production Flyway migrations before Desktop starts. Development may explicitly
+  select an external SMTP test provider through Git-ignored `.env.local` values;
+  that path reuses the production mail adapter, rejects incomplete or plaintext
+  transport configuration before startup, and is verified manually rather than
+  by automated smoke. This is not a production deployment topology.
 
 Stable, mutually compatible versions are selected when each subproject is
 initialized. Windows and macOS share product code and protocols, but signing,

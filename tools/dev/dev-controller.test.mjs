@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { classifyComposeProject, parseComposePs } from './compose-manager.mjs';
-import { childCommands, localConfiguration } from './dev-config.mjs';
-import { parseCli } from './dev.mjs';
+import { childCommands, defaultLocalSettings, localConfiguration } from './dev-config.mjs';
+import { assertDesktopCoreApi, childExitedUnexpectedly, doctorHasBlockingProblems, parseCli, stopHostServices, waitForChild, waitForSpawn } from './dev.mjs';
 import { parseMajorVersion, parsePnpmVersion, portConflictMessage, supportsNodeVersion } from './preflight.mjs';
 import {
   emptyState,
   inspectRecordedService,
   isOwnedProcess,
   recordService,
+  stopProcessAndWait,
   stopRecordedService,
   writeState,
 } from './process-manager.mjs';
@@ -25,16 +27,70 @@ test('CLI parses supported lifecycle commands and log options', () => {
   assert.throws(() => parseCli(['explode']), /Unknown command/);
 });
 
-test('local ports use defaults and validate overrides', () => {
-  assert.deepEqual(localConfiguration({}), {
-    postgresPort: 5432,
-    smtpPort: 1025,
-    mailpitHttpPort: 8025,
-    coreApiPort: 8080,
-    coreApiUrl: 'http://127.0.0.1:8080',
-    mailpitUrl: 'http://127.0.0.1:8025',
-  });
-  assert.throws(() => localConfiguration({ TASKPILOT_SMTP_PORT: '0' }), /between 1 and 65535/);
+test('doctor fails when prerequisites, environment, or project dependencies are invalid', () => {
+  const passing = [{ ok: true }];
+  assert.equal(doctorHasBlockingProblems(passing, 'valid, mode 600', passing), false);
+  assert.equal(doctorHasBlockingProblems([{ ok: false }], 'valid, mode 600', passing), true);
+  assert.equal(doctorHasBlockingProblems(passing, 'invalid: missing secret', passing), true);
+  assert.equal(doctorHasBlockingProblems(passing, 'valid, mode 644 (must not be readable by group/others)', passing), true);
+  assert.equal(doctorHasBlockingProblems(passing, 'valid, mode 600', [{ ok: false }]), true);
+});
+
+test('Desktop accepts only a healthy Core API owned by this checkout', () => {
+  assert.doesNotThrow(() => assertDesktopCoreApi({ status: 'owned', pid: 42 }, true, 'http://127.0.0.1:48080'));
+  assert.throws(
+    () => assertDesktopCoreApi({ status: 'not-recorded' }, true, 'http://127.0.0.1:48080'),
+    /ownership is not recorded/,
+  );
+  assert.throws(
+    () => assertDesktopCoreApi({ status: 'owned', pid: 42 }, false, 'http://127.0.0.1:48080'),
+    /not healthy/,
+  );
+});
+
+test('child startup and exit helpers preserve spawn failures and signal exits', async () => {
+  const started = new EventEmitter();
+  started.pid = 42;
+  const startedPromise = waitForSpawn(started, 'Desktop');
+  started.emit('spawn');
+  assert.equal(await startedPromise, started);
+
+  const failed = new EventEmitter();
+  failed.pid = undefined;
+  const failedPromise = waitForSpawn(failed, 'Core API');
+  failed.emit('error', new Error('ENOENT'));
+  await assert.rejects(failedPromise, /Core API failed to start: ENOENT/);
+
+  const exited = new EventEmitter();
+  exited.exitCode = null;
+  exited.signalCode = null;
+  const exitPromise = waitForChild(exited);
+  exited.emit('exit', null, 'SIGKILL');
+  const exit = await exitPromise;
+  assert.deepEqual(exit, { code: null, signal: 'SIGKILL' });
+  assert.equal(childExitedUnexpectedly(exit), true);
+  assert.equal(childExitedUnexpectedly(exit, true), false);
+  assert.equal(childExitedUnexpectedly({ code: 0, signal: null }), false);
+});
+
+test('local settings are stable per checkout and validate distinct overrides', () => {
+  const settings = defaultLocalSettings(root);
+  assert.deepEqual(defaultLocalSettings(root), settings);
+  assert.notDeepEqual(defaultLocalSettings('/tmp/another-checkout'), settings);
+  const config = localConfiguration(settings, root);
+  assert.equal(config.composeProject, settings.TASKPILOT_COMPOSE_PROJECT);
+  assert.equal(config.coreApiUrl, `http://127.0.0.1:${settings.TASKPILOT_CORE_API_PORT}`);
+  assert.equal(config.desktopDevServerUrl, `http://127.0.0.1:${settings.TASKPILOT_DESKTOP_DEV_SERVER_PORT}`);
+  assert.equal(new Set([
+    config.postgresPort,
+    config.smtpPort,
+    config.mailpitHttpPort,
+    config.coreApiPort,
+    config.desktopDevServerPort,
+  ]).size, 5);
+  assert.throws(() => localConfiguration({ ...settings, TASKPILOT_SMTP_PORT: '0' }, root), /between 1 and 65535/);
+  assert.throws(() => localConfiguration({ ...settings, TASKPILOT_SMTP_PORT: settings.TASKPILOT_POSTGRES_PORT }, root), /distinct ports/);
+  assert.throws(() => localConfiguration({ ...settings, TASKPILOT_COMPOSE_PROJECT: 'INVALID NAME' }, root), /Compose project name/);
 });
 
 test('child commands carry checkout identity on macOS and Windows', () => {
@@ -90,13 +146,13 @@ test('ownership requires both the checkout and the expected service marker', () 
   assert.equal(isOwnedProcess('desktop', `pnpm --dir ${root} --filter @taskpilot/desktop build`, root), false);
 });
 
-test('stale state is classified and removed without killing anything', () => {
+test('stale state is classified and removed without killing anything', async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-dev-stale-'));
   const file = path.join(directory, 'state.json');
   try {
     recordService('coreApi', { pid: 98765, startedAt: new Date().toISOString() }, file, root);
     assert.equal(inspectRecordedService('coreApi', { stateFile: file, repositoryRoot: root, isAlive: () => false }).status, 'stale');
-    const result = stopRecordedService('coreApi', {
+    const result = await stopRecordedService('coreApi', {
       stateFile: file,
       repositoryRoot: root,
       isAlive: () => false,
@@ -108,12 +164,12 @@ test('stale state is classified and removed without killing anything', () => {
   }
 });
 
-test('stop refuses to kill a live process when ownership cannot be proven', () => {
+test('stop refuses to kill a live process when ownership cannot be proven', async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-dev-unowned-'));
   const file = path.join(directory, 'state.json');
   try {
     recordService('coreApi', { pid: 321, startedAt: new Date().toISOString() }, file, root);
-    const result = stopRecordedService('coreApi', {
+    const result = await stopRecordedService('coreApi', {
       stateFile: file,
       repositoryRoot: root,
       isAlive: () => true,
@@ -121,6 +177,77 @@ test('stop refuses to kill a live process when ownership cannot be proven', () =
       stopTree: () => assert.fail('unowned processes must not be killed'),
     });
     assert.equal(result.status, 'unowned');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('host shutdown attempts both services even when one stop throws', async () => {
+  const attempts = [];
+  const stops = await stopHostServices(async name => {
+    attempts.push(name);
+    if (name === 'desktop') throw new Error('desktop stop failed');
+    return { status: 'stopped', pid: 42 };
+  });
+  assert.deepEqual(attempts.sort(), ['coreApi', 'desktop']);
+  assert.equal(stops[0].status, 'rejected');
+  assert.equal(stops[1].status, 'fulfilled');
+  assert.equal(stops[1].value.result.status, 'stopped');
+});
+
+test('stop waits for graceful exit and escalates only after timeout', async () => {
+  let alive = true;
+  const signals = [];
+  const graceful = await stopProcessAndWait(123, {
+    isAlive: () => alive,
+    stopTree: (_pid, options) => {
+      signals.push(options.signal);
+      alive = false;
+    },
+    sleep: async () => {},
+  });
+  assert.equal(graceful, true);
+  assert.deepEqual(signals, ['SIGTERM']);
+
+  alive = true;
+  signals.length = 0;
+  const forced = await stopProcessAndWait(123, {
+    isAlive: () => alive,
+    stopTree: (_pid, options) => {
+      signals.push(options.signal);
+      if (options.signal === 'SIGKILL') alive = false;
+    },
+    gracefulTimeoutMs: 0,
+    forceTimeoutMs: 0,
+    sleep: async () => {},
+  });
+  assert.equal(forced, true);
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+});
+
+test('failed stop preserves recorded ownership state', async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-dev-stop-failed-'));
+  const file = path.join(directory, 'state.json');
+  try {
+    recordService('coreApi', { pid: 321, startedAt: new Date().toISOString() }, file, root);
+    const result = await stopRecordedService('coreApi', {
+      stateFile: file,
+      repositoryRoot: root,
+      isAlive: () => true,
+      commandLine: () => `java ${root}/gradlew --project-dir ${root} :services:core-api:bootRun`,
+      stopTree: () => {},
+      gracefulTimeoutMs: 0,
+      forceTimeoutMs: 0,
+      sleep: async () => {},
+    });
+    assert.equal(result.status, 'stop-failed');
+    assert.equal(inspectRecordedService('coreApi', {
+      stateFile: file,
+      repositoryRoot: root,
+      isAlive: () => true,
+      commandLine: () => `java ${root}/gradlew --project-dir ${root} :services:core-api:bootRun`,
+    }).status, 'owned');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

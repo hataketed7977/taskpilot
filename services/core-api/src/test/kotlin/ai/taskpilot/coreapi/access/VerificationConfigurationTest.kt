@@ -10,12 +10,16 @@ import ai.taskpilot.coreapi.access.infrastructure.ProductionVerificationMailConf
 import ai.taskpilot.coreapi.access.infrastructure.ProductionVerificationMailSender
 import ai.taskpilot.coreapi.access.infrastructure.VerificationConfiguration
 import ai.taskpilot.coreapi.access.infrastructure.VerificationMailTransport
+import org.springframework.boot.env.YamlPropertySourceLoader
 import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.core.env.MapPropertySource
+import org.springframework.core.env.StandardEnvironment
+import org.springframework.core.io.ClassPathResource
 import org.springframework.jdbc.datasource.DriverManagerDataSource
 import org.springframework.mail.javamail.JavaMailSenderImpl
 import java.util.Base64
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -170,6 +174,37 @@ class VerificationConfigurationTest {
             assertNotNull(application.getBean(VerificationMailTransport::class.java))
             assertNotNull(application.getBean(ProductionVerificationMailSender::class.java))
         }
+    }
+
+    @Test
+    fun `local profile wires external SMTP environment into the production adapter`() {
+        val environment = StandardEnvironment()
+        environment.propertySources.addFirst(
+            MapPropertySource(
+                "external-smtp",
+                mapOf(
+                    "TASKPILOT_VERIFICATION_MAIL_ADAPTER" to "production",
+                    "TASKPILOT_VERIFICATION_SMTP_HOST" to "smtp.example.com",
+                    "TASKPILOT_VERIFICATION_SMTP_PORT" to "587",
+                    "TASKPILOT_VERIFICATION_SMTP_USERNAME" to "smtp-user",
+                    "TASKPILOT_VERIFICATION_SMTP_PASSWORD" to "smtp-secret",
+                    "TASKPILOT_VERIFICATION_SMTP_FROM" to "no-reply@example.com",
+                    "TASKPILOT_VERIFICATION_SMTP_AUTH" to "true",
+                    "TASKPILOT_VERIFICATION_SMTP_STARTTLS" to "true",
+                    "TASKPILOT_VERIFICATION_SMTP_SSL" to "false",
+                ),
+            ),
+        )
+        YamlPropertySourceLoader()
+            .load("application-local", ClassPathResource("application-local.yml"))
+            .forEach(environment.propertySources::addLast)
+
+        assertEquals("production", environment.getProperty("taskpilot.verification.mail-adapter"))
+        assertEquals("smtp.example.com", environment.getProperty("spring.mail.host"))
+        assertEquals("587", environment.getProperty("spring.mail.port"))
+        assertEquals("true", environment.getProperty("spring.mail.properties.mail.smtp.starttls.required"))
+        assertEquals("false", environment.getProperty("spring.mail.properties.mail.smtp.ssl.enable"))
+        assertEquals("no-reply@example.com", environment.getProperty("taskpilot.verification.smtp.from"))
     }
 
     @Test

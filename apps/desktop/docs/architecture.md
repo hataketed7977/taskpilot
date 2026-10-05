@@ -191,7 +191,7 @@ Every application window starts from deny-by-default settings:
   `webSecurity` remain enabled, and no `remote` module or `<webview>` is exposed;
 - production Renderer content is packaged with the application; arbitrary remote
   pages and scripts are not loaded into a privileged window;
-- unpackaged development may load only the fixed loopback Vite origin; its HMR
+- unpackaged development may load only the explicit checkout-configured loopback Vite origin; its HMR
   CSP allowance and IPC origin are development-only, while packaged builds
   continue to use local files and the production CSP;
 - the sandboxed Preload is bundled as a single CommonJS entrypoint so it does

@@ -130,7 +130,27 @@ export function inspectRecordedService(name, options = {}) {
   };
 }
 
-export function stopRecordedService(name, options = {}) {
+export async function waitForProcessExit(pid, options = {}) {
+  const isAlive = options.isAlive ?? isProcessAlive;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const intervalMs = options.intervalMs ?? 50;
+  const sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
+  const deadline = Date.now() + timeoutMs;
+  while (isAlive(pid) && Date.now() < deadline) await sleep(intervalMs);
+  return !isAlive(pid);
+}
+
+export async function stopProcessAndWait(pid, options = {}) {
+  const isAlive = options.isAlive ?? isProcessAlive;
+  const stopTree = options.stopTree ?? stopProcessTree;
+  if (!isAlive(pid)) return true;
+  stopTree(pid, { platform: options.platform, signal: 'SIGTERM' });
+  if (await waitForProcessExit(pid, { ...options, isAlive, timeoutMs: options.gracefulTimeoutMs ?? 5_000 })) return true;
+  stopTree(pid, { platform: options.platform, signal: 'SIGKILL' });
+  return waitForProcessExit(pid, { ...options, isAlive, timeoutMs: options.forceTimeoutMs ?? 2_000 });
+}
+
+export async function stopRecordedService(name, options = {}) {
   const file = options.stateFile ?? statePath;
   const root = options.repositoryRoot ?? repositoryRoot;
   const inspected = inspectRecordedService(name, options);
@@ -140,7 +160,8 @@ export function stopRecordedService(name, options = {}) {
     return inspected;
   }
   if (inspected.status !== 'owned') return inspected;
-  (options.stopTree ?? stopProcessTree)(inspected.pid, { platform: options.platform });
+  const stopped = await stopProcessAndWait(inspected.pid, options);
+  if (!stopped) return { ...inspected, status: 'stop-failed' };
   forgetService(name, file, root);
   return { ...inspected, status: 'stopped' };
 }

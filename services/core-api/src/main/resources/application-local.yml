@@ -1,6 +1,6 @@
 server:
   address: 127.0.0.1
-  port: 8080
+  port: ${TASKPILOT_CORE_API_PORT:8080}
 
 spring:
   datasource:
@@ -10,9 +10,15 @@ spring:
   flyway:
     enabled: true
   mail:
-    host: 127.0.0.1
-    port: ${TASKPILOT_SMTP_PORT:1025}
+    host: ${TASKPILOT_VERIFICATION_SMTP_HOST:127.0.0.1}
+    port: ${TASKPILOT_VERIFICATION_SMTP_PORT:${TASKPILOT_SMTP_PORT:1025}}
+    username: ${TASKPILOT_VERIFICATION_SMTP_USERNAME:}
+    password: ${TASKPILOT_VERIFICATION_SMTP_PASSWORD:}
     properties:
+      mail.smtp.auth: ${TASKPILOT_VERIFICATION_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${TASKPILOT_VERIFICATION_SMTP_STARTTLS:false}
+      mail.smtp.starttls.required: ${TASKPILOT_VERIFICATION_SMTP_STARTTLS:false}
+      mail.smtp.ssl.enable: ${TASKPILOT_VERIFICATION_SMTP_SSL:false}
       mail.smtp.connectiontimeout: 3000
       mail.smtp.timeout: 3000
       mail.smtp.writetimeout: 3000
@@ -27,6 +33,6 @@ taskpilot:
     enabled: true
     pepper-base64: ${TASKPILOT_VERIFICATION_PEPPER_BASE64}
     request-maximum-attempts: 100
-    mail-adapter: local
+    mail-adapter: ${TASKPILOT_VERIFICATION_MAIL_ADAPTER:local}
     smtp:
-      from: no-reply@taskpilot.local
+      from: ${TASKPILOT_VERIFICATION_SMTP_FROM:no-reply@taskpilot.local}

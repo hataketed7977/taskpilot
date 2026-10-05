@@ -33,11 +33,14 @@ describe('Desktop process boundary', () => {
       source('vite.config.ts'),
     ]);
     expect(location).toContain("http://127.0.0.1:5173");
+    expect(location).toContain("parsed.hostname === '127.0.0.1'");
     expect(location).not.toContain('0.0.0.0');
     expect(main).toContain('TASKPILOT_DESKTOP_DEV_SERVER_URL');
+    expect(main).toContain('TASKPILOT_CORE_API_URL');
     expect(main).toContain('window.loadURL(renderer.url)');
     expect(vite).toContain("command === 'serve'");
-    expect(vite).toContain("ws://127.0.0.1:5173");
+    expect(vite).toContain('TASKPILOT_DESKTOP_DEV_SERVER_PORT');
+    expect(vite).toContain('ws://127.0.0.1:${developmentPort}');
   });
 
   it('keeps React Fast Refresh enabled after the initial Preload build', async () => {

@@ -38,7 +38,7 @@ async function createWindow() {
   }
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  const transport = new FixedHttpTransport(environment);
+  const transport = new FixedHttpTransport(environment, fetch, environment === 'local' ? process.env.TASKPILOT_CORE_API_URL : undefined);
   const credentials = new KeyringCredentialStore((service, account) => new AsyncEntry(service, account));
   const deviceInstallationId = await stableDeviceId(join(userData, 'device-installation-id'));
   const composition = createDesktopComposition({

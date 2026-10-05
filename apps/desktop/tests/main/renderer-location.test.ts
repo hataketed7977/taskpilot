@@ -10,11 +10,16 @@ describe('Desktop Renderer location', () => {
     expect(resolveDesktopRendererLocation(false, undefined)).toEqual({ kind: 'packaged-file' });
   });
 
-  it('allows only the fixed loopback development origin', () => {
+  it('allows only an explicit loopback development origin', () => {
     expect(resolveDesktopRendererLocation(false, DESKTOP_DEV_SERVER_URL)).toEqual({
       kind: 'dev-server',
       url: DESKTOP_DEV_SERVER_URL,
       origin: DESKTOP_DEV_SERVER_URL,
+    });
+    expect(resolveDesktopRendererLocation(false, 'http://127.0.0.1:25173')).toEqual({
+      kind: 'dev-server',
+      url: 'http://127.0.0.1:25173',
+      origin: 'http://127.0.0.1:25173',
     });
     expect(() => resolveDesktopRendererLocation(false, 'http://localhost:5173')).toThrow(/must be/);
     expect(() => resolveDesktopRendererLocation(false, 'https://example.test')).toThrow(/must be/);

@@ -3,19 +3,19 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "desktop:quality": "pnpm --filter @taskpilot/desktop qualityCheck",
-    "dev:setup": "node tools/dev/setup-local.mjs",
-    "dev:infra": "node tools/dev/dev.mjs infra-up",
-    "dev:infra:down": "node tools/dev/dev.mjs infra-down",
-    "dev": "node tools/dev/dev.mjs start",
-    "dev:mail-smoke": "node tools/dev/local-mail-smoke.mjs",
-    "dev:test": "node --test tools/dev/*.test.mjs",
+    "bootstrap": "node tools/dev/bootstrap.mjs",
+    "dev": "node tools/dev/dev.mjs",
+    "dev:api": "node tools/dev/dev.mjs api",
+    "dev:desktop": "node tools/dev/dev.mjs desktop",
     "dev:stop": "node tools/dev/dev.mjs stop",
     "dev:restart": "node tools/dev/dev.mjs restart",
     "dev:status": "node tools/dev/dev.mjs status",
     "dev:logs": "node tools/dev/dev.mjs logs",
     "dev:doctor": "node tools/dev/dev.mjs doctor",
+    "dev:help": "node tools/dev/dev.mjs help",
     "dev:smoke": "node tools/dev/dev.mjs smoke",
-    "dev:help": "node tools/dev/dev.mjs help"
+    "check": "node tools/dev/check.mjs",
+    "dev:test": "node --test tools/dev/*.test.mjs",
+    "desktop:quality": "pnpm --filter @taskpilot/desktop qualityCheck"
   }
 }
