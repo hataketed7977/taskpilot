@@ -255,9 +255,14 @@ class AuthenticationHttpIntegrationTest(
         val unknown = post("/desktop/v1/auth/login/password", mapOf("email" to "a@example.com", "password" to PASSWORD, "extra" to true))
         assertEquals(400, unknown.status)
         assertEquals("VALIDATION_FAILED", unknown.json().requiredText("code"))
-        val oversized = request("POST", "/desktop/v1/auth/login/password", "{\"padding\":\"${"x".repeat(17_000)}\"}")
+        val oversizedBody = "{\"padding\":\"${"x".repeat(17_000)}\"}"
+        val oversized = request("POST", "/desktop/v1/auth/login/password", oversizedBody)
         assertEquals(413, oversized.status)
         assertFalse(oversized.body.contains(PASSWORD))
+
+        val chunkedOversized = request("POST", "/desktop/v1/auth/login/password", oversizedBody, chunked = true)
+        assertEquals(413, chunkedOversized.status)
+        assertEquals("REQUEST_TOO_LARGE", chunkedOversized.json().requiredText("code"))
     }
 
     private fun register(email: String): Map<String, Any?> {
@@ -310,12 +315,14 @@ class AuthenticationHttpIntegrationTest(
         body: Map<String, Any?>,
     ): HttpResult = request("POST", "/desktop/v1/workspaces", objectMapper.writeValueAsString(body), bearer, idempotencyKey)
 
+    @Suppress("LongParameterList") // The HTTP fixture keeps optional transport controls visible at each call site.
     private fun request(
         method: String,
         path: String,
         body: String? = null,
         bearer: String? = null,
         idempotencyKey: String? = null,
+        chunked: Boolean = false,
     ): HttpResult {
         val connection = URI("http://127.0.0.1:$port$path").toURL().openConnection() as HttpURLConnection
         connection.requestMethod = method
@@ -323,6 +330,7 @@ class AuthenticationHttpIntegrationTest(
         connection.setRequestProperty("Content-Type", "application/json")
         bearer?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
         idempotencyKey?.let { connection.setRequestProperty("Idempotency-Key", it) }
+        if (chunked) connection.setChunkedStreamingMode(1_024)
         if (body != null) {
             connection.doOutput = true
             connection.outputStream.use { it.write(body.toByteArray()) }

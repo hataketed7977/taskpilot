@@ -33,6 +33,7 @@ import ai.taskpilot.coreapi.access.application.VerificationRequestContext
 import ai.taskpilot.coreapi.access.model.UserId
 import ai.taskpilot.coreapi.access.model.VerificationPurpose
 import jakarta.servlet.FilterChain
+import jakarta.servlet.http.HttpServletRequestWrapper
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpStatus
 import org.springframework.mock.web.MockHttpServletRequest
@@ -284,6 +285,24 @@ class AuthenticationApiBranchTest {
         assertEquals(413, rejected.status)
         assertTrue(rejected.contentAsString.contains("REQUEST_TOO_LARGE"))
         assertTrue(!rejectedChain.called)
+
+        val unknownLength =
+            object : HttpServletRequestWrapper(MockHttpServletRequest().apply { setContent("12345".toByteArray()) }) {
+                override fun getContentLength(): Int = -1
+
+                override fun getContentLengthLong(): Long = -1
+            }
+        val chunkedRejected = MockHttpServletResponse()
+        val chunkedChain = RecordingFilterChain()
+        filter.doFilter(unknownLength, chunkedRejected, chunkedChain)
+        assertEquals(413, chunkedRejected.status)
+        assertTrue(chunkedRejected.contentAsString.contains("REQUEST_TOO_LARGE"))
+        assertTrue(!chunkedChain.called)
+
+        val exactLimit = MockHttpServletRequest().apply { setContent("1234".toByteArray()) }
+        val exactLimitChain = BodyReadingFilterChain()
+        filter.doFilter(exactLimit, MockHttpServletResponse(), exactLimitChain)
+        assertEquals("1234", exactLimitChain.body)
     }
 
     private fun continuation() =
@@ -365,6 +384,17 @@ class AuthenticationApiBranchTest {
 
         override fun logout(accessToken: String) {
             loggedOut = accessToken
+        }
+    }
+
+    private class BodyReadingFilterChain : FilterChain {
+        var body: String? = null
+
+        override fun doFilter(
+            request: jakarta.servlet.ServletRequest,
+            response: jakarta.servlet.ServletResponse,
+        ) {
+            body = request.reader.use { it.readText() }
         }
     }
 
