@@ -147,41 +147,61 @@ unsupported action explicitly rather than inferring support from provider name.
 
 ## Authentication Boundary
 
-The approved authentication Change specifies the concrete Desktop login flow.
-This architecture fixes the following cross-cutting boundaries:
+**Current:** The runnable Desktop uses one GitHub federated sign-in capability.
+Electron Main binds a one-shot HTTP receiver on `127.0.0.1` before creating an
+attempt, persists its exact port/nonce and opaque attempt recovery input in a
+dedicated OS-credential namespace, and opens only the allowlisted GitHub
+authorization URL in the system browser. This slice does not register a deep
+link, embed a WebView, or hold the GitHub client secret.
 
-- login, registration, email-code login, and password recovery are separate
-  in-app flows; password login is the default and no account-existence probe
-  chooses a route;
-- Renderer owns form interaction only; Preload exposes narrow authentication
-  capabilities and Electron Main performs the HTTPS calls;
-- Core API owns password/OTP verification and opaque session issuance,
-  rotation, recovery, and revocation;
-- long-lived refresh material and a pending refresh request identifier are
-  stored through an OS credential facility and are never exposed to Renderer;
-- refresh success returns the complete session result needed by Main, including
-  the new access credential, rotated refresh credential, authoritative expiry,
-  and safe `CurrentUserView`; Main coordinates one refresh per session
-  generation, retries a failed protected request at most once, and rejects late
-  results from an invalidated generation;
-- Main publishes authenticated success only after required credential material
-  is durably written; a write failure fails closed without a plaintext fallback
-  and does not discard a still-valid previous credential;
-- on restart, Main restores credential state, validates it through the current-
-  user/session contract, and only then exposes protected UI; account and cloud
-  environment form distinct protected-state namespaces;
-- a terminal `401` from any protected business API follows the same generation-
-  first cleanup as authentication failure; a transient refresh failure preserves
-  recoverable credentials but hides protected data until resolved;
-- logout invalidates the local generation first, clears credentials and all
-  protected account/Workspace state, then best-effort revokes the server session;
-- Agent Runtime does not reuse or retain any Desktop credential.
+- Renderer owns interaction only. Preload exposes fixed methods for capability
+  discovery, start/continue/cancel, first registration, session
+  view/subscription, and logout; it exposes no arbitrary URL, HTTP, or token
+  getter.
+- Main alone holds the poll secret, completion proof, loopback URI/nonce,
+  registration continuation, TaskPilot access/refresh tokens, and OS credential
+  handles. Renderer receives only an opaque `flowId`, bounded registration
+  preview, safe terminal status, or `CurrentUserView`.
+- The loopback receiver accepts only the exact nonce-bearing path, `POST`, a
+  bounded body, and one valid completion proof. After persisting valid proof,
+  Main restores, shows, and focuses the existing window. It closes the receiver
+  after completion, cancellation, expiry, failure, or window destruction.
+- Main can rebind the exact safe receiver after restart and resume the same
+  unexpired attempt. Core API directly returns an active session for a known
+  identity or completed registration; there is no separate delivery ACK,
+  abandon, or refresh-recovery protocol.
+- Main writes refresh material to the OS credential facility before publishing
+  authenticated state. If that write fails, it best-effort logs out the newly
+  issued session and does not expose authenticated UI. Refresh is single-flight
+  per generation; logout, cancellation, and window close fence late responses.
+- Account and cloud environment form distinct credential namespaces. A terminal
+  `401` and logout use generation-first cleanup; transient Redis/Core API
+  failures hide protected data rather than claiming a valid session.
+- Renderer presents one client-known `zh-CN` User Agreement/Privacy Policy
+  bundle, preserves the registration draft while either document is viewed,
+  and rejects an unknown server bundle. Explicit consent submits exact bundle,
+  agreement, privacy-policy, and locale versions; Core API generates
+  `acceptedAt`. Renderer does not submit a trusted acceptance boolean.
+- Core API remains authoritative for GitHub identity proof, internal `UserId`,
+  and session lifecycle. Agent Runtime does not participate in login or receive
+  Desktop credentials.
 
-Main keeps cloud-client session state separate from Renderer storage. Terminal
-authentication failure clears the same protected state as logout. A transient
-refresh failure preserves recoverable credential state, hides stale protected
-data, and exposes a temporarily-unavailable state instead of pretending the
-user is signed out.
+## Legal Documents and Localization
+
+**Current:** First registration ships one versioned `zh-CN` legal bundle in the
+Renderer. The bundle separately versions the User Agreement and Privacy Policy,
+and the registration contract identifies the bundle, both exact texts, and the
+locale. The displayed effective date belongs to each legal document; it is not
+part of the first-use heading or the user's profile. Core API remains the
+acceptance authority and generates `acceptedAt`.
+
+**Next feature TODO (priority):** establish Desktop internationalization before
+adding another authentication provider or materially expanding first-use UI.
+That feature must extract hard-coded Renderer copy, select a supported locale
+from the operating system, define an explicit fallback, localize dates and
+stable error presentation, and resolve legal documents by supported
+`version + locale`. This slice intentionally adds neither an i18n framework nor
+a language switcher and supports only `zh-CN`.
 
 ## Electron Security Baseline
 
@@ -252,30 +272,18 @@ CLI/Desktop clients, a resident scheduler, or an independently managed Runtime.
 
 ## First Implementation Slice
 
-The first runnable Desktop slice intentionally excludes Agent execution and
-Runtime startup. Implement it vertically in this order:
+**Current:** the runnable Desktop slice contains the secure Electron
+Main/Preload/sandboxed-Renderer shell; system-browser GitHub login; first
+registration with in-app legal-document review; OS-credential-backed session
+restore, refresh, and logout; and an authenticated account view. It excludes
+Agent Runtime startup.
 
-1. secure Electron Main, Preload, and sandboxed Renderer skeleton;
-2. in-app email registration, password login, email-code login, password reset,
-   session restore/refresh, and logout;
-3. Workspace list, zero/one/many startup recovery, selection, and organization
-   Workspace creation;
-4. establishment and persistence of an active `WorkspaceId`;
-5. a typed, read-only Project list loaded from Core API for that active
-   Workspace; and
-6. a Workspace and Project-list surface with authoritative recovery and
-   environment/`UserId`/`WorkspaceId` isolation.
-
-The corresponding first-slice Desktop API contract includes authentication,
-current user, session lifecycle, Workspace list/create, and read-only Project
-list. Main and Preload expose a narrow `listProjects` capability rather than a
-generic HTTP bridge. Project creation, Project detail/edit/delete, Project
-Member management, Project-scoped navigation, Agent configuration,
-`REMOTE_MANAGED` execution UI, `LOCAL_DESKTOP` Runtime startup, shell/PTY, and
-local workspace binding remain later end-to-end changes. The first slice must
-show real Project data or a truthful empty/error state, must not show a Create
-Project action or `canCreateProject`, and must not create a placeholder Runtime
-dependency.
+**Target:** Workspace listing/creation/selection, active `WorkspaceId`, Project
+discovery, and the full application shell remain later end-to-end slices. The
+current Desktop API contract therefore contains only authentication, session,
+and current-user capabilities. Project mutation, Agent configuration,
+`REMOTE_MANAGED` UI, `LOCAL_DESKTOP` execution, shell/PTY, and local workspace
+binding remain later changes.
 
 ## API Contract Integration
 
@@ -284,10 +292,9 @@ dependency.
   runtime OpenAPI contract tests and Main adapter fixtures detect shape drift.
   No generated Desktop client or breaking-compatibility gate is required until
   a later Change establishes a versioned contract lifecycle.
-- Transport types do not become business models automatically. Project list
-  query keys and response acceptance are scoped by environment, `UserId`, and
-  `WorkspaceId`; cursor values remain opaque, and Main rejects an entire page
-  when an item's `workspaceId` does not match the requested scope.
+- Transport types do not become business models automatically. The current
+  handwritten types cover only authentication, session, and current user;
+  Workspace/Project transport types wait for those runnable slices.
 - API adapters normalize transport errors into a stable client error model.
 - Mutable requests carry the version or idempotency identifier required by the
   cloud contract.

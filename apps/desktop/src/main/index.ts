@@ -3,25 +3,16 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AsyncEntry } from '@napi-rs/keyring';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { FixedHttpTransport, type Environment } from './api/transport.js';
 import { createDesktopComposition } from './composition.js';
 import { KeyringCredentialStore } from './credentials/credential-store.js';
+import { KeyringFederatedAuthRecoveryStore } from './auth/auth-recovery-store.js';
 import { CHANNELS, registerDesktopHandlers } from './ipc.js';
 import { resolveDesktopRendererLocation } from './renderer-location.js';
-import type { PreferenceStore } from './workspaces/active-workspace.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const environment: Environment = app.isPackaged ? 'production' : 'local';
-class FilePreferenceStore implements PreferenceStore {
-  private values?: Record<string, string>;
-  constructor(private readonly path: string) {}
-  private async load() { if (this.values) return this.values; try { this.values = JSON.parse(await readFile(this.path, 'utf8')) as Record<string, string>; } catch { this.values = {}; } return this.values; }
-  private async persist() { await writeFile(this.path, JSON.stringify(this.values), { mode: 0o600 }); }
-  async get(key: string) { return (await this.load())[key]; }
-  async set(key: string, value: string) { (await this.load())[key] = value; await this.persist(); }
-  async delete(key: string) { delete (await this.load())[key]; await this.persist(); }
-}
 async function stableDeviceId(path: string): Promise<string> { try { return (await readFile(path, 'utf8')).trim(); } catch { const value = randomUUID(); await writeFile(path, value, { mode: 0o600 }); return value; } }
 async function createWindow() {
   const userData = app.getPath('userData');
@@ -39,22 +30,32 @@ async function createWindow() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   const transport = new FixedHttpTransport(environment, fetch, environment === 'local' ? process.env.TASKPILOT_CORE_API_URL : undefined);
-  const credentials = new KeyringCredentialStore((service, account) => new AsyncEntry(service, account));
+  const createKeyringEntry = (service: string, account: string) => new AsyncEntry(service, account);
+  const credentials = new KeyringCredentialStore(createKeyringEntry);
   const deviceInstallationId = await stableDeviceId(join(userData, 'device-installation-id'));
   const composition = createDesktopComposition({
     environment,
     transport,
     credentials,
-    preferences: new FilePreferenceStore(join(userData, 'preferences.json')),
+    authRecovery: new KeyringFederatedAuthRecoveryStore(createKeyringEntry),
     deviceInstallationId,
+    browser: { open: async url => { await shell.openExternal(url, { activate: true }); } },
+    activateDesktop: () => {
+      if (window.isDestroyed()) return;
+      if (window.isMinimized()) window.restore();
+      window.show();
+      window.focus();
+    },
   });
-  const { capabilities, session, flows } = composition;
+  const { capabilities, session, federatedAuth } = composition;
   const dispose = registerDesktopHandlers(ipcMain, capabilities, { webContentsId: window.webContents.id, generation: 1, rendererOrigin: renderer.kind === 'dev-server' ? renderer.origin : undefined });
   const unsubscribe = session.subscribe(view => { if (!window.isDestroyed()) window.webContents.send(CHANNELS.sessionChanged, view); });
-  window.on('closed', () => { flows.clear(); dispose(); unsubscribe(); });
+  window.on('closed', () => { void federatedAuth.close(); dispose(); unsubscribe(); });
   if (renderer.kind === 'dev-server') await window.loadURL(renderer.url);
   else await window.loadFile(join(here, '../renderer/index.html'));
-  void session.restore().catch(() => undefined);
+  void federatedAuth.restore()
+    .then(() => session.restore())
+    .catch(() => undefined);
 }
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());

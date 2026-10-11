@@ -40,51 +40,27 @@ tenancy, lifecycle, concurrency, or recovery behavior.
 The implemented application is deliberately limited to:
 
 - one Spring Boot application rooted at `ai.taskpilot.coreapi`;
-- four capability boundaries named `access`, `project`, `automation`, and
-  `agent`, each declared as a Spring Modulith module; `access` and the narrow
-  read-only portion of `project` currently contain business code;
-- the first access identity slice: User, EmailIdentity, PasswordCredential, and
-  TermsAcceptance models; authoritative Unicode/IDNA email normalization;
-  password policy, Argon2id hashing, dummy-hash authentication, and
-  opportunistic rehash seams;
-- explicit Spring JDBC persistence and production Flyway migrations for access
-  identity, verification challenges, auth continuations, shared verification
-  rate-limit buckets, opaque sessions and refresh recovery, Workspace and
-  Workspace Membership, Project and Project Membership, with atomicity,
-  uniqueness, locking, expiry, authorization, and concurrency semantics verified
-  against real PostgreSQL;
-- the purpose-scoped verification-security slice for registration email proof,
-  login email OTP, and password reset: six-digit CSPRNG codes, peppered
-  namespaced digests, resend/attempt policy, atomic challenge and continuation
-  consumption, and three-dimension PostgreSQL rate limiting;
-- a provider-neutral verification-mail port with an explicit test capture
-  adapter, a loopback-only local Mailpit adapter, and a production SMTP
-  transport. The local adapter activates only under `local & !production` and
-  accepts plaintext SMTP only at `127.0.0.1`. Production assembly requires an
-  explicit sender and host plus required STARTTLS or implicit TLS. The shared
-  wrapper maps delivered, definite-failure, timeout, and outcome-unknown results
-  and emits only fingerprinted correlation/provider identifiers, template
-  category, result, and duration. Deployed SMTP credentials come only from
-  runtime secret injection and are not repository configuration;
-- a host-run local development profile backed by checkout-isolated Compose
-  PostgreSQL 17 and Mailpit. Root pnpm tooling is only the orchestration entry:
-  Gradle Wrapper owns dependency resolution and Kotlin compilation, while Spring
-  Boot is the only local Flyway migration runner. A mode-`0600`, Git-ignored
-  `.env.local` supplies the checkout's Compose identity and loopback ports. It
-  may also explicitly select external SMTP for a manual real-inbox development
-  check; launcher validation requires a complete configuration and either
-  required STARTTLS or implicit SSL, then the Core API uses the same guarded
-  production adapter. Automated auth smoke remains Mailpit-only. The controller
-  waits for infrastructure and Core API health before Desktop use, and migration
-  failure leaves the database available for diagnosis without
-  automatic repair, checksum mutation, or reset. This stack is a development
-  topology, not a production manifest or external-provider proof;
-- a fail-closed Spring Security chain that permits only the explicit anonymous
-  authentication endpoints and Actuator probes, authenticates protected Desktop
-  routes with opaque access credentials, rejects every other route, and does not
-  install Spring Boot's generated default user;
-- executable module-graph, technical-dependency, standalone-module, startup,
-  health, PostgreSQL/Flyway, static-analysis, executable Boot JAR, and coverage
+- four declared Spring Modulith capability boundaries (`access`, `project`,
+  `automation`, and `agent`), with runnable business code only in `access`;
+- a final-development Flyway baseline containing exactly the durable
+  `access.users`, `access.external_identities`, and
+  `access.terms_acceptances` tables;
+- Redis-backed, TTL-bounded OAuth attempts and registration continuations,
+  login rate limits, and opaque access/refresh sessions; Redis failure causes
+  authentication to fail closed and never becomes business truth;
+- a narrow GitHub adapter behind the `FederatedIdentityProvider` application
+  port, returning only the durable numeric subject and constrained profile
+  suggestions; provider tokens and raw payloads do not cross the adapter;
+- purpose-separated HMAC digests, PKCE S256, and AEAD-protected temporary values
+  using independent runtime keys; incomplete or reused key configuration
+  disables the federated capability;
+- no mail sender, SMTP, Mailpit, email, password, OTP, reset fallback,
+  Workspace, or Project implementation in the current runnable slice;
+- a fail-closed Spring Security chain that permits only explicit anonymous auth
+  endpoints and Actuator probes, authenticates `GET /desktop/v1/me` and logout
+  with opaque access credentials, and rejects every other route; and
+- executable module-graph, technical-dependency, startup, health,
+  PostgreSQL/Flyway, Redis, static-analysis, executable Boot JAR, and coverage
   gates.
 
 The ArchUnit rules use independently reported `rule-id/case-id` fixtures for
@@ -97,13 +73,57 @@ surface package segments are fixed as `desktopapi`, `publicapi`, and
 `managedapi`; a future Change that renames or adds a surface must update the
 owning architecture contract and fixtures together.
 
-The Current first-use surface exposes Desktop authentication/current-user,
-Workspace list/create, and Workspace-scoped read-only Project list controllers,
-with runtime OpenAPI enabled outside Production. Provider, durable-job, workflow,
+The Current first-use surface exposes only Desktop authentication, session,
+and current-user controllers, with runtime OpenAPI and non-persistent Swagger
+authorization enabled outside Production. The generated contract contains only
+federated capability/attempt/callback/poll/cancel/registration, ACTIVE-session
+refresh/logout, and current-user routes; legacy email/password/OTP/reset and
+Workspace/Project routes are absent. Provider, durable-job, workflow,
 Agent-execution, and managed-execution persistence and behavior remain
 unimplemented. The current persistence choice is explicit Spring JDBC plus
-Flyway; everything below that describes later capabilities remains **Target**
-unless explicitly marked Current.
+Flyway for durable identity facts and Redis for expiring authentication state;
+everything below that describes later capabilities remains **Target** unless
+explicitly marked Current.
+
+## Federated Access Implementation Status
+
+**Current:** `access` owns the provider-neutral identity key
+`(provider, authority, subject)`, the GitHub adapter, cryptographic primitives,
+PostgreSQL identity/acceptance persistence, and Redis stores for attempts,
+registration continuations, rate limits, and sessions. Attempt state, OAuth
+state, completion proof, and registration continuation are single-use and
+TTL-bounded. The schema does not impose `(user_id, provider, authority)`
+uniqueness and never merges accounts by email or profile similarity.
+
+**Current HTTP slice:** Core API exposes capability discovery, attempt creation,
+the fixed GitHub callback, poll/cancel, first registration, refresh, logout, and
+`GET /desktop/v1/me`. Attempts accept only the exact restricted `127.0.0.1`
+completion URI shape. The callback claims one-time state, performs Provider HTTP
+outside database transactions, and retains only normalized encrypted identity
+state. Its no-store completion page uses a nonce CSP, removes OAuth query data,
+posts proof to the bound loopback receiver, and attempts best-effort close only
+after loopback success. Stable Problem Details hide Provider payloads and OAuth,
+poll, completion, continuation, and TaskPilot credential material.
+
+First registration validates the exact configured legal bundle and atomically
+stores User, External Identity, and Terms Acceptance in PostgreSQL. Known
+identity login and successful registration directly issue an active opaque
+Redis session. Refresh rotates both credentials; replay of an old refresh token
+revokes the session family, logout revokes immediately, and corrupt or
+unavailable Redis state fails closed. Existing-identity login updates only
+`lastAuthenticatedAt`, never the TaskPilot-owned display name or avatar.
+Incomplete GitHub/HMAC/AEAD configuration keeps the service healthy but disables
+the capability.
+
+**Current Desktop collaboration:** Desktop Main alone launches the system
+browser, hosts the loopback receiver, combines poll and completion proof, holds
+registration and TaskPilot credential secrets, and persists refresh material
+through the OS credential store before publishing authentication. Renderer
+receives only safe presentation models. Automated tests use browser, loopback,
+Provider, Redis, PostgreSQL, and credential doubles/containers; real GitHub
+OAuth and packaged/native platform behavior remain manual evidence. Deep links,
+embedded WebViews, GitHub repository integration, Workspace/Project behavior,
+Gateway authentication, and production rollout remain outside this slice.
 
 ## Runtime Role
 
@@ -290,12 +310,25 @@ class hierarchy.
 - Optimistic version columns protect contested mutable records.
 - Large logs and artifacts live in approved object storage; PostgreSQL stores
   references, metadata, digests, and bounded summaries.
-- Physical ER diagrams and migration rules are added here only after a schema
-  exists.
+- The runnable modular monolith uses one TaskPilot PostgreSQL database and one
+  Flyway history. Business tables are explicitly qualified into coarse-grained
+  capability schemas: the current baseline owns only `access`, while `project` and
+  capabilities such as `automation` and `agent` create schemas only when they
+  first persist tables. `public` is reserved for Flyway metadata.
+- SQL never relies on `search_path`; every business table reference is
+  schema-qualified, including cross-schema foreign keys and joins.
+- Independent durable entities use a single `id UUID` primary key. Foreign keys
+  keep semantic names such as `user_id` and `workspace_id`; relationship rows
+  such as memberships retain an `id` and separately enforce their business
+  uniqueness. Keyed operational state may retain an explicit natural or
+  composite primary key when that key is the state identity.
+- Physical ER diagrams are added only when they improve an implemented schema;
+  Flyway migration and naming conventions are guarded by PostgreSQL integration
+  tests rather than duplicated diagrams.
 
-## Initial Workspace-Scoped Project Discovery
+## Target Workspace-Scoped Project Discovery
 
-The first Project Work implementation is deliberately read-only. It persists the
+The approved first Project Work implementation is Target and deliberately read-only. It persists the
 minimum Project and Project Membership facts needed for authorized discovery and
 serves:
 
@@ -355,8 +388,13 @@ same application use cases:
 - The server remains authoritative for permissions and allowed actions.
 
 The initial Desktop surface exposes runtime-generated OpenAPI JSON and Swagger
-UI for authentication/session, Workspace list/create, and read-only Project
-list, and verifies them with runtime contract tests. Main adapter fixtures cover
+UI for federated authentication, session refresh/logout, and current user, and
+verifies them with runtime contract tests. The contract fixture freezes anonymous
+versus refresh-body versus opaque-bearer security, exact loopback completion-URI
+constraints, registration/session request shapes, Problem Details, the email-free
+`CurrentUserView`, and the absence of reusable OAuth/attempt/session secret
+examples and legacy email authentication paths.
+Production disables both OpenAPI JSON and Swagger UI. Main adapter fixtures cover
 the consumed shape; this phase does not require a committed standalone schema,
 generated Desktop client, or breaking-change compatibility gate. Managed-
 execution and public API contract lifecycles remain separate and are established
@@ -441,11 +479,11 @@ before either existing route is stretched to support it.
 
 ## Security and Tenancy
 
-- For the MVP, Core API issues high-entropy opaque Desktop access and refresh
-  tokens, stores only peppered token digests in primary session records, and
-  validates expiry, session-family state, rotation/recovery state, and User
-  status before application use cases. Malformed, expired, revoked, or unknown
-  credentials fail closed.
+- Core API issues high-entropy opaque Desktop access and refresh tokens and
+  stores only purpose-separated token digests in TTL-bounded Redis records.
+  Refresh rotates both tokens; reuse of an old refresh credential revokes the
+  session family. Malformed, expired, corrupt, revoked, unknown, or unavailable
+  session state fails closed.
 - The deployment edge does not create trusted identity. A future Gateway may
   apply route-specific credential validation or normalize trusted context as
   defense in depth, without assuming OIDC/JWT, but Core API still independently

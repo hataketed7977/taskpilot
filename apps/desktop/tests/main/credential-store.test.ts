@@ -5,11 +5,10 @@ import {
   type NativeCredentialEntryFactory,
 } from '../../src/main/credentials/credential-store.js';
 
-const credential = (userId: string, pendingRefreshRequestId?: string) => ({
+const credential = (userId: string, refreshToken = `refresh-${userId}`) => ({
   userId,
-  refreshToken: `refresh-${userId}`,
+  refreshToken,
   refreshTokenExpiresAt: '2030-01-01T00:00:00Z',
-  ...(pendingRefreshRequestId ? { pendingRefreshRequestId } : {}),
 });
 
 class FakeEntry implements NativeCredentialEntry {
@@ -52,10 +51,10 @@ describe('KeyringCredentialStore', () => {
     const keyring = fakeKeyring();
     const store = new KeyringCredentialStore(keyring.factory);
 
-    await store.saveCurrent('production', credential('user-a', 'request-a'));
+    await store.saveCurrent('production', credential('user-a'));
     await store.saveCurrent('local', credential('user-b'));
 
-    await expect(store.loadCurrent('production')).resolves.toEqual(credential('user-a', 'request-a'));
+    await expect(store.loadCurrent('production')).resolves.toEqual(credential('user-a'));
     await expect(store.loadCurrent('local')).resolves.toEqual(credential('user-b'));
     expect([...keyring.values.keys()]).toEqual(expect.arrayContaining([
       'ai.taskpilot.desktop.session.production/account:user-a',
@@ -65,20 +64,19 @@ describe('KeyringCredentialStore', () => {
     ]));
   });
 
-  it('atomically keeps the refresh token and pending request id in one native entry', async () => {
+  it('atomically replaces the refresh token in the current account entry', async () => {
     const keyring = fakeKeyring();
     const store = new KeyringCredentialStore(keyring.factory);
     await store.saveCurrent('production', credential('user-a'));
     keyring.writes.length = 0;
 
-    await store.saveCurrent('production', credential('user-a', 'request-a'));
+    await store.saveCurrent('production', credential('user-a', 'refresh-rotated'));
 
     expect(keyring.writes).toEqual(['ai.taskpilot.desktop.session.production/account:user-a']);
     const stored = keyring.values.get('ai.taskpilot.desktop.session.production/account:user-a');
     expect(JSON.parse(stored ?? '{}')).toMatchObject({
       version: 1,
-      refreshToken: 'refresh-user-a',
-      pendingRefreshRequestId: 'request-a',
+      refreshToken: 'refresh-rotated',
     });
   });
 

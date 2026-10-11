@@ -7,12 +7,11 @@ export const CORE_API_ORIGINS = {
 export type Environment = keyof typeof CORE_API_ORIGINS;
 
 const EXACT_PATHS = new Set([
-  '/desktop/v1/auth/registration/code', '/desktop/v1/auth/registration/code/verify', '/desktop/v1/auth/registration',
-  '/desktop/v1/auth/login/password', '/desktop/v1/auth/login/code', '/desktop/v1/auth/login/code/verify',
-  '/desktop/v1/auth/password-reset/code', '/desktop/v1/auth/password-reset/code/verify', '/desktop/v1/auth/password-reset',
-  '/desktop/v1/auth/session/refresh', '/desktop/v1/auth/session/logout', '/desktop/v1/me', '/desktop/v1/workspaces',
+  '/desktop/v1/auth/capabilities', '/desktop/v1/auth/federated/attempts',
+  '/desktop/v1/auth/federated/registrations', '/desktop/v1/auth/session/refresh',
+  '/desktop/v1/auth/session/logout', '/desktop/v1/me',
 ]);
-const PROJECT_PATH = /^\/desktop\/v1\/workspaces\/[0-9a-f-]{36}\/projects$/i;
+const FEDERATED_ATTEMPT_PATH = /^\/desktop\/v1\/auth\/federated\/attempts\/[0-9a-f-]{36}\/(?:poll|cancel)$/i;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 export interface TransportRequest { method: 'GET' | 'POST'; path: string; body?: unknown; accessToken?: string; idempotencyKey?: string; timeoutMs?: number; outcomeUnknownOnNetworkFailure?: boolean }
@@ -79,15 +78,5 @@ function mapProblem(status: number, payload: unknown): TransportError {
 
 
 function isAllowlistedPath(path: string): boolean {
-  if (EXACT_PATHS.has(path)) return true;
-  const queryStart = path.indexOf('?');
-  const pathname = queryStart === -1 ? path : path.slice(0, queryStart);
-  if (!PROJECT_PATH.test(pathname)) return false;
-  const query = new URLSearchParams(queryStart === -1 ? '' : path.slice(queryStart + 1));
-  if ([...query.keys()].some(key => key !== 'cursor' && key !== 'limit')) return false;
-  if (query.getAll('cursor').length > 1 || query.getAll('limit').length > 1) return false;
-  const cursor = query.get('cursor');
-  if (cursor !== null && (cursor.length < 1 || cursor.length > 2048)) return false;
-  const limit = query.get('limit');
-  return limit === null || /^(?:[1-9]|[1-9][0-9]|100)$/.test(limit);
+  return EXACT_PATHS.has(path) || FEDERATED_ATTEMPT_PATH.test(path);
 }

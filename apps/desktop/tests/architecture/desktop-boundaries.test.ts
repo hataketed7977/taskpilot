@@ -17,6 +17,9 @@ describe('Desktop process boundary', () => {
     expect(value).toContain('will-navigate');
     expect(value).toContain('setWindowOpenHandler');
     expect(value).toContain('setPermissionRequestHandler');
+    expect(value).toContain('if (window.isMinimized()) window.restore()');
+    expect(value).toContain('window.show()');
+    expect(value).toContain('window.focus()');
   });
 
   it('bundles the sandboxed Preload as one CommonJS entrypoint', async () => {
@@ -55,8 +58,9 @@ describe('Desktop process boundary', () => {
     expect(entrypoint).toContain("contextBridge.exposeInMainWorld('taskpilot'");
     expect(entrypoint).not.toMatch(/exposeInMainWorld\([^)]*(ipcRenderer|electron)|\b(send|invoke|fetch|accessToken|refreshToken)\s*:/s);
     expect(surface).toContain('subscribeSessionView');
-    expect(surface).toContain('listWorkspaces');
-    expect(surface).toContain('listProjects');
+    expect(surface).toContain('startGitHubSignIn');
+    expect(surface).toContain('completeGitHubRegistration');
+    expect(surface).not.toMatch(/listWorkspaces|listProjects/);
     expect(surface).not.toMatch(/from ['"]electron['"]|accessToken|refreshToken|\bfetch\s*\(/);
   });
 
@@ -67,8 +71,6 @@ describe('Desktop process boundary', () => {
 
   it('keeps long user-controlled names inside shrinkable layout regions', async () => {
     const value = await source('src/renderer/styles.css');
-    expect(value).toMatch(/\.workspace-name[^}]*min-width:\s*0/);
-    expect(value).toMatch(/\.project-copy[^}]*min-width:\s*0/);
     expect(value).toMatch(/\.user-content[^}]*overflow-wrap:\s*anywhere/);
   });
 

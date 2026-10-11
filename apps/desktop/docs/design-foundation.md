@@ -23,22 +23,20 @@ human work and Agent execution. It should carry more operational information
 than a general productivity app while remaining calmer than an IDE or an
 observability console.
 
-The first implementation slice is deliberately non-Agent-centric:
+The current implementation slice is deliberately auth-only:
 
 ```text
 secure Desktop shell
-→ in-app email authentication
-→ session restore and logout
-→ Workspace list, selection, or organization Workspace creation
-→ active Workspace context
-→ read-only Project list from Core API
+→ GitHub authentication in the system browser
+→ first registration and legal-document review when needed
+→ session restore, refresh, and logout
+→ authenticated account view
 ```
 
-Project creation, Project detail/edit/delete, Project Member management,
-Project-scoped navigation, Agent Runtime, local directory binding, execution
-controls, terminals, Diff, and Agent activity are not part of this slice. The
-visual foundation must host the real Project list now and remain extensible
-without showing disabled promises for later mutations.
+Workspace/Project surfaces, Agent Runtime, local directory binding, execution
+controls, terminals, Diff, and Agent activity remain Target. The visual
+foundation stays extensible without showing disabled promises for those later
+capabilities.
 
 ### Audience and primary job
 
@@ -312,41 +310,70 @@ contract.
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ TaskPilot                                                                  │
 │                                                                            │
-│                    Sign in                                                 │
-│                    Email                                                   │
-│                    [ name@company.com                    ]                  │
-│                    Password                              Forgot password    │
-│                    [ ••••••••••••••                    ]                  │
-│                    [ Sign in                              ]                  │
+│                    Sign in to TaskPilot                                    │
+│                    Continue in your system browser.                        │
+│                    [ Continue with GitHub                 ]                  │
 │                                                                            │
-│                    [ Use an email verification code      ]                  │
-│                    No account? Create account                               │
+│                    One GitHub identity maps to one stable TaskPilot User.  │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Login is the default route and uses email plus password. “Use an email
-verification code” opens a dedicated login alternative; it is not mixed into
-the password form. “Create account” opens a distinct registration flow, and
-“Forgot password” opens a distinct recovery flow. Never label one entry as
-“sign in or sign up,” and never probe account existence to choose a route.
+Authentication remains a focused utility view in the existing **Quiet control
+desk** language, not a marketing landing page. It uses one left-aligned decision
+panel and one emphasized action: **Continue with GitHub**. The first slice has
+no provider selector, email fallback, deep link, embedded browser/WebView, or
+preview of future providers. OAuth always opens the system browser; the
+Renderer retains only an opaque flow identifier and never receives Provider,
+registration-continuation or TaskPilot session secrets.
+
+After GitHub proves control of an identity, an existing identity proceeds directly
+to an authenticated session without another account form. A new identity replaces the
+decision panel with one registration form:
 
 ```text
-Create account
-1 Email             [ name@company.com ] [ Continue ]
-2 Verify email      [ verification code ] [ Verify email ] [ Resend 00:42 ]
-3 Account details   [ name ] [ password ] [ confirm password ] [ ] Terms
+Create your TaskPilot account
+Display name        [ suggested name                         ]
+GitHub avatar       [ preview ] [x] Use this avatar   (when available)
+Consent             [ ] I agree to User Agreement and have read Privacy Policy
+                    [ User Agreement ] [ Privacy Policy ]
                                             [ Create account ]
 ```
 
-The authentication surface is a focused utility view, not a marketing landing
-page. Keep one primary action per step, left-align the bounded form, and retain
-email—but never password or verification code—when the user moves between
-login, registration, and recovery. Pending actions keep their width and reject
-duplicate submission. Field errors sit beside their control, while form-level
-status uses an accessible live region. Verification codes support paste and
-password inputs use platform password-manager semantics. Offline, rate-limit,
-cooldown, expiration, reauthentication, and temporary-service states always
-name the next available action without revealing whether an account exists.
+The display name is editable. The avatar choice appears only when GitHub
+provides a safe preview URL; absence or image-load failure leaves a neutral
+fallback and does not block registration. Consent is explicit and bound to one immutable
+User Agreement plus Privacy Policy bundle, while the checkbox hides the internal
+bundle identifier. Both documents open read-only inside the same auth surface;
+returning preserves the draft and reading never checks consent automatically. An
+unknown server bundle blocks submission and asks for a client update. Blank
+names, server-identified field errors, and unaccepted consent keep focus at the
+affected control. Pending actions retain their
+width, disable duplicate activation, and announce progress through a polite
+live region.
+
+The same bounded content area replaces itself for every stable auth state:
+
+| State | Presentation and next action |
+| --- | --- |
+| capability loading/unavailable | Announce configuration check; when GitHub is unavailable explain that sign-in is not configured and offer capability retry only. |
+| idle/signed out | Show the single GitHub primary action. |
+| opening browser | Disable the primary action and announce that the system browser is opening. |
+| waiting for browser / completion required | Explain that authorization finishes in the browser, poll without stealing focus, and offer Cancel. |
+| registration required | Show display name, optional avatar choice, explicit User Agreement/Privacy Policy consent, in-app document views, and Create account; unknown bundles fail closed. |
+| denied / cancelled | State that authorization was not completed and offer Start again without implying whether an account exists. |
+| offline / temporarily unavailable | Preserve the opaque flow when safe and offer Retry; never branch on a human-readable server message. |
+| expired | Clear the old flow view and offer a new GitHub attempt. |
+| disabled or other safe authentication rejection | Use a non-enumerating “unable to sign in” state and offer a new attempt or support path; do not disclose internal User status. |
+| reauthentication required | Return to the signed-out GitHub entry after secret/session cleanup. |
+| authenticated handoff | Announce completion briefly while the authoritative session subscription moves the app into the account view. |
+
+Polling and reconnect timers stop on cancellation, authentication, unmount, or
+flow replacement. Keyboard order follows the visual order, all actions have a
+visible focus indicator, status changes use `role="status"`, actionable failures
+use `role="alert"`, narrow windows remain scrollable, and reduced-motion users
+receive no decorative transition. Portable Renderer/Cypress checks cover these
+contracts; packaged Electron, native credential storage, macOS, and Windows
+remain separate release evidence.
 
 ### Workspace selection
 

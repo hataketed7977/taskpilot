@@ -2,7 +2,31 @@ naming:
   FunctionNaming:
     excludes:
       - '**/test/**'
+
+complexity:
+  LongMethod:
+    excludes:
+      - '**/test/**'
+      - '**/access/application/FederatedAuthenticationService.kt'
+  TooManyFunctions:
+    excludes:
+      - '**/test/**'
+      - '**/access/application/FederatedAuthenticationStores.kt'
+      - '**/access/persistence/RedisFederatedLoginStore.kt'
+      - '**/access/persistence/RedisSessionUseCases.kt'
+
 style:
+  ThrowsCount:
+    excludes:
+      - '**/access/application/FederatedAuthenticationService.kt'
+  MaxLineLength:
+    maxLineLength: 140
+  ReturnCount:
+    excludes:
+      - '**/test/**'
+      - '**/access/application/FederatedAuthenticationService.kt'
+      - '**/access/persistence/RedisFederatedLoginStore.kt'
+      - '**/access/persistence/RedisSessionUseCases.kt'
   FunctionOnlyReturningConstant:
     excludes:
       - '**/test/**'

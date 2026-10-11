@@ -40,22 +40,6 @@ data class SessionPolicy(
     }
 }
 
-internal fun continuationDigestNamespace(
-    continuationId: ai.taskpilot.coreapi.access.model.AuthContinuationId,
-    purpose: ai.taskpilot.coreapi.access.model.VerificationPurpose,
-): String = "continuation:${purpose.name}:${continuationId.value}"
-
 internal const val ACCESS_TOKEN_DIGEST_NAMESPACE = "session:access"
 
 internal const val REFRESH_TOKEN_DIGEST_NAMESPACE = "session:refresh"
-
-internal fun challengeDigestNamespace(
-    challengeId: ai.taskpilot.coreapi.access.model.VerificationChallengeId,
-    purpose: ai.taskpilot.coreapi.access.model.VerificationPurpose,
-): String = "otp:${purpose.name}:${challengeId.value}"
-
-interface SessionRecoveryCipher {
-    fun encrypt(session: IssuedSession): ByteArray
-
-    fun decrypt(ciphertext: ByteArray): IssuedSession
-}

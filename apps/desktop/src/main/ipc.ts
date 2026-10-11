@@ -1,72 +1,79 @@
 import { z } from 'zod';
-import type { AuthCapabilities, ProjectCapabilities, WorkspaceCapabilities } from '../shared/contracts.js';
+import type { AuthCapabilities } from '../shared/contracts.js';
 import { toDesktopError } from './ipc-result.js';
 
 export const CHANNELS = {
-  signInWithPassword: 'auth:sign-in-password', requestLoginCode: 'auth:request-login-code', verifyLoginCode: 'auth:verify-login-code',
-  requestRegistrationCode: 'auth:request-registration-code', verifyRegistrationCode: 'auth:verify-registration-code', register: 'auth:register',
-  requestPasswordResetCode: 'auth:request-password-reset-code', verifyPasswordResetCode: 'auth:verify-password-reset-code', resetPassword: 'auth:reset-password',
-  getSessionView: 'auth:get-session-view', logout: 'auth:logout', sessionChanged: 'auth:session-changed',
-  listWorkspaces: 'workspace:list', createWorkspace: 'workspace:create', restoreActiveWorkspace: 'workspace:restore-active',
-  selectWorkspace: 'workspace:select', clearActiveWorkspace: 'workspace:clear-active', listProjects: 'project:list',
+  getAuthCapabilities: 'auth:get-capabilities',
+  startGitHubSignIn: 'auth:start-github-sign-in',
+  continueGitHubSignIn: 'auth:continue-github-sign-in',
+  completeGitHubRegistration: 'auth:complete-github-registration',
+  cancelGitHubSignIn: 'auth:cancel-github-sign-in',
+  getSessionView: 'auth:get-session-view',
+  logout: 'auth:logout',
+  sessionChanged: 'auth:session-changed',
 } as const;
 
-const email = z.string().trim().email().max(320);
-const password = z.string().min(1).max(1024);
-const uuid = z.string().uuid();
-const code = z.string().regex(/^\d{6}$/);
+const flowId = z.string().uuid();
 const schemas = {
-  signInWithPassword: z.object({ email, password }).strict(),
-  requestLoginCode: z.object({ email }).strict(),
-  verifyLoginCode: z.object({ challengeId: uuid, email, code }).strict(),
-  requestRegistrationCode: z.object({ email }).strict(),
-  verifyRegistrationCode: z.object({ challengeId: uuid, email, code }).strict(),
-  register: z.object({ flowHandle: uuid, email, displayName: z.string().trim().min(1).max(120), password, termsVersion: z.string().min(1).max(64) }).strict(),
-  requestPasswordResetCode: z.object({ email }).strict(),
-  verifyPasswordResetCode: z.object({ challengeId: uuid, email, code }).strict(),
-  resetPassword: z.object({ flowHandle: uuid, email, newPassword: password }).strict(),
-  getSessionView: z.undefined(), logout: z.undefined(), listWorkspaces: z.undefined(),
-  createWorkspace: z.object({ name: z.string().trim().min(1).max(160), creationRequestId: uuid }).strict(),
-  restoreActiveWorkspace: z.object({ availableWorkspaceIds: z.array(uuid).max(1000) }).strict(),
-  selectWorkspace: z.object({ workspaceId: uuid }).strict(), clearActiveWorkspace: z.undefined(),
-  listProjects: z.object({ workspaceId: uuid, cursor: z.string().min(1).max(2048).optional(), limit: z.number().int().min(1).max(100).optional() }).strict(),
-} as const;
-
+  getCapabilities: z.undefined(),
+  startGitHubSignIn: z.undefined(),
+  continueGitHubSignIn: z.object({ flowId }).strict(),
+  completeGitHubRegistration: z.object({
+    flowId,
+    displayName: z.string().trim().min(1).max(200),
+    useSuggestedAvatar: z.boolean(),
+    legalBundleVersion: z.string().min(1).max(128),
+    termsVersion: z.string().min(1).max(128),
+    privacyVersion: z.string().min(1).max(128),
+    locale: z.string().regex(/^[a-z]{2,3}(?:-[A-Z]{2})?$/).max(35),
+  }).strict(),
+  cancelGitHubSignIn: z.object({ flowId }).strict(),
+  getSessionView: z.undefined(),
+  logout: z.undefined(),
+};
 type Method = keyof typeof schemas;
 interface EventLike { sender: { id: number }; senderFrame: { url: string; parent: unknown } | null }
-interface WindowScope { webContentsId: number; generation: number; rendererOrigin?: string }
+export interface WindowScope { webContentsId: number; generation: number; rendererOrigin?: string }
+
 function isTrustedRendererUrl(url: string, rendererOrigin: string | undefined): boolean {
-  if (!rendererOrigin) return url.startsWith('file://');
+  if (!rendererOrigin) {
+    try { const parsed = new URL(url); return parsed.protocol === 'file:' && parsed.hostname === '' && parsed.username === '' && parsed.password === ''; } catch { return false; }
+  }
   try { return new URL(url).origin === rendererOrigin; } catch { return false; }
 }
-
 export function validateIpcEvent(event: EventLike, scope: WindowScope, generation: number): void {
-  if (event.sender.id !== scope.webContentsId || !event.senderFrame || event.senderFrame.parent !== null || !isTrustedRendererUrl(event.senderFrame.url, scope.rendererOrigin) || generation !== scope.generation) throw new Error('Untrusted IPC caller');
+  if (event.sender.id !== scope.webContentsId || !event.senderFrame || event.senderFrame.parent !== null
+    || !isTrustedRendererUrl(event.senderFrame.url, scope.rendererOrigin) || generation !== scope.generation) {
+    throw new Error('Untrusted IPC caller');
+  }
 }
 interface IpcRegistrar { handle(channel: string, listener: (event: EventLike, input?: unknown) => unknown): void; removeHandler(channel: string): void }
-type Owners = { auth: AuthCapabilities; workspaces: WorkspaceCapabilities; projects: ProjectCapabilities };
-
-export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: Owners, scope: WindowScope): () => void {
-  const entries: Array<[string, Method, AuthCapabilities | WorkspaceCapabilities | ProjectCapabilities]> = [
-    [CHANNELS.signInWithPassword, 'signInWithPassword', capabilities.auth], [CHANNELS.requestLoginCode, 'requestLoginCode', capabilities.auth], [CHANNELS.verifyLoginCode, 'verifyLoginCode', capabilities.auth],
-    [CHANNELS.requestRegistrationCode, 'requestRegistrationCode', capabilities.auth], [CHANNELS.verifyRegistrationCode, 'verifyRegistrationCode', capabilities.auth], [CHANNELS.register, 'register', capabilities.auth],
-    [CHANNELS.requestPasswordResetCode, 'requestPasswordResetCode', capabilities.auth], [CHANNELS.verifyPasswordResetCode, 'verifyPasswordResetCode', capabilities.auth], [CHANNELS.resetPassword, 'resetPassword', capabilities.auth],
-    [CHANNELS.getSessionView, 'getSessionView', capabilities.auth], [CHANNELS.logout, 'logout', capabilities.auth], [CHANNELS.listWorkspaces, 'listWorkspaces', capabilities.workspaces],
-    [CHANNELS.createWorkspace, 'createWorkspace', capabilities.workspaces], [CHANNELS.restoreActiveWorkspace, 'restoreActiveWorkspace', capabilities.workspaces],
-    [CHANNELS.selectWorkspace, 'selectWorkspace', capabilities.workspaces], [CHANNELS.clearActiveWorkspace, 'clearActiveWorkspace', capabilities.workspaces], [CHANNELS.listProjects, 'listProjects', capabilities.projects],
+export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: Pick<{ auth: AuthCapabilities }, 'auth'>, scope: WindowScope): () => void {
+  const entries: Array<[string, Method]> = [
+    [CHANNELS.getAuthCapabilities, 'getCapabilities'],
+    [CHANNELS.startGitHubSignIn, 'startGitHubSignIn'],
+    [CHANNELS.continueGitHubSignIn, 'continueGitHubSignIn'],
+    [CHANNELS.completeGitHubRegistration, 'completeGitHubRegistration'],
+    [CHANNELS.cancelGitHubSignIn, 'cancelGitHubSignIn'],
+    [CHANNELS.getSessionView, 'getSessionView'],
+    [CHANNELS.logout, 'logout'],
   ];
-  for (const [channel, method, owner] of entries) {
+  for (const [channel, method] of entries) {
     ipc.handle(channel, async (event, input) => {
       try {
         validateIpcEvent(event, scope, scope.generation);
+        if (serializedSize(input) > 16_384) throw Object.assign(new Error('IPC input too large'), { code: 'VALIDATION_FAILED' });
         const parsed = schemas[method].parse(input as never);
-        const fn = (owner as Partial<Record<Method, unknown>>)[method];
-        if (typeof fn !== 'function') throw Object.assign(new Error('Capability unavailable'), { code: 'CAPABILITY_UNAVAILABLE' });
-        return { ok: true as const, value: await fn.call(owner, parsed) };
+        const fn = capabilities.auth[method] as (input?: unknown) => unknown;
+        return { ok: true as const, value: await fn.call(capabilities.auth, parsed) };
       } catch (error) {
         return { ok: false as const, error: toDesktopError(error) };
       }
     });
   }
   return () => entries.forEach(([channel]) => ipc.removeHandler(channel));
+}
+function serializedSize(value: unknown): number {
+  if (value === undefined) return 0;
+  try { return new TextEncoder().encode(JSON.stringify(value)).byteLength; } catch { return Number.POSITIVE_INFINITY; }
 }

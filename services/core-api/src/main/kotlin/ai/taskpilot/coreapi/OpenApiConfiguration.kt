@@ -31,6 +31,7 @@ class OpenApiConfiguration {
             operation.addExtension("x-taskpilot-authentication", authentication)
             operation.security = DesktopOpenApiContracts.security(authentication)
             operation.responses = DesktopOpenApiContracts.responses(handler)
+            DesktopOpenApiContracts.description(handler)?.let { operation.description = it }
             operation
         }
 }
@@ -58,11 +59,22 @@ private object DesktopOpenApiContracts {
 
     fun authenticationKind(handler: HandlerMethod): String {
         val path = handler.relativePath()
-        return when {
-            handler.beanType.simpleName != "AuthenticationController" -> ACCESS_BEARER_KIND
-            path == "/auth/session/refresh" -> "refresh-credential-body"
-            path == "/auth/session/logout" || path == "/me" -> ACCESS_BEARER_KIND
-            else -> "anonymous"
+        return when (handler.beanType.simpleName) {
+            "FederatedAuthenticationController" -> {
+                "anonymous"
+            }
+
+            "AuthenticationController" -> {
+                when (path) {
+                    "/auth/session/refresh" -> "refresh-credential-body"
+                    "/auth/session/logout", "/me" -> ACCESS_BEARER_KIND
+                    else -> "anonymous"
+                }
+            }
+
+            else -> {
+                ACCESS_BEARER_KIND
+            }
         }
     }
 
@@ -75,42 +87,50 @@ private object DesktopOpenApiContracts {
 
     fun responses(handler: HandlerMethod): ApiResponses {
         val key = handler.beanType.simpleName to handler.relativePath()
-        return when {
-            key.first == "WorkspaceController" -> workspaceResponses(handler.method.name)
-            key.first == "ProjectController" -> DesktopOpenApiResponses.from(projectContract)
-            else -> responseContracts[key]?.let(DesktopOpenApiResponses::from) ?: ApiResponses()
-        }
+        return responseContracts[key]?.let(DesktopOpenApiResponses::from) ?: ApiResponses()
     }
 
-    private val projectContract =
-        responseContract("200", "ProjectPageResponse", "400", "401", "404", "503")
+    fun description(handler: HandlerMethod): String? {
+        val key = handler.beanType.simpleName to handler.relativePath()
+        return operationDescriptions[key]
+            ?: when (authenticationKind(handler)) {
+                ACCESS_BEARER_KIND -> ACTIVE_ACCESS_DESCRIPTION
+                "refresh-credential-body" -> ACTIVE_REFRESH_DESCRIPTION
+                else -> null
+            }
+    }
 
     private val responseContracts =
         mapOf(
-            ("AuthenticationController" to "/auth/registration/code") to
-                responseContract("202", "CodeAcceptedResponse", "400", "429", "503"),
-            ("AuthenticationController" to "/auth/login/code") to
-                responseContract("202", "CodeAcceptedResponse", "400", "429", "503"),
-            ("AuthenticationController" to "/auth/password-reset/code") to
-                responseContract("202", "CodeAcceptedResponse", "400", "429", "503"),
-            ("AuthenticationController" to "/auth/registration/code/verify") to
-                responseContract("200", "ContinuationResponse", "400", "401", "429", "503"),
-            ("AuthenticationController" to "/auth/password-reset/code/verify") to
-                responseContract("200", "ContinuationResponse", "400", "401", "429", "503"),
-            ("AuthenticationController" to "/auth/registration") to
-                responseContract("201", "SessionResponse", "400", "409", "503"),
-            ("AuthenticationController" to "/auth/login/password") to
-                responseContract("200", "SessionResponse", "400", "401", "503"),
-            ("AuthenticationController" to "/auth/login/code/verify") to
-                responseContract("200", "SessionResponse", "400", "401", "429", "503"),
-            ("AuthenticationController" to "/auth/password-reset") to
+            ("FederatedAuthenticationController" to "/capabilities") to
+                responseContract("200", "AuthenticationCapabilitiesResponse"),
+            ("FederatedAuthenticationController" to "/federated/attempts") to
+                responseContract("201", "FederatedAttemptResponse", "400", "429", "503"),
+            ("FederatedAuthenticationController" to "/federated/github/callback") to
+                responseContract("200", null, "400", "409", "503"),
+            ("FederatedAuthenticationController" to "/federated/attempts/{attemptId}/poll") to
+                responseContract("200", "FederatedPollResponse", "400", "409", "410", "503"),
+            ("FederatedAuthenticationController" to "/federated/attempts/{attemptId}/cancel") to
                 responseContract("204", null, "400", "409", "503"),
+            ("FederatedAuthenticationController" to "/federated/registrations") to
+                responseContract("201", "FederatedPollResponse", "400", "409", "503"),
             ("AuthenticationController" to "/auth/session/refresh") to
                 responseContract("200", "SessionResponse", "400", "401", "503"),
             ("AuthenticationController" to "/auth/session/logout") to
                 responseContract("204", null, "401"),
             ("AuthenticationController" to "/me") to
                 responseContract("200", "CurrentUserResponse", "401"),
+        )
+
+    private val operationDescriptions =
+        mapOf(
+            ("FederatedAuthenticationController" to "/federated/attempts/{attemptId}/poll") to
+                "Desktop Main supplies its poll secret in the body. The browser completion proof is optional " +
+                "while reading a pending status and is required before identity resolution. A known External " +
+                "Identity returns an active opaque session; a new identity returns a private registration continuation.",
+            ("FederatedAuthenticationController" to "/federated/registrations") to
+                "Desktop Main privately owns and submits the registration continuation; Renderer must not receive it. " +
+                "Successful registration returns an immediately active opaque session.",
         )
 
     private fun responseContract(
@@ -124,19 +144,10 @@ private object DesktopOpenApiContracts {
             ?: method.getAnnotation(GetMapping::class.java)?.value?.firstOrNull()
             ?: ""
 
-    private fun workspaceResponses(methodName: String): ApiResponses =
-        if (methodName == "list") {
-            DesktopOpenApiResponses.responses(
-                DesktopOpenApiResponses.success("200", "WorkspaceListResponse"),
-                DesktopOpenApiResponses.problems("401", "503"),
-            )
-        } else {
-            DesktopOpenApiResponses.responses(
-                DesktopOpenApiResponses.success("200", "WorkspaceResponse"),
-                DesktopOpenApiResponses.success("201", "WorkspaceResponse"),
-                DesktopOpenApiResponses.problems("400", "401", "403", "409", "503"),
-            )
-        }
+    private const val ACTIVE_ACCESS_DESCRIPTION =
+        "Requires an access bearer credential from an active opaque session."
+    private const val ACTIVE_REFRESH_DESCRIPTION =
+        "Requires a refresh credential from an active opaque session in the request body; successful refresh rotates both tokens."
 }
 
 private object DesktopOpenApiResponses {

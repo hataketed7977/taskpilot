@@ -8,13 +8,9 @@ value class UserId(
     val value: UUID,
 )
 
-@JvmInline
-value class EmailIdentityId(
-    val value: UUID,
-)
-
 enum class UserStatus {
     ACTIVE,
+    DISABLED,
 }
 
 data class UserAccount(
@@ -22,37 +18,20 @@ data class UserAccount(
     val displayName: String,
     val status: UserStatus,
     val createdAt: Instant,
+    val avatarUrl: java.net.URI? = null,
 )
 
-data class EmailIdentity(
-    val emailIdentityId: EmailIdentityId,
-    val userId: UserId,
-    val email: EmailAddress,
-    val verifiedAt: Instant,
-    val createdAt: Instant,
-)
-
-data class PasswordCredential(
-    val userId: UserId,
-    val digest: PasswordDigest,
-    val changedAt: Instant,
+@JvmInline
+value class TermsAcceptanceId(
+    val value: UUID,
 )
 
 data class TermsAcceptance(
+    val termsAcceptanceId: TermsAcceptanceId,
     val userId: UserId,
+    val legalBundleVersion: String,
     val termsVersion: String,
+    val privacyVersion: String,
+    val locale: String,
     val acceptedAt: Instant,
 )
-
-data class NewAccessIdentity(
-    val user: UserAccount,
-    val emailIdentity: EmailIdentity,
-    val passwordCredential: PasswordCredential,
-    val termsAcceptance: TermsAcceptance,
-) {
-    init {
-        require(emailIdentity.userId == user.userId)
-        require(passwordCredential.userId == user.userId)
-        require(termsAcceptance.userId == user.userId)
-    }
-}

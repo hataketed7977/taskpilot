@@ -15,13 +15,27 @@
 - Provider-neutral typed presentation of cloud state, Agent Run progress,
   normalized capabilities, logs, approvals, Diff, and artifacts without becoming
   their business source of truth.
-- In-app email authentication interaction, Main-owned opaque-session lifecycle,
+- System-browser GitHub authentication interaction, Main-owned attempt recovery,
   OS credential persistence, and safe authenticated-state handoff to Renderer.
 - Native dialogs, notifications, credential handles, deep links,
   single-instance behavior, and platform lifecycle integration.
 - Main-owned authenticated Desktop API consumption and, only when a
   `LOCAL_DESKTOP` capability is invoked, Main-to-Runtime child launch, stdio
   protocol, version/capability, health, shutdown, and failure supervision.
+
+### Federated authentication placement
+
+- Renderer owns the single GitHub action, safe waiting/registration/error views,
+  the read-only first-registration User Agreement and Privacy Policy, exact known
+  bundle matching, and no authentication secrets.
+- Preload owns only the fixed typed authentication capability bridge.
+- Main owns `shell.openExternal`, the one-shot `127.0.0.1` receiver, valid-proof
+  window restoration/show/focus, private attempt-recovery records, direct session
+  credential handoff, timers, and window cleanup.
+- Core API owns Provider exchange, External Identity resolution, registration,
+  session activation, expiry and disabled-User enforcement.
+- Deep links, embedded browser/WebView authentication, Provider selection and
+  release-platform certification are outside this implementation slice.
 
 ## Does Not Own
 
@@ -81,19 +95,15 @@
 
 ## Initial Interaction Areas
 
-The first implementation slice is in-app email authentication, session
-restore/logout, Workspace list/select/create, active `WorkspaceId` recovery,
-and a read-only Project list loaded through Main/Preload for the active
-Workspace. Main owns the fixed HTTP adapter and response scope validation;
-Preload owns the typed `listProjects` capability; Renderer owns loading, data,
-empty, error, pagination, and stale-response presentation. Project query state
-is isolated by environment, `UserId`, and `WorkspaceId`.
+The Current implementation slice is system-browser GitHub authentication,
+first-registration confirmation with legal-document review, crash-safe attempt
+resume, OS-credential-backed session restore/refresh/logout, and an authenticated
+account view. Main owns the fixed HTTP adapter and secret lifecycle; Preload owns
+narrow typed Auth capabilities; Renderer owns only safe presentation state.
 
-This slice does not start Agent Runtime and does not expose Project creation,
-`canCreateProject`, a Create Project CTA, Project detail/edit/delete, Project
-Member management, or Project-scoped navigation. Those mutations and deeper
-surfaces require later end-to-end changes.
-
+Workspace list/select/create, active `WorkspaceId`, Project discovery and
+mutation, Project membership, and the application work surface remain Target.
+The current slice does not start Agent Runtime.
 Later Target UI may include Board and Work Item workflows, provider-neutral
 Agent configuration, Run monitoring, approval prompts, logs, Diff review, and
 artifact access. This inventory is not an implementation claim or permission to

@@ -69,6 +69,16 @@ class SecurityConfiguration {
                         "/swagger-ui/**",
                         "/swagger-ui.html",
                         "/error",
+                        "/desktop/v1/auth/capabilities",
+                        "/desktop/v1/auth/federated/attempts",
+                        "/desktop/v1/auth/federated/github/callback",
+                        "/desktop/v1/auth/federated/attempts/*/poll",
+                        "/desktop/v1/auth/federated/attempts/*/cancel",
+                        "/desktop/v1/auth/federated/registrations",
+                        "/desktop/v1/auth/session/refresh",
+                        "/desktop/v1/auth/session/logout",
+                        // Keep these retired exact paths anonymous so missing routes remain observable as 404.
+                        // Do not use a wildcard: every future authentication route requires explicit review.
                         "/desktop/v1/auth/registration/code",
                         "/desktop/v1/auth/registration/code/verify",
                         "/desktop/v1/auth/registration",
@@ -78,8 +88,6 @@ class SecurityConfiguration {
                         "/desktop/v1/auth/password-reset/code",
                         "/desktop/v1/auth/password-reset/code/verify",
                         "/desktop/v1/auth/password-reset",
-                        "/desktop/v1/auth/session/refresh",
-                        "/desktop/v1/auth/session/logout",
                     ).permitAll()
                 it.requestMatchers("/desktop/v1/**").authenticated()
                 it.anyRequest().denyAll()

@@ -39,19 +39,19 @@ at project-summary level.
 
 ## Current Status
 
-The Core API currently implements first-party email/password/OTP
-authentication, opaque sessions, Organization Workspace list/create, and a
-Workspace-scoped read-only Project list with PostgreSQL/Flyway persistence,
-runtime OpenAPI in non-production profiles, and a complete
-`:services:core-api:qualityCheck` gate.
+The Core API currently implements GitHub federated authentication and opaque
+sessions. PostgreSQL/Flyway stores the durable `User`, provider-neutral
+`ExternalIdentity`, and legal acceptance facts; Redis stores expiring OAuth
+attempts, login rate limits, and session state. Runtime OpenAPI is available in
+non-production profiles, and `:services:core-api:qualityCheck` is the complete
+Core API gate. GitHub proves control of an external identity while TaskPilot
+keeps its own stable `UserId` and authorization boundary.
 
-The Electron/React Desktop currently implements the corresponding in-app
-authentication, session recovery, Workspace onboarding, and read-only Project
-list through hardened Main/Preload/Renderer boundaries. Its source, component,
-architecture, coverage, and build gates are executable; signed installers and
-cross-platform native release evidence are not complete. Agent Runtime and
-Gateway remain Target documentation only. The repository includes only a local
-development Compose stack; production deployment manifests do not yet exist.
+The Electron/React Desktop implements the corresponding system-browser GitHub
+login, first-registration confirmation, OS-credential-backed session restore,
+refresh, and logout through hardened Main/Preload/Renderer boundaries. Workspace
+and Project capabilities, Agent Runtime, Gateway, signed installers, production
+deployment, and cross-platform native release evidence remain Target only.
 
 ## Local Development
 
@@ -63,83 +63,88 @@ pnpm bootstrap
 pnpm dev
 ```
 
-`bootstrap` is the explicit, network-capable preparation step. It validates the
-system tools, creates or extends the Git-ignored `.env.local` without replacing
-credentials or existing values, installs exactly `pnpm-lock.yaml`, compiles the
-Desktop and Core API, and pulls only missing PostgreSQL and Mailpit images. It
-does not install or upgrade JDK, Docker, Node.js, or pnpm.
+`bootstrap` validates tools, creates or normalizes the Git-ignored `.env.local`
+without replacing existing values, installs the locked JavaScript graph,
+compiles Desktop and Core API, and pulls the PostgreSQL and Redis images. The local file
+uses the same documented sections and key order as `.env.local.example`;
+checkout values and secrets are preserved by key during upgrades. Settings from
+the retired email-authentication stack are moved to the Git-ignored
+`.env.local.retired` file instead of remaining active or being discarded. `dev` starts the
+checkout-scoped PostgreSQL 17 and Redis 7.4 containers, runs Core API and Flyway through the
+Gradle Wrapper, waits for health, and then opens Electron. Re-running `pnpm dev`
+first stops and replaces Desktop/Core API processes whose ownership can be
+proved for this checkout; it never kills an unknown process merely because it
+uses a configured port. `Ctrl+C` stops only host processes started by that
+invocation; PostgreSQL and Redis remain available.
 
-`dev` is the repeatable runtime path. It validates tools and installed JavaScript
-dependencies, starts PostgreSQL 17 and Mailpit through Docker Compose, starts the
-Core API through the Gradle Wrapper, waits for Spring Boot to compile, validate
-and apply Flyway migrations, and become healthy, then opens Electron. Renderer
-changes use Vite HMR; Main, Preload, or shared-contract changes rebuild and
-restart Electron. Pressing `Ctrl+C` stops host processes started by that
-invocation but keeps PostgreSQL and Mailpit available for the next run.
+### GitHub OAuth App
+
+Without GitHub credentials the stack deliberately stays healthy and
+`GET /desktop/v1/auth/capabilities` reports GitHub login disabled. For a real
+manual login, create a dedicated development GitHub OAuth App and set its
+Authorization callback URL to the exact `TASKPILOT_GITHUB_CALLBACK_URI` written
+to `.env.local`. `pnpm bootstrap` also writes two explicit empty credential
+fields; replace their empty values in that Git-ignored file:
+
+```dotenv
+TASKPILOT_GITHUB_CLIENT_ID=your-development-client-id
+TASKPILOT_GITHUB_CLIENT_SECRET=your-development-client-secret
+```
+
+`pnpm bootstrap` generates the independent 32-byte federated HMAC and AEAD keys
+and the exact callback URI. Do not copy the example placeholders as credentials,
+reuse either key for the other purpose, put secrets on command lines, or commit
+`.env.local`. Incomplete, invalid, or reused-key configuration fails closed
+rather than preventing Core API health.
 
 ### Lifecycle commands
 
 ```bash
-pnpm dev:api          # infrastructure plus Gradle/Spring Boot Core API, no Desktop
-pnpm dev:desktop      # Desktop only; require this checkout's Core API to be healthy
-pnpm dev:doctor       # read-only tools, dependencies, ports, ownership, and stale-state diagnosis
-pnpm dev:status       # process/container ownership, health, and actual local URLs
-pnpm dev:logs         # Core API log; add --follow or --service postgres|mailpit
+pnpm dev:api          # PostgreSQL + Redis + Gradle/Spring Boot Core API, no Desktop
+pnpm dev:desktop      # Desktop only; requires this checkout's healthy Core API
+pnpm dev:doctor       # read-only tools, ports, ownership, and stale-state diagnosis
+pnpm dev:status       # process/container ownership, health, URLs, auth capability
+pnpm dev:logs         # Core API log; add --follow or --service postgres
 pnpm dev:restart      # stop this checkout, then start the complete local stack
-pnpm dev:stop         # stop owned host processes and Compose containers; keep database data
-pnpm dev:smoke        # headless registration, login OTP, and password-reset mail smoke
-pnpm check            # complete launcher, Desktop, and Core API quality gates
+pnpm dev:stop         # stop owned processes/containers; keep database data
+pnpm dev:smoke        # health + disabled GitHub capability; never contacts GitHub
+pnpm check            # launcher, Desktop, and Core API quality gates
 ```
 
-`dev:api` and the complete `dev` entry still run Kotlin through
-`./gradlew :services:core-api:bootRun`; pnpm only owns cross-project development
-orchestration. `dev:desktop` refuses to start unless the configured Core API is both
-healthy and recorded as owned by this checkout. `dev:smoke` may temporarily start infrastructure and Core API, never
-opens Desktop, and stops only the Core API it started.
+`dev:desktop` refuses to start unless the Core API is healthy and recorded as
+owned by this checkout. The controller waits for a replaced launcher to exit
+before starting its successor, and never takes over or stops an unrecognized
+process. Runtime ownership state and Core API logs live in Git-ignored
+`.taskpilot/dev/` and contain no credentials; all local services bind to
+loopback.
 
-Each newly bootstrapped checkout receives a deterministic
-`TASKPILOT_COMPOSE_PROJECT` and a persisted set of distinct loopback ports for
-PostgreSQL, Mailpit SMTP/HTTP, Core API, and Vite. The values are written to
-`.env.local`, propagated through Compose, Spring Boot, Vite, Electron, and the
-Desktop HTTP transport, and may be edited when that checkout is stopped. An
-existing `.env.local` is extended with its legacy `taskpilot-local` project and
-ports so the existing database volume remains visible; it is never silently
-moved or reset.
+Each checkout gets a deterministic Compose project, separate disposable local
+PostgreSQL and Redis volumes, and distinct loopback ports. When Core API startup proves a
+Flyway schema-history incompatibility against that exact loopback database,
+`pnpm dev` and `pnpm dev:api` verify both the checkout-owned Compose project and
+the standard Compose volume labels, stop the failed Core API, rebuild only that
+local volume, and retry once. Startup also removes orphan containers belonging
+to the same Compose project.
 
-The controller never takes over an unrecognized process or changes a persisted
-port automatically. Use `pnpm dev:doctor` to identify a conflict, then stop the
-owner or edit the stopped checkout's `.env.local`. On macOS and Linux, process shutdown sends a
-graceful signal, waits, and escalates after a timeout; Windows terminates the
-owned process tree directly. Ownership state is deleted only after confirmed exit. Docker unavailability does not prevent owned host
-processes from stopping. If a host process cannot stop, its state and
-infrastructure are preserved rather than orphaning it from PostgreSQL.
+Automatic recovery does not run for connection failures, ordinary migration SQL
+errors, external databases, non-loopback JDBC targets, unknown containers, or
+volumes whose ownership labels do not match. It never runs Flyway repair and
+never retries recovery more than once; an unrecognized or repeated failure is
+reported with the Core API log path for manual diagnosis. Local development data
+must therefore be treated as disposable rather than as a backup or shared
+database.
 
-Every newly bootstrapped checkout owns a separate Compose project and PostgreSQL
-volume, so branches with different Flyway histories do not migrate the same database.
-A legacy checkout keeps its existing project and volume for compatibility.
-Spring Boot is the only local migration runner. A compile, migration, or health
-failure prevents Desktop startup and leaves infrastructure running for
-diagnosis; the launcher never runs Flyway repair, edits migration checksums,
-deletes a volume, or resets data automatically. Rebase-time migration version
-conflicts must be resolved in source before retrying.
+`pnpm dev:smoke` starts a temporary Core API on an isolated loopback port with
+GitHub credentials disabled only in that child process. It reuses the
+checkout-owned PostgreSQL and Redis containers, never rewrites `.env.local`,
+does not stop an existing Core API or Desktop, and never contacts GitHub. The
+smoke proves infrastructure/Core API health, the fail-closed capability response,
+and removal of the old email-login route.
 
-Runtime ownership state and Core API logs live under the Git-ignored
-`.taskpilot/dev/` directory and contain no credentials. All services bind only
-to loopback. Packaged Desktop builds continue to load local Renderer files with
-the production CSP.
-
-Use `.env.local.example` only as a key reference. Do not commit `.env.local` or
-reuse these local credentials in a deployed environment. Local plaintext SMTP
-is restricted in code to the non-production `local` profile and loopback
-Mailpit. The default `pnpm dev` path therefore needs no mail-provider account,
-and `pnpm dev:smoke` remains a deterministic Mailpit-only registration, login
-code, and password-reset check.
-
-For an optional real-inbox development smoke, set
-`TASKPILOT_VERIFICATION_MAIL_MODE=external` and the documented
-`TASKPILOT_EXTERNAL_SMTP_*` values in `.env.local`, then restart the Core API.
-The launcher rejects incomplete credentials, invalid ports, plaintext transport,
-and simultaneous STARTTLS/implicit-SSL selection before startup. External SMTP
-uses the existing production mail adapter, which independently requires either
-required STARTTLS or implicit SSL. Request one code at a time from the Desktop
-and inspect the test inbox manually; automated smoke never sends provider mail.
+The real Provider journey was manually accepted on macOS in the local development
+environment on 2026-10-12: first registration, repeat login to the same account,
+Desktop activation after browser authorization, GitHub denial, Desktop
+cancellation, and logout/session invalidation all passed. Browser close and
+operating-system focus remain manual platform evidence rather than unit-test
+claims. No OAuth codes, state, tokens, client secrets, email, account alias, or
+personal screenshots are stored as evidence.

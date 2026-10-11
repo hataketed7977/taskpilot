@@ -11,34 +11,23 @@
 ## Current Implemented Responsibility
 
 **Current:** `core-api` owns its runnable application shell and engineering
-guardrails: four declared capability boundaries, explicit Spring Security
-routes, architecture tests, a standard `src/test` tree and single complete
-`test` entry, executable Boot JAR verification, and the Core API quality task.
-Spring Modulith fixtures remain runtime-visible in ordinary `src/test/java`,
-while only FQCN-conflicting ArchUnit fixtures use an isolated internal
-compilation subtree under `src/test/architecture-fixtures/java`; neither is a
-second test-suite entry. The implemented `access` slice
-owns first-party email/password/OTP registration and login, password reset,
-opaque sessions and refresh recovery, `CurrentUserView`, Organization Workspace
-list/create, creator Membership, and server-side Workspace authorization. The
-implemented narrow `project` slice owns Workspace-scoped read-only Project list
-queries with both Workspace and Project Membership checks. Spring JDBC/Flyway
-owns the corresponding PostgreSQL persistence, uniqueness, transaction,
-idempotency, locking, expiry, pagination, and concurrency semantics. Runtime
-OpenAPI documents these Desktop endpoints outside Production. Project creation
-and other Project mutations, Agent execution, workflow behavior, and the
-remaining capability targets are not implemented.
+guardrails plus one implemented `access` slice. That slice owns stable User
+identity, provider-neutral External Identity uniqueness, legal acceptance,
+GitHub OAuth attempts and registration continuations, login rate limiting,
+opaque session issue/rotation/replay revocation/logout, `CurrentUserView`, and
+the corresponding Desktop HTTP adapters. The GitHub adapter performs only
+authorization/token/authenticated-user exchange outside database transactions
+and returns a normalized durable identity; it does not persist Provider tokens.
 
-The `access` infrastructure also owns the concrete production verification-mail
-transport behind its provider-neutral port. The current adapter uses Spring's
-standard SMTP sender, requires an explicit sender address and SMTP host, and
-fails startup unless STARTTLS is required or implicit TLS is enabled. Deployment owns
-provider selection and injects SMTP username/password through its runtime or CI
-secret store; those credentials must not enter source, configuration examples,
-logs, API payloads, or test fixtures. Unit and ordinary CI tests use the
-explicit capture adapter. Local development uses the separate `local &
-!production` adapter, which can send plaintext SMTP only to loopback Mailpit;
-it is not a deployable provider configuration.
+Spring JDBC/Flyway owns PostgreSQL persistence for exactly User, External
+Identity, and Terms Acceptance. Redis owns only expiring OAuth workflow,
+rate-limit, and session technical state. Runtime OpenAPI documents only the
+implemented authentication/session/current-user endpoints outside Production.
+The deleted email/password/OTP/reset stack, SMTP/Mailpit, Workspace/Project
+behavior, Agent execution, and workflow behavior are not current
+responsibilities. Four capability boundaries remain declared for the Target
+architecture, but `project`, `automation`, and `agent` currently contain no
+runnable business capability.
 
 The responsibilities below are the approved **Target** allocation for future
 changes. A future item becomes Current only when its production implementation
@@ -94,7 +83,7 @@ No artifact is required solely because an event was named during analysis.
 
 | Area | Owns | Does not own |
 | --- | --- | --- |
-| Access | User identity integration, Workspace, membership, session/actor facts, membership authorization operations | Project participation, work, workflow, Agent execution |
+| Access | User and External Identity, federated login attempts and registration continuations, opaque session/actor facts, and Target Workspace membership authorization operations | Provider repository integration, Project participation, work, workflow, Agent execution |
 | Project Work | Project and membership, Work Item and type, custom values, Board configuration/query, comments | Workflow progression, provider execution |
 | Automation | Workflow and versions, Workflow Run, Step Run, transition evaluation, Approval Request, cancellation orchestration | Provider SDK invocation, Card persistence |
 | Agent Execution | Provider Connection, Agent and versions, Project Agent Binding, Agent Run, Attempt, Artifact references, execution-mode routing, remote provider adapters, local dispatch/lease, and reconciliation | Human membership, approval authority, Work Item truth |
@@ -102,16 +91,27 @@ No artifact is required solely because an event was named during analysis.
 This table guides placement without requiring separate deployables or one class
 shape per concept.
 
-## Initial Application Use Cases
+## Target Application Use Cases
 
 ### Access and project setup
 
+- Resolve a provider-normalized external identity to an internal User without
+  using email or profile similarity as a merge key.
+- Own short-lived federated attempt, registration continuation, rate-limit,
+  and opaque session state in Redis; keep external Provider calls outside local
+  database transactions, and persist User, External Identity, and legal
+  acceptance facts atomically in PostgreSQL. Successful authentication issues an
+  active session directly; refresh rotation, replay revocation, logout, TTL, and
+  fail-closed Redis behavior stay inside the access slice.
+- Keep Provider credentials and protocol payloads inside infrastructure
+  adapters; application code receives only normalized identity and stable error
+  categories.
 - List an authenticated User's accessible Workspaces.
 - Create an Organization Workspace and its creator Membership atomically and
   idempotently.
 - Preserve one Workspace/Membership model so a later Personal Workspace type can
   reuse the same ownership and authorization path without being provisioned now.
-- For the first implementation slice, list only Projects for which the
+- In the Target Workspace/Project slice, list only Projects for which the
   authenticated User has both an effective Workspace Membership and a matching
   Project Membership in the requested Workspace.
 - Keep Project creation, Project Member management, and other Project mutations

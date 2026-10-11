@@ -40,13 +40,12 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")
     implementation(libs.icu4j)
-    implementation(libs.bouncycastle)
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
-    implementation("org.springframework.boot:spring-boot-starter-mail")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation(libs.springdoc.webmvc.ui)
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation(libs.flyway.postgresql)
@@ -114,7 +113,6 @@ kover {
                 classes(
                     "ai.taskpilot.coreapi.CoreApiArchitectureRoot",
                     "ai.taskpilot.coreapi.access.AccessModule",
-                    "ai.taskpilot.coreapi.project.ProjectModule",
                     "ai.taskpilot.coreapi.automation.AutomationModule",
                     "ai.taskpilot.coreapi.agent.AgentModule",
                 )
@@ -233,12 +231,10 @@ val verifyBuildContract =
                     "com.h2database:h2",
                     "org.springframework.boot:spring-boot-starter-data-jpa",
                     "org.springframework.boot:spring-boot-starter-data-jdbc",
-                    "org.springframework.boot:spring-boot-starter-data-redis",
                     "org.springframework.kafka:spring-kafka",
                     "org.apache.kafka:kafka-clients",
                     "org.springframework.amqp:spring-rabbit",
                     "com.rabbitmq:amqp-client",
-                    "io.lettuce:lettuce-core",
                 )
             val runtimeComponents =
                 configurations.runtimeClasspath
@@ -271,20 +267,19 @@ val verifyBuildContract =
                 check(entries.any { it.startsWith("BOOT-INF/lib/") }) {
                     "Executable runtime JAR does not contain runtime dependencies"
                 }
-                check(jar.manifest.mainAttributes.getValue("Start-Class") == "ai.taskpilot.coreapi.CoreApiApplicationKt") {
+                check(
+                    jar.manifest.mainAttributes.getValue("Start-Class") == "ai.taskpilot.coreapi.CoreApiApplicationKt",
+                ) {
                     "Executable runtime JAR has an unexpected Start-Class"
                 }
-                check(entries.contains("BOOT-INF/classes/db/migration/V1__create_access_identity.sql")) {
-                    "Executable runtime JAR does not contain the production access-identity migration"
-                }
-                check(entries.contains("BOOT-INF/classes/db/migration/V2__create_verification_security.sql")) {
-                    "Executable runtime JAR does not contain the production verification-security migration"
-                }
-                check(entries.contains("BOOT-INF/classes/db/migration/V4__create_workspaces.sql")) {
-                    "Executable runtime JAR does not contain the production workspace migration"
-                }
-                check(entries.contains("BOOT-INF/classes/db/migration/V5__create_projects.sql")) {
-                    "Executable runtime JAR does not contain the production project migration"
+                val productionMigrations =
+                    entries.filter { it.startsWith("BOOT-INF/classes/db/migration/V") }.toSet()
+                check(
+                    productionMigrations ==
+                        setOf("BOOT-INF/classes/db/migration/V1__initialize_taskpilot.sql"),
+                ) {
+                    "Executable runtime JAR does not contain exactly the production baseline migration: " +
+                        productionMigrations
                 }
                 check(
                     entries.none { entry ->

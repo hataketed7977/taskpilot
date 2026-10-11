@@ -76,7 +76,9 @@ documentation.
 
 | Term | Meaning |
 | --- | --- |
-| User | A person who can authenticate and act in TaskPilot |
+| User | A person who can authenticate and act in TaskPilot; `UserId` is the only identity referenced by business records |
+| External Identity | A provider-scoped durable login identity associated with exactly one User; its identity key is `(provider, authority, subject)` |
+| Federated Login Attempt | A short-lived authentication process record; it is not a User and grants no business authorization |
 | Workspace | The ownership, membership, and data-isolation boundary; either personal or organizational |
 | Workspace Member | A User's membership and role within a Workspace, regardless of Workspace type |
 | Project | A Workspace-owned collaboration scope containing people, work, boards, and enabled automation |
@@ -148,6 +150,7 @@ classDiagram
     direction LR
 
     class User
+    class ExternalIdentity
     class Workspace
     class Project
     class WorkItem
@@ -159,6 +162,7 @@ classDiagram
     class ApprovalRequest
     class Artifact
 
+    User "1" o-- "0..*" ExternalIdentity : authenticates through
     User --> Workspace : participates through membership
     Workspace "1" o-- "0..*" Project : owns
     Project "1" o-- "0..*" WorkItem : contains
@@ -361,13 +365,18 @@ opaque representation after API and persistence constraints are known.
 | Workspace isolation | Every cross-reference must resolve within one Workspace unless a future sharing model explicitly authorizes otherwise |
 | Version identity | `WorkflowVersionId`, `AgentVersionId`, and `WorkItemTypeVersionId` identify immutable definitions; a version number is unique only within its stable parent identity |
 | Scoped definition key | `NodeKey`, `AgentSlotKey`, and custom-field keys are portable DSL keys whose identity is the pair `(definitionVersionId, key)` |
-| External identity namespace | A provider's remote identifier is unique only together with its `ProviderConnectionId` and remote object kind; it never replaces a TaskPilot ID |
+| Login external identity | A login identity is globally unique by `(provider, authority, subject)`, belongs to exactly one User, and never replaces `UserId` |
+| Managed-Agent remote identity | A remote execution object is unique only with its `ProviderConnectionId` and remote object kind; this is separate from login identity |
 | Projection identity | A Card reuses `WorkItemId`; filtered Board results and realtime messages must not invent a `CardId` |
 | Human-facing key | A future key such as `PROJ-123` may be unique within a Project for display/search, but internal references continue using `WorkItemId` |
 | Historical pinning | Runtime records reference exact immutable version IDs, not “latest” definitions or mutable names |
 
 Important logical uniqueness constraints are:
 
+- one User may have zero or more External Identities, while each External Identity belongs to exactly one User;
+- one External Identity per `(provider, authority, subject)` across TaskPilot;
+- no uniqueness rule on `(userId, provider, authority)`, so a future explicitly designed binding flow is not precluded;
+- GitHub login uses its durable numeric user ID as `subject`; login, display name, email, avatar, and provider token are not identity keys and never trigger automatic account merging;
 - one Workspace Membership per `(WorkspaceId, UserId)`;
 - one Project Membership per `(ProjectId, UserId)`;
 - one version number per stable Workflow, Agent, or Work Item Type;
@@ -380,6 +389,60 @@ Important logical uniqueness constraints are:
 These are business uniqueness rules. The Core API persistence design must later
 choose the appropriate unique constraints, partial indexes, locking, or
 transaction strategy to enforce them; this document does not prescribe tables.
+
+### Federated Login and First Registration
+
+**Current:** the runnable Core API/Desktop slice implements the complete
+system-browser GitHub login flow. PostgreSQL stores the durable `User`,
+`ExternalIdentity`, and `TermsAcceptance` facts. Short-lived login attempts,
+registration continuations, rate-limit counters, and opaque sessions are
+technical Redis state rather than business records. Automated checks verify the
+portable HTTP, Main, Renderer, PostgreSQL, and Redis boundaries. The real macOS
+development journey was manually accepted on 2026-10-12 for first registration,
+repeat login, Desktop activation, denial, cancellation, and logout/session
+invalidation; browser close/focus remains current-platform manual evidence.
+
+A Federated Login Attempt is a temporary security workflow, not an account or
+an authorization grant. Its approved lifecycle is:
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> CALLBACK_PROCESSING: valid state claims callback
+    PENDING --> CANCELLED: Desktop cancels
+    PENDING --> EXPIRED: attempt TTL
+    CALLBACK_PROCESSING --> COMPLETION_PENDING: provider identity verified
+    CALLBACK_PROCESSING --> DENIED: user denies
+    CALLBACK_PROCESSING --> FAILED: provider or validation failure
+    COMPLETION_PENDING --> IDENTITY_PROCESSING: poll secret and completion proof
+    IDENTITY_PROCESSING --> REGISTRATION_PENDING: unknown identity
+    IDENTITY_PROCESSING --> COMPLETED: known active User and session issued
+    REGISTRATION_PENDING --> REGISTRATION_PROCESSING: registration submitted
+    REGISTRATION_PROCESSING --> COMPLETED: registration committed and session issued
+```
+
+The first registration transaction creates exactly one User, its first
+External Identity, and acceptance of the current legal-document bundle.
+`TermsAcceptance.legalBundleVersion` is the immutable identifier for the
+displayed User Agreement and Privacy Policy combination; `termsVersion` and
+`privacyVersion` identify the exact texts in that combination. `locale` records
+the version the user actually read as acceptance evidence but does not create
+an independent consent identity, and server-generated `acceptedAt` records when
+the combination was accepted. The first-use UI does not expose these internal
+identifiers, links both documents without auto-checking consent, and fails
+closed when the server requires a bundle the installed client cannot present.
+Concurrent registration of the same external identity may succeed at most once
+and must leave no orphan User or terms record. After an existing identity is
+resolved or first registration commits, Core API directly issues an active
+opaque session. Session state is expiring Redis technical state, not a
+PostgreSQL business fact; Desktop Main must persist the refresh credential in
+the OS credential facility before publishing authenticated UI. A disabled User
+cannot establish or use a new session.
+
+GitHub proves control of an external identity only. Workspace Membership and
+Project Membership continue to authorize business actions by internal
+`UserId`. This phase has no bind, unlink, transfer, merge, Google, Lark, or
+GitHub repository-integration behavior.
 
 ## Business Areas
 

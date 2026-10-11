@@ -1,46 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AuthCapabilities,
-  ProjectItem,
+  FederatedAuthFlowView,
   SessionView,
   TaskPilotDesktopApi,
-  WorkspaceList,
 } from '../shared/contracts';
+import { CURRENT_LEGAL_BUNDLE, legalDocument, type LegalDocumentKind } from './legal/legal-bundle';
+import { displayNameInitials } from './profile';
 
-type AuthScreen =
-  | 'password'
-  | 'code'
-  | 'register-email'
-  | 'register-code'
-  | 'register-profile'
-  | 'reset-email'
-  | 'reset-code'
-  | 'reset-password';
+type CodedError = Error & { code?: string; path?: string; retryAfterSeconds?: number; recovery?: string };
+type CapabilityState = 'loading' | 'ready' | 'unavailable';
+type AuthIssue = 'offline' | 'expired' | 'unable';
 
-type CodedError = Error & { code?: string; path?: string; retryAfterSeconds?: number };
 
-function errorMessage(error: unknown): string {
-  const { code, retryAfterSeconds } = error as CodedError;
-  if (code === 'AUTHENTICATION_RATE_LIMITED' && typeof retryAfterSeconds === 'number') {
-    return `尝试次数过多，请在 ${retryAfterSeconds} 秒后再试`;
-  }
-  const messages: Record<string, string> = {
-    INVALID_CREDENTIALS: '邮箱或密码不正确',
-    INVALID_OR_EXPIRED_CODE: '验证码无效或已过期',
-    REGISTRATION_RESULT_UNKNOWN: '无法确认账号是否创建成功。请返回登录并尝试登录。',
-    AUTHENTICATION_RATE_LIMITED: '尝试次数过多，请稍后再试',
-    WORKSPACE_RESULT_UNKNOWN: '无法确认 Workspace 是否创建成功。请使用相同信息重试。',
-    IDEMPOTENCY_IN_PROGRESS: '创建请求仍在处理中，请稍后重试。',
-    IDEMPOTENCY_KEY_REUSED: '创建信息已改变，请重新发起创建。',
-    WORKSPACE_CREATION_NOT_ALLOWED: '当前账号无法创建 Workspace。',
-    WORKSPACE_TEMPORARILY_UNAVAILABLE: 'Workspace 暂时无法创建，请稍后重试。',
-    NETWORK_UNAVAILABLE: '暂时无法连接，请检查网络后重试。',
-    VALIDATION_FAILED: '请检查填写的信息。',
-    PASSWORD_CONFIRMATION_MISMATCH: '两次输入的密码不一致',
-    PROJECTS_TEMPORARILY_UNAVAILABLE: '项目暂时无法加载，请稍后重试。',
-  };
-  return code && messages[code] ? messages[code] : '暂时无法连接，请检查网络后重试';
-}
 
 export function App({ api }: { api: TaskPilotDesktopApi }) {
   const [session, setSession] = useState<SessionView>({ status: 'restoring' });
@@ -50,7 +22,9 @@ export function App({ api }: { api: TaskPilotDesktopApi }) {
     void api.auth.getSessionView().then((view) => {
       if (active) setSession(view);
     });
-    const unsubscribe = api.auth.subscribeSessionView(setSession);
+    const unsubscribe = api.auth.subscribeSessionView((view) => {
+      if (active) setSession(view);
+    });
     return () => {
       active = false;
       unsubscribe();
@@ -71,602 +45,463 @@ export function App({ api }: { api: TaskPilotDesktopApi }) {
       </main>
     );
   }
-  if (session.status === 'signedOut') return <AuthExperience auth={api.auth} />;
-  return <WorkspaceExperience api={api} session={session} />;
+  if (session.status === 'signedOut') {
+    return <AuthExperience auth={api.auth} onAuthenticated={(currentUser) => setSession({ status: 'authenticated', currentUser })} />;
+  }
+  return <AccountHome auth={api.auth} session={session} />;
 }
 
-function AuthExperience({ auth }: { auth: AuthCapabilities }) {
-  const [screen, setScreen] = useState<AuthScreen>('password');
-  const [email, setEmail] = useState('');
-  const [challengeId, setChallengeId] = useState('');
-  const [flowHandle, setFlowHandle] = useState('');
-  const [notice, setNotice] = useState('');
+function AuthExperience({ auth, onAuthenticated }: {
+  auth: AuthCapabilities;
+  onAuthenticated(currentUser: Extract<SessionView, { status: 'authenticated' }>['currentUser']): void;
+}) {
+  const [capability, setCapability] = useState<CapabilityState>('loading');
+  const [flow, setFlow] = useState<FederatedAuthFlowView>();
+  const [issue, setIssue] = useState<AuthIssue>();
+  const [pending, setPending] = useState<'start' | 'register' | 'cancel'>();
+  const operation = useRef(false);
+  const generation = useRef(0);
 
-  const navigate = (next: AuthScreen) => {
-    setChallengeId('');
-    setFlowHandle('');
-    setScreen(next);
-  };
-  const shared: FlowProps = {
-    auth, email, setEmail, challengeId, setChallengeId, flowHandle, setFlowHandle, navigate, notice, setNotice,
-  };
+  const loadCapabilities = useCallback(async () => {
+    const currentGeneration = ++generation.current;
+    setCapability('loading');
+    setIssue(undefined);
+    try {
+      const result = await auth.getCapabilities();
+      if (currentGeneration === generation.current) setCapability(result.github.enabled ? 'ready' : 'unavailable');
+    } catch {
+      if (currentGeneration === generation.current) {
+        setCapability('unavailable');
+        setIssue('offline');
+      }
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    queueMicrotask(() => void loadCapabilities());
+    return () => { generation.current += 1; };
+  }, [loadCapabilities]);
+
+  const acceptView = useCallback((view: FederatedAuthFlowView) => {
+    setIssue(undefined);
+    setFlow(view);
+    if (view.status === 'authenticated') onAuthenticated(view.currentUser);
+  }, [onAuthenticated]);
+
+  const classifyIssue = useCallback((error: unknown) => {
+    const { code, category } = error as CodedError & { category?: string };
+    if (code === 'FEDERATED_LOGIN_EXPIRED' || code === 'FEDERATED_LOGIN_CONTEXT_INVALID') return setIssue('expired');
+    if (code === 'NETWORK_UNAVAILABLE' || category === 'temporary' || code === 'AUTHENTICATION_TEMPORARILY_UNAVAILABLE') {
+      return setIssue('offline');
+    }
+    return setIssue('unable');
+  }, []);
+
+  const start = useCallback(async () => {
+    if (operation.current) return;
+    operation.current = true;
+    const currentGeneration = ++generation.current;
+    setPending('start');
+    setIssue(undefined);
+    setFlow(undefined);
+    try {
+      const view = await auth.startGitHubSignIn();
+      if (currentGeneration === generation.current) acceptView(view);
+    } catch (error) {
+      if (currentGeneration === generation.current) classifyIssue(error);
+    } finally {
+      if (currentGeneration === generation.current) setPending(undefined);
+      operation.current = false;
+    }
+  }, [acceptView, auth, classifyIssue]);
+
+  const continueFlow = useCallback(async () => {
+    if (operation.current) return;
+    const flowId = flow && 'flowId' in flow ? flow.flowId : undefined;
+    if (!flowId) return void start();
+    operation.current = true;
+    const currentGeneration = generation.current;
+    try {
+      const view = await auth.continueGitHubSignIn({ flowId });
+      if (currentGeneration === generation.current) acceptView(view);
+    } catch (error) {
+      if (currentGeneration === generation.current) classifyIssue(error);
+    } finally {
+      operation.current = false;
+    }
+  }, [acceptView, auth, classifyIssue, flow, start]);
+
+  useEffect(() => {
+    if (issue || (flow?.status !== 'waiting' && flow?.status !== 'completionRequired')) return undefined;
+    const timer = window.setTimeout(() => { void continueFlow(); }, 1_000);
+    return () => window.clearTimeout(timer);
+  }, [continueFlow, flow?.status, issue]);
+
+  const cancel = useCallback(async () => {
+    if (operation.current || !flow || !('flowId' in flow)) return;
+    operation.current = true;
+    ++generation.current;
+    setPending('cancel');
+    try {
+      await auth.cancelGitHubSignIn({ flowId: flow.flowId });
+      setIssue(undefined);
+      setFlow(undefined);
+    } catch (error) {
+      classifyIssue(error);
+    } finally {
+      setPending(undefined);
+      operation.current = false;
+    }
+  }, [auth, classifyIssue, flow]);
+
+  const restart = useCallback(() => {
+    ++generation.current;
+    setFlow(undefined);
+    setIssue(undefined);
+    setPending(undefined);
+    operation.current = false;
+  }, []);
 
   return (
     <>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <main id="main-content" className="auth-layout">
-      <aside className="brand-panel">
-        <div className="wordmark"><span>TP</span> TaskPilot</div>
-        <div>
-          <p className="eyebrow">Quiet control desk</p>
-          <h1>把工作交给 Agent，<br />把判断留给你。</h1>
-          <p className="brand-copy">一个清晰、安全的桌面工作台，连接你的团队、项目与本地执行环境。</p>
-        </div>
-        <p className="trust-note">凭据由系统钥匙串保护 · 本地任务保持本地</p>
-      </aside>
-      <section className="auth-panel" aria-label="账号访问">
-        <div className="auth-card">
-          {screen === 'password' ? <PasswordLogin {...shared} /> : null}
-          {screen === 'code' ? <CodeLogin {...shared} /> : null}
-          {screen.startsWith('register') ? <Registration {...shared} screen={screen} /> : null}
-          {screen.startsWith('reset') ? <PasswordReset {...shared} screen={screen} /> : null}
-        </div>
-      </section>
+        <aside className="brand-panel">
+          <div className="wordmark"><span>TP</span> TaskPilot</div>
+          <div>
+            <p className="eyebrow">Quiet control desk</p>
+            <h1>把工作交给 Agent，<br />把判断留给你。</h1>
+            <p className="brand-copy">一个清晰、安全的桌面工作台，连接你的团队、项目与本地执行环境。</p>
+          </div>
+          <p className="trust-note">登录凭据由系统钥匙串保护 · GitHub 授权在系统浏览器完成</p>
+        </aside>
+        <section className="auth-panel" aria-label="账号访问">
+          <div className="auth-card">
+            <AuthContent
+              auth={auth}
+              capability={capability}
+              flow={flow}
+              issue={issue}
+              pending={pending}
+              onReloadCapabilities={loadCapabilities}
+              onStart={start}
+              onContinue={continueFlow}
+              onCancel={cancel}
+              onRestart={restart}
+              onView={acceptView}
+              onIssue={classifyIssue}
+            />
+          </div>
+        </section>
       </main>
     </>
   );
 }
 
-type FlowProps = {
+function AuthContent(props: {
   auth: AuthCapabilities;
-  email: string;
-  setEmail(value: string): void;
-  challengeId: string;
-  setChallengeId(value: string): void;
-  flowHandle: string;
-  setFlowHandle(value: string): void;
-  navigate(value: AuthScreen): void;
-  notice: string;
-  setNotice(value: string): void;
-};
+  capability: CapabilityState;
+  flow?: FederatedAuthFlowView;
+  issue?: AuthIssue;
+  pending?: 'start' | 'register' | 'cancel';
+  onReloadCapabilities(): Promise<void>;
+  onStart(): Promise<void>;
+  onContinue(): Promise<void>;
+  onCancel(): Promise<void>;
+  onRestart(): void;
+  onView(view: FederatedAuthFlowView): void;
+  onIssue(error: unknown): void;
+}) {
+  if (props.capability === 'loading') {
+    return <AuthNotice eyebrow="安全登录" title="正在检查登录能力" status="正在检查 GitHub 登录配置…" />;
+  }
+  if (props.capability === 'unavailable') {
+    return (
+      <AuthNotice eyebrow="安全登录" title={props.issue === 'offline' ? '暂时无法连接' : 'GitHub 登录尚未配置'}
+        alert={props.issue === 'offline' ? '无法读取登录配置，请检查网络后重试。' : '当前开发环境尚未启用 GitHub 登录。'}>
+        <button type="button" className="primary" onClick={() => void props.onReloadCapabilities()}>重新检查</button>
+      </AuthNotice>
+    );
+  }
+  if (props.issue) return <AuthIssueView issue={props.issue} onRetry={props.onContinue} onRestart={props.onRestart} />;
+  if (!props.flow) {
+    return (
+      <>
+        <p className="eyebrow">安全登录</p>
+        <h2>登录 TaskPilot</h2>
+        <p className="muted">使用 GitHub 验证身份。已有身份会直接登录，新身份只需确认一次账号资料。</p>
+        <button type="button" className="primary github-action" disabled={props.pending === 'start'} onClick={() => void props.onStart()}>
+          <GitHubMark /><span translate="no">{props.pending === 'start' ? '正在打开 GitHub…' : '使用 GitHub 登录'}</span>
+        </button>
+        {props.pending === 'start' ? <p className="flow-status" role="status">正在打开系统浏览器…</p> : null}
+        <p className="auth-footnote">授权将在系统浏览器中完成。TaskPilot 不会获得你的 GitHub 密码或仓库权限。</p>
+      </>
+    );
+  }
+  if (props.flow.status === 'registrationRequired') {
+    return <GitHubRegistration auth={props.auth} view={props.flow} cancelling={props.pending === 'cancel'} onCancel={props.onCancel} onView={props.onView} onIssue={props.onIssue} />;
+  }
+  if (props.flow.status === 'waiting' || props.flow.status === 'completionRequired') {
+    return (
+      <AuthNotice eyebrow="GitHub" title="在浏览器中继续"
+        status={props.flow.status === 'completionRequired' ? '等待浏览器安全完成登录…' : '等待你在浏览器完成 GitHub 授权…'}>
+        <div className="browser-wait" aria-hidden="true"><span /><span /><span /></div>
+        <button type="button" className="secondary" disabled={props.pending === 'cancel'} onClick={() => void props.onCancel()}>
+          {props.pending === 'cancel' ? '正在取消…' : '取消登录'}
+        </button>
+      </AuthNotice>
+    );
+  }
+  if (props.flow.status === 'authenticated') {
+    return <AuthNotice eyebrow="安全登录" title="登录已完成" status="正在进入 TaskPilot…" />;
+  }
+  const terminal: Record<'denied' | 'cancelled' | 'expired' | 'failed' | 'resultUnavailable', { title: string; detail: string }> = {
+    denied: { title: '未完成 GitHub 授权', detail: 'GitHub 未授权本次登录。你可以重新开始。' },
+    cancelled: { title: '已取消 GitHub 登录', detail: '本次登录已安全取消。' },
+    expired: { title: '登录请求已过期', detail: '旧请求已失效，请重新开始登录。' },
+    failed: { title: '无法完成 GitHub 登录', detail: '身份验证没有完成，请重新开始。' },
+    resultUnavailable: { title: '登录结果已失效', detail: '本次登录结果不可再使用，请重新开始。' },
+  };
+  const copy = terminal[props.flow.status];
+  return (
+    <AuthNotice eyebrow="GitHub" title={copy.title} alert={copy.detail}>
+      <button type="button" className="primary" onClick={props.onRestart}>重新开始</button>
+    </AuthNotice>
+  );
+}
 
-function useSubmit(action: () => Promise<void>, onError?: (error: unknown) => void) {
+function AuthIssueView({ issue, onRetry, onRestart }: { issue: AuthIssue; onRetry(): Promise<void>; onRestart(): void }) {
+  const copy: Record<AuthIssue, { title: string; detail: string; retry: boolean }> = {
+    offline: { title: '暂时无法连接', detail: '登录进度仍安全保留。请检查网络后重试。', retry: true },
+    expired: { title: '登录请求已过期', detail: '旧请求已失效，请重新开始登录。', retry: false },
+    unable: { title: '无法完成 GitHub 登录', detail: '无法安全完成身份验证，请重新开始。', retry: false },
+  };
+  return (
+    <AuthNotice eyebrow="GitHub" title={copy[issue].title} alert={copy[issue].detail}>
+      {copy[issue].retry
+        ? <button type="button" className="primary" onClick={() => void onRetry()}>重试</button>
+        : <button type="button" className="primary" onClick={onRestart}>重新开始</button>}
+    </AuthNotice>
+  );
+}
+
+function AuthNotice({ eyebrow, title, status, alert, children }: {
+  eyebrow: string; title: string; status?: string; alert?: string; children?: React.ReactNode;
+}) {
+  return (
+    <>
+      <p className="eyebrow">{eyebrow}</p>
+      <h2>{title}</h2>
+      {status ? <p className="muted flow-status" role="status">{status}</p> : null}
+      {alert ? <p className="error" role="alert">{alert}</p> : null}
+      {children}
+    </>
+  );
+}
+
+function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue }: {
+  auth: AuthCapabilities;
+  view: Extract<FederatedAuthFlowView, { status: 'registrationRequired' }>;
+  cancelling: boolean;
+  onCancel(): Promise<void>;
+  onView(result: FederatedAuthFlowView): void;
+  onIssue(error: unknown): void;
+}) {
+  const [displayName, setDisplayName] = useState(view.suggestedDisplayName);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind>();
+  const [useSuggestedAvatar, setUseSuggestedAvatar] = useState(Boolean(view.suggestedAvatarUrl));
+  const [avatarAvailable, setAvatarAvailable] = useState(Boolean(view.suggestedAvatarUrl));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [errorPath, setErrorPath] = useState<string>();
-  const run = async (event: React.SyntheticEvent) => {
+  const operation = useRef(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const termsRef = useRef<HTMLInputElement>(null);
+  const termsLinkRef = useRef<HTMLButtonElement>(null);
+  const privacyLinkRef = useRef<HTMLButtonElement>(null);
+  const legalReturnFocus = useRef<LegalDocumentKind | undefined>(undefined);
+  const errorId = 'github-registration-error';
+  const legalBundleSupported = view.legalBundleVersion === CURRENT_LEGAL_BUNDLE.version;
+
+  useEffect(() => {
+    if (legalDocumentKind || !legalReturnFocus.current) return;
+    const target = legalReturnFocus.current === 'terms' ? termsLinkRef.current : privacyLinkRef.current;
+    legalReturnFocus.current = undefined;
+    target?.focus();
+  }, [legalDocumentKind]);
+
+  const openLegalDocument = (kind: LegalDocumentKind) => {
+    legalReturnFocus.current = kind;
+    setLegalDocumentKind(kind);
+  };
+
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (pending) return;
+    if (operation.current || !legalBundleSupported) return;
+    const normalizedName = displayName.trim();
+    if (!normalizedName) {
+      setError('请输入显示名称。');
+      setErrorPath('displayName');
+      nameRef.current?.focus();
+      return;
+    }
+    if (!acceptedTerms) {
+      setError('请先阅读并同意用户协议。');
+      setErrorPath('termsVersion');
+      termsRef.current?.focus();
+      return;
+    }
+    operation.current = true;
     setPending(true);
     setError('');
     setErrorPath(undefined);
     try {
-      await action();
+      const result = await auth.completeGitHubRegistration({
+        flowId: view.flowId,
+        displayName: normalizedName,
+        useSuggestedAvatar: avatarAvailable && useSuggestedAvatar,
+        legalBundleVersion: CURRENT_LEGAL_BUNDLE.version,
+        termsVersion: CURRENT_LEGAL_BUNDLE.terms.version,
+        privacyVersion: CURRENT_LEGAL_BUNDLE.privacy.version,
+        locale: CURRENT_LEGAL_BUNDLE.locale,
+      });
+      onView(result);
     } catch (caught) {
-      onError?.(caught);
-      setError(errorMessage(caught));
-      setErrorPath((caught as CodedError).path);
+      const { code, path } = caught as CodedError;
+      if (code === 'VALIDATION_FAILED') {
+        setError('请检查填写的信息。');
+        setErrorPath(path);
+        if (path === 'displayName') nameRef.current?.focus();
+        else termsRef.current?.focus();
+      } else {
+        onIssue(caught);
+      }
     } finally {
       setPending(false);
+      operation.current = false;
     }
   };
-  return { pending, error, errorPath, run };
+
+  if (legalDocumentKind) {
+    return <LegalDocument kind={legalDocumentKind} onBack={() => setLegalDocumentKind(undefined)} />;
+  }
+
+  const blocked = pending || cancelling;
+  return (
+    <>
+      <button type="button" className="registration-back" disabled={blocked} onClick={() => void onCancel()}>
+        {cancelling ? '正在返回…' : '← 返回登录方式'}
+      </button>
+      <p className="eyebrow">首次使用</p>
+      <h2>创建 TaskPilot 账号</h2>
+      <p className="muted">GitHub 身份已验证。确认公开资料后即可继续。</p>
+      {!legalBundleSupported
+        ? <p className="error" role="alert">当前协议已更新，请更新 TaskPilot 后继续。</p>
+        : null}
+      <form noValidate onSubmit={(event) => void submit(event)}>
+        <div className="profile-editor">
+          <div className="profile-avatar">
+            {view.suggestedAvatarUrl && avatarAvailable ? (
+              <img src={view.suggestedAvatarUrl} alt="GitHub 头像预览" width="56" height="56"
+                onError={() => { setAvatarAvailable(false); setUseSuggestedAvatar(false); }} />
+            ) : (
+              <span className="avatar-fallback" aria-label={`头像缩写：${displayNameInitials(displayName)}`}>
+                {displayNameInitials(displayName)}
+              </span>
+            )}
+          </div>
+          <div className="profile-fields">
+            <Field name="displayName" label="显示名称" autoComplete="name" autoFocus value={displayName}
+              onChange={(value) => { setDisplayName(value); setError(''); setErrorPath(undefined); }} inputRef={nameRef}
+              errorId={errorPath === 'displayName' ? errorId : undefined} />
+            {view.suggestedAvatarUrl && avatarAvailable ? (
+              <label className="avatar-option"><input type="checkbox" checked={useSuggestedAvatar}
+                onChange={(event) => setUseSuggestedAvatar(event.target.checked)} />使用 GitHub 头像</label>
+            ) : null}
+          </div>
+        </div>
+        <div className="terms-check">
+          <input id="legal-consent" ref={termsRef} type="checkbox" checked={acceptedTerms} disabled={!legalBundleSupported || blocked}
+            aria-label="我已阅读并同意《用户协议》，并确认已阅读《隐私政策》"
+            aria-invalid={errorPath === 'termsVersion' ? true : undefined}
+            aria-describedby={errorPath === 'termsVersion' ? errorId : undefined}
+            onChange={(event) => { setAcceptedTerms(event.target.checked); setError(''); setErrorPath(undefined); }} />
+          <div className="terms-copy">
+            <label htmlFor="legal-consent">我已阅读并同意</label>
+            <button ref={termsLinkRef} type="button" className="legal-link" disabled={blocked}
+              onClick={() => openLegalDocument('terms')}>《用户协议》</button>
+            <label htmlFor="legal-consent">，并确认已阅读</label>
+            <button ref={privacyLinkRef} type="button" className="legal-link" disabled={blocked}
+              onClick={() => openLegalDocument('privacy')}>《隐私政策》</button>
+          </div>
+        </div>
+        {error ? <p id={errorId} className="error" role="alert">{error}</p> : null}
+        <button type="submit" className="primary" disabled={blocked || !legalBundleSupported}>{pending ? '正在创建账号…' : '创建 TaskPilot 账号'}</button>
+      </form>
+    </>
+  );
 }
 
-function Field({
-  label, name, type = 'text', value, onChange, autoFocus = false, autoComplete, inputMode, inputRef, errorId,
-}: {
-  label: string;
-  name: string;
-  type?: string;
-  value: string;
-  onChange(value: string): void;
-  autoFocus?: boolean;
-  autoComplete?: string;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
-  inputRef?: React.RefObject<HTMLInputElement | null>;
-  errorId?: string;
+function LegalDocument({ kind, onBack }: { kind: LegalDocumentKind; onBack(): void }) {
+  const document = legalDocument(kind);
+  return (
+    <article className="legal-document" aria-labelledby="legal-document-title">
+      <button type="button" className="legal-back" onClick={onBack}>← 返回账号创建</button>
+      <p className="eyebrow">首次使用</p>
+      <h2 id="legal-document-title">{document.title}</h2>
+      <p className="legal-effective">生效日期：{new Intl.DateTimeFormat(CURRENT_LEGAL_BUNDLE.locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${document.effectiveDate}T00:00:00Z`))}</p>
+      <div className="legal-scroll">
+        {document.sections.map((section) => (
+          <section key={section.title}>
+            <h3>{section.title}</h3>
+            {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+          </section>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function GitHubMark() {
+  return <svg className="github-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.64 22.4c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.52-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.3-5.27-1.29-5.27-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.07.79 2.17v3.22c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z" /></svg>;
+}
+
+function Field({ name, label, type = 'text', value, onChange, autoComplete, autoFocus, inputRef, errorId }: {
+  name: string; label: string; type?: string; value: string; onChange(value: string): void;
+  autoComplete?: string; autoFocus?: boolean; inputRef?: React.RefObject<HTMLInputElement | null>; errorId?: string;
 }) {
-  const internalRef = useRef<HTMLInputElement>(null);
-  const resolvedRef = inputRef ?? internalRef;
-  useEffect(() => {
-    if (errorId) resolvedRef.current?.focus();
-  }, [errorId, resolvedRef]);
   return (
     <label className="field">
       <span>{label}</span>
-      <input
-        ref={resolvedRef}
-        autoFocus={autoFocus}
-        required
-        name={name}
-        spellCheck={type === 'email' || inputMode === 'numeric' ? false : undefined}
-        type={type}
-        value={value}
-        autoComplete={autoComplete}
-        inputMode={inputMode}
-        aria-invalid={errorId ? true : undefined}
-        aria-describedby={errorId}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <input ref={inputRef} required name={name} type={type} value={value} autoComplete={autoComplete} autoFocus={autoFocus}
+        aria-invalid={errorId ? true : undefined} aria-describedby={errorId} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
 
-function ErrorText({ value, id }: { value: string; id?: string }) {
-  return value ? <p id={id} className="error" role="alert">{value}</p> : null;
-}
 
-function Back({ onClick }: { onClick(): void }) {
-  return <button className="back" type="button" onClick={onClick} aria-label="返回">←</button>;
-}
-
-function PasswordLogin(props: FlowProps) {
-  const [password, setPassword] = useState('');
-  const emailRef = useRef<HTMLInputElement>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
-  const submit = useSubmit(async () => {
-    try {
-      await props.auth.signInWithPassword({ email: props.email, password });
-    } finally {
-      setPassword('');
-    }
-  }, (error) => {
-    const path = (error as CodedError).path;
-    if (path === 'email') emailRef.current?.focus();
-    if (path === 'password') passwordRef.current?.focus();
-  });
-  const errorId = 'password-login-error';
-  return (
-    <>
-      <p className="eyebrow">欢迎回来</p>
-      <h2>登录 TaskPilot</h2>
-      <p className="muted">使用你的团队账号继续。</p>
-      {props.notice ? <p className="success" role="status">{props.notice}</p> : null}
-      <form onSubmit={submit.run}>
-        <Field name="email" label="邮箱" type="email" autoComplete="email" autoFocus value={props.email} onChange={props.setEmail} inputRef={emailRef} errorId={submit.errorPath === 'email' ? errorId : undefined} />
-        <Field name="password" label="密码" type="password" autoComplete="current-password" value={password} onChange={setPassword} inputRef={passwordRef} errorId={submit.errorPath === 'password' ? errorId : undefined} />
-        <div className="field-link"><button type="button" className="link" onClick={() => props.navigate('reset-email')}>忘记密码？</button></div>
-        <ErrorText id={errorId} value={submit.error} />
-        <button type="submit" className="primary" disabled={submit.pending}>{submit.pending ? '正在登录…' : '登录'}</button>
-      </form>
-      <button type="button" className="secondary" onClick={() => props.navigate('code')}>使用邮箱验证码登录</button>
-      <div className="divider"><span>新用户</span></div>
-      <button type="button" className="link-row" onClick={() => props.navigate('register-email')}>创建 TaskPilot 账号 <span>→</span></button>
-    </>
-  );
-}
-
-function CodeLogin(props: FlowProps) {
-  const [code, setCode] = useState('');
-  const [resendAvailableAt, setResendAvailableAt] = useState(0);
-  const [clock, setClock] = useState(() => Date.now());
-  const cooldownSeconds = Math.max(0, Math.ceil((resendAvailableAt - clock) / 1000));
-
-  useEffect(() => {
-    if (resendAvailableAt <= clock) return undefined;
-    const interval = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [clock, resendAvailableAt]);
-
-  const send = useSubmit(async () => {
-    const result = await props.auth.requestLoginCode({ email: props.email });
-    const now = Date.now();
-    setClock(now);
-    setResendAvailableAt(now + result.retryAfterSeconds * 1000);
-    props.setChallengeId(result.challengeId);
-  });
-  const verify = useSubmit(async () => {
-    try {
-      await props.auth.verifyLoginCode({ challengeId: props.challengeId, email: props.email, code });
-    } finally {
-      setCode('');
-    }
-  });
-  return (
-    <>
-      <Back onClick={() => props.navigate('password')} />
-      <p className="eyebrow">另一种登录方式</p>
-      <h2>邮箱验证码登录</h2>
-      <p className="muted">验证码仅用于本次登录，不会创建新账号。</p>
-      {!props.challengeId ? (
-        <form onSubmit={send.run}>
-          <Field name="email" label="邮箱" type="email" autoComplete="email" value={props.email} onChange={props.setEmail} autoFocus errorId={send.errorPath === 'email' ? 'login-code-request-error' : undefined} />
-          <ErrorText id="login-code-request-error" value={send.error} />
-          <button type="submit" className="primary" disabled={send.pending}>{send.pending ? '正在发送…' : '发送验证码'}</button>
-        </form>
-      ) : (
-        <form onSubmit={verify.run}>
-          <Field name="code" label="6 位验证码" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={setCode} autoFocus errorId={verify.errorPath === 'code' ? 'login-code-verify-error' : undefined} />
-          <ErrorText id="login-code-verify-error" value={verify.error} />
-          <button type="submit" className="primary" disabled={verify.pending}>{verify.pending ? '正在验证…' : '登录'}</button>
-          <p className="cooldown" role="status">{cooldownSeconds > 0 ? `${cooldownSeconds} 秒后可重新发送` : '可以重新发送验证码'}</p>
-          <button type="button" className="link" disabled={send.pending || cooldownSeconds > 0} onClick={send.run}>重新发送验证码</button>
-          <button type="button" className="link" onClick={() => { setCode(''); props.setChallengeId(''); setResendAvailableAt(0); }}>更换邮箱</button>
-        </form>
-      )}
-    </>
-  );
-}
-
-function Registration(props: FlowProps & { screen: AuthScreen }) {
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [password, setPassword] = useState('');
-  const [passwordConfirmation, setPasswordConfirmation] = useState('');
-  const passwordConfirmationRef = useRef<HTMLInputElement>(null);
-  const [terms, setTerms] = useState(false);
-  const send = useSubmit(async () => {
-    const result = await props.auth.requestRegistrationCode({ email: props.email });
-    props.setChallengeId(result.challengeId);
-    props.navigate('register-code');
-    props.setChallengeId(result.challengeId);
-  });
-  const verify = useSubmit(async () => {
-    const result = await props.auth.verifyRegistrationCode({ challengeId: props.challengeId, email: props.email, code });
-    setCode('');
-    props.navigate('register-profile');
-    props.setFlowHandle(result.flowHandle);
-  });
-  const create = useSubmit(async () => {
-    try {
-      if (password !== passwordConfirmation) {
-        passwordConfirmationRef.current?.focus();
-        throw Object.assign(new Error('password confirmation differs'), { code: 'PASSWORD_CONFIRMATION_MISMATCH', path: 'passwordConfirmation' });
-      }
-      await props.auth.register({
-        flowHandle: props.flowHandle,
-        email: props.email,
-        displayName: name,
-        password,
-        termsVersion: '2026-09-01',
-      });
-      props.setFlowHandle('');
-    } catch (error) {
-      if ((error as CodedError).code === 'REGISTRATION_CONTEXT_EXPIRED') {
-        props.setNotice('验证已过期，请重新验证邮箱。');
-        props.navigate('register-email');
-        return;
-      }
-      if ((error as CodedError).code === 'REGISTRATION_RESULT_UNKNOWN') {
-        props.setNotice('账号可能已创建，请尝试登录确认。');
-        props.navigate('password');
-        return;
-      }
-      throw error;
-    } finally {
-      setPassword('');
-      setPasswordConfirmation('');
-    }
-  });
-
-  if (props.screen === 'register-email') {
-    return (
-      <>
-        <Back onClick={() => props.navigate('password')} />
-        <p className="eyebrow">第 1 步，共 3 步</p><h2>创建账号</h2>
-        <p className="muted">先验证你的工作邮箱。</p>
-        {props.notice ? <p className="success" role="status">{props.notice}</p> : null}
-        <form onSubmit={send.run}>
-          <Field name="email" label="邮箱" type="email" autoComplete="email" value={props.email} onChange={props.setEmail} autoFocus errorId={send.errorPath === 'email' ? 'registration-code-request-error' : undefined} />
-          <ErrorText id="registration-code-request-error" value={send.error} />
-          <button type="submit" className="primary" disabled={send.pending}>{send.pending ? '正在发送注册验证码…' : '发送注册验证码'}</button>
-        </form>
-      </>
-    );
-  }
-  if (props.screen === 'register-code') {
-    return (
-      <>
-        <Back onClick={() => props.navigate('register-email')} />
-        <p className="eyebrow">第 2 步，共 3 步</p><h2>验证邮箱</h2>
-        <p className="muted">验证码已发送至 {props.email}</p>
-        <form onSubmit={verify.run}>
-          <Field name="code" label="6 位验证码" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={setCode} autoFocus errorId={verify.errorPath === 'code' ? 'registration-code-verify-error' : undefined} />
-          <ErrorText id="registration-code-verify-error" value={verify.error} />
-          <button type="submit" className="primary" disabled={verify.pending}>{verify.pending ? '正在验证邮箱…' : '验证邮箱'}</button>
-        </form>
-      </>
-    );
-  }
-  return (
-    <>
-      <Back onClick={() => props.navigate('register-email')} />
-      <p className="eyebrow">第 3 步，共 3 步</p><h2>设置账号</h2>
-      <form onSubmit={create.run}>
-        <Field name="displayName" label="姓名" autoComplete="name" value={name} onChange={setName} autoFocus errorId={create.errorPath === 'displayName' ? 'registration-create-error' : undefined} />
-        <Field name="password" label="密码" type="password" autoComplete="new-password" value={password} onChange={setPassword} errorId={create.errorPath === 'password' ? 'registration-create-error' : undefined} />
-        <Field name="passwordConfirmation" label="确认密码" type="password" autoComplete="new-password" value={passwordConfirmation} onChange={setPasswordConfirmation} inputRef={passwordConfirmationRef} errorId={create.errorPath === 'passwordConfirmation' ? 'registration-create-error' : undefined} />
-        <label className="check"><input required type="checkbox" checked={terms} onChange={(event) => setTerms(event.target.checked)} aria-invalid={create.errorPath === 'termsVersion' ? true : undefined} aria-describedby={create.errorPath === 'termsVersion' ? 'registration-create-error' : undefined} />我同意服务条款和隐私政策</label>
-        <ErrorText id="registration-create-error" value={create.error} />
-        <button type="submit" className="primary" disabled={create.pending || !terms}>{create.pending ? '正在创建账号…' : '创建账号'}</button>
-      </form>
-    </>
-  );
-}
-
-function PasswordReset(props: FlowProps & { screen: AuthScreen }) {
-  const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
-  const send = useSubmit(async () => {
-    const result = await props.auth.requestPasswordResetCode({ email: props.email });
-    props.navigate('reset-code');
-    props.setChallengeId(result.challengeId);
-  });
-  const verify = useSubmit(async () => {
-    const result = await props.auth.verifyPasswordResetCode({ challengeId: props.challengeId, email: props.email, code });
-    setCode('');
-    props.navigate('reset-password');
-    props.setFlowHandle(result.flowHandle);
-  });
-  const reset = useSubmit(async () => {
-    try {
-      await props.auth.resetPassword({ flowHandle: props.flowHandle, email: props.email, newPassword: password });
-      props.navigate('password');
-    } catch (error) {
-      if ((error as CodedError).code === 'PASSWORD_RESET_CONTEXT_EXPIRED') {
-        props.setNotice('验证已过期，请重新验证邮箱。');
-        props.navigate('reset-email');
-        return;
-      }
-      throw error;
-    } finally {
-      setPassword('');
-      props.setFlowHandle('');
-    }
-  });
-
-  if (props.screen === 'reset-email') {
-    return <><Back onClick={() => props.navigate('password')} /><p className="eyebrow">找回账号</p><h2>重置密码</h2><p className="muted">我们会向你的邮箱发送验证码。</p>{props.notice ? <p className="success" role="status">{props.notice}</p> : null}<form onSubmit={send.run}><Field name="email" label="邮箱" type="email" autoComplete="email" value={props.email} onChange={props.setEmail} autoFocus errorId={send.errorPath === 'email' ? 'reset-code-request-error' : undefined} /><ErrorText id="reset-code-request-error" value={send.error} /><button type="submit" className="primary" disabled={send.pending}>{send.pending ? '正在发送重置验证码…' : '发送重置验证码'}</button></form></>;
-  }
-  if (props.screen === 'reset-code') {
-    return <><Back onClick={() => props.navigate('reset-email')} /><p className="eyebrow">验证身份</p><h2>输入验证码</h2><form onSubmit={verify.run}><Field name="code" label="6 位验证码" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={setCode} autoFocus errorId={verify.errorPath === 'code' ? 'reset-code-verify-error' : undefined} /><ErrorText id="reset-code-verify-error" value={verify.error} /><button type="submit" className="primary" disabled={verify.pending}>{verify.pending ? '正在验证…' : '继续'}</button></form></>;
-  }
-  return <><Back onClick={() => props.navigate('password')} /><p className="eyebrow">最后一步</p><h2>设置新密码</h2><form onSubmit={reset.run}><Field name="newPassword" label="新密码" type="password" autoComplete="new-password" value={password} onChange={setPassword} autoFocus errorId={reset.errorPath === 'newPassword' ? 'reset-password-error' : undefined} /><ErrorText id="reset-password-error" value={reset.error} /><button type="submit" className="primary" disabled={reset.pending}>{reset.pending ? '正在更新密码…' : '更新密码'}</button></form></>;
-}
-
-function WorkspaceExperience({ api, session }: { api: TaskPilotDesktopApi; session: Extract<SessionView, { status: 'authenticated' }> }) {
-  const [workspaceList, setWorkspaceList] = useState<WorkspaceList | null>(null);
-  const [active, setActive] = useState<string>();
-  const [error, setError] = useState('');
-  const loadGeneration = useRef(0);
-
-  const load = useCallback(async (restore = false) => {
-    const generation = ++loadGeneration.current;
-    setError('');
-    try {
-      const result = await api.workspaces.listWorkspaces();
-      if (generation !== loadGeneration.current) return;
-      setWorkspaceList(result);
-      const available = result.items.map((item) => item.workspaceId);
-      const restored = restore
-        ? await api.workspaces.restoreActiveWorkspace({ availableWorkspaceIds: available })
-        : undefined;
-      if (generation !== loadGeneration.current) return;
-      const next = restored?.workspaceId ?? (result.items.length === 1 ? result.items[0].workspaceId : undefined);
-      setActive(next);
-      if (next && !restored?.workspaceId) await api.workspaces.selectWorkspace({ workspaceId: next });
-    } catch (caught) {
-      if (generation === loadGeneration.current) setError(errorMessage(caught));
-    }
-  }, [api]);
-
-  useEffect(() => {
-    queueMicrotask(() => void load(true));
-    return () => { loadGeneration.current += 1; };
-  }, [load, session.currentUser.userId]);
-
-  const select = useCallback(async (workspaceId: string) => {
-    await api.workspaces.selectWorkspace({ workspaceId });
-    setActive(workspaceId);
-  }, [api]);
-  const invalidate = useCallback(async () => {
-    setActive(undefined);
-    await api.workspaces.clearActiveWorkspace();
-    await load(false);
-  }, [api, load]);
-
-  if (!workspaceList) {
-    return (
-      <Shell user={session.currentUser.displayName} onLogout={() => api.auth.logout()}>
-        {error ? (
-          <section className="notice" aria-labelledby="workspace-load-error">
-            <h1 id="workspace-load-error">无法加载 Workspace</h1>
-            <ErrorText value={error} />
-            <button type="button" onClick={() => void load(true)}>重试</button>
-          </section>
-        ) : <p role="status">正在加载 Workspace…</p>}
-      </Shell>
-    );
-  }
-  if (!active) {
-    return (
-      <Shell user={session.currentUser.displayName} onLogout={() => api.auth.logout()}>
-        <WorkspaceChooser list={workspaceList} api={api} onSelect={select} reload={() => load(false)} />
-      </Shell>
-    );
-  }
-  const workspace = workspaceList.items.find((item) => item.workspaceId === active);
-  return (
-    <Shell
-      user={session.currentUser.displayName}
-      onLogout={() => api.auth.logout()}
-      workspace={workspace?.name}
-      onSwitchWorkspace={() => setActive(undefined)}
-    >
-      <ProjectList
-        key={`${session.currentUser.userId}:${active}`}
-        api={api}
-        workspaceId={active}
-        onInvalid={invalidate}
-      />
-    </Shell>
-  );
-}
-
-function Shell({ children, user, onLogout, workspace, onSwitchWorkspace }: {
-  children: React.ReactNode;
-  user: string;
-  onLogout(): void;
-  workspace?: string;
-  onSwitchWorkspace?(): void;
+function AccountHome({ auth, session }: {
+  auth: AuthCapabilities;
+  session: Extract<SessionView, { status: 'authenticated' }>;
 }) {
+  const [loggingOut, setLoggingOut] = useState(false);
+  const user = session.currentUser;
+  const initials = displayNameInitials(user.displayName);
   return (
-    <div className="shell">
-      <a className="skip-link" href="#main-content">跳到主要内容</a>
-      <header>
-        <div className="wordmark dark"><span>TP</span> TaskPilot</div>
-        <nav aria-label="当前位置"><span className="user-content">{workspace ?? '选择 Workspace'}</span><b>/</b><span>Projects</span></nav>
-        <div className="account">
-          {onSwitchWorkspace ? <button type="button" className="ghost" onClick={onSwitchWorkspace}>切换 Workspace</button> : null}
-          <span className="account-name user-content">{user}</span>
-          <button type="button" className="ghost" onClick={onLogout}>退出</button>
-        </div>
-      </header>
-      <main id="main-content" className="content">{children}</main>
-    </div>
-  );
-}
-
-function workspaceCreationReason(code?: string): string {
-  if (code === 'PLAN_LIMIT_REACHED') return '当前方案已达到 Workspace 上限。';
-  if (code === 'POLICY_RESTRICTED') return '当前组织策略不允许创建 Workspace。';
-  return '当前无法创建新的 Workspace。请联系管理员或稍后重试。';
-}
-
-function WorkspaceChooser({ list, api, onSelect, reload }: {
-  list: WorkspaceList;
-  api: TaskPilotDesktopApi;
-  onSelect(workspaceId: string): Promise<void>;
-  reload(): Promise<void>;
-}) {
-  const [name, setName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState('');
-  const [request, setRequest] = useState<{ name: string; creationRequestId: string }>();
-  const nameRef = useRef<HTMLInputElement>(null);
-  const retryingIndeterminate = Boolean(request && error);
-
-  const submit = async (event?: React.FormEvent) => {
-    event?.preventDefault();
-    if (creating) return;
-    if (!name.trim()) {
-      setError('Workspace 名称不能为空');
-      nameRef.current?.focus();
-      return;
-    }
-    const input = request ?? { name: name.trim(), creationRequestId: crypto.randomUUID() };
-    setRequest(input);
-    setCreating(true);
-    setError('');
-    try {
-      const item = await api.workspaces.createWorkspace(input);
-      setRequest(undefined);
-      await reload();
-      await onSelect(item.workspaceId);
-    } catch (caught) {
-      const code = (caught as CodedError).code;
-      setError(errorMessage(caught));
-      if (code !== 'WORKSPACE_RESULT_UNKNOWN' && code !== 'IDEMPOTENCY_IN_PROGRESS') setRequest(undefined);
-    } finally {
-      setCreating(false);
-    }
-  };
-  const changeName = (value: string) => {
-    setName(value);
-    setRequest(undefined);
-    setError('');
-  };
-
-  return (
-    <section className="workspace-entry" aria-labelledby="workspace-heading">
-      <p className="eyebrow">工作上下文</p>
-      <h1 id="workspace-heading">选择一个 Workspace</h1>
-      <p className="muted">Workspace 隔离团队成员、项目与权限。</p>
-      {list.items.length > 0 ? (
-        <ul className="workspace-list">
-          {list.items.map((item) => (
-            <li key={item.workspaceId}>
-              <button type="button" onClick={() => void onSelect(item.workspaceId)}>
-                <span className="workspace-name user-content">{item.name}</span><small>{item.type === 'ORGANIZATION' ? '组织' : '个人'}</small><b aria-hidden="true">→</b>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {list.capabilities.canCreateWorkspace ? (
-        <>
-          <div className="section-rule"><span>创建组织 Workspace</span></div>
-          <form onSubmit={submit} className="inline-form">
-            <Field name="workspaceName" label="Workspace 名称" value={name} onChange={changeName} autoFocus={list.items.length === 0} inputRef={nameRef} />
-            <ErrorText value={error} />
-            <button type="submit" className="primary" disabled={creating}>{creating ? '正在确认…' : retryingIndeterminate ? '重试创建' : '创建 Workspace'}</button>
-          </form>
-        </>
-      ) : (
-        <p className="policy-note" role="note">{workspaceCreationReason(list.capabilities.createWorkspaceReasonCode)}</p>
-      )}
-    </section>
-  );
-}
-
-type ProjectState =
-  | { status: 'loading' }
-  | { status: 'ready'; items: ProjectItem[]; nextCursor?: string; loadingMore: boolean }
-  | { status: 'error'; message: string };
-
-function ProjectList({ api, workspaceId, onInvalid }: {
-  api: TaskPilotDesktopApi;
-  workspaceId: string;
-  onInvalid(): Promise<void>;
-}) {
-  const [state, setState] = useState<ProjectState>({ status: 'loading' });
-  const request = useRef(0);
-  const loadingMore = useRef(false);
-
-  const load = useCallback(async (cursor?: string) => {
-    if (cursor && loadingMore.current) return;
-    if (cursor) loadingMore.current = true;
-    const id = ++request.current;
-    if (!cursor) setState({ status: 'loading' });
-    else setState((old) => old.status === 'ready' ? { ...old, loadingMore: true } : old);
-    try {
-      const page = await api.projects.listProjects({ workspaceId, cursor, limit: 50 });
-      if (id !== request.current) return;
-      setState((old) => ({
-        status: 'ready',
-        items: cursor && old.status === 'ready' ? [...old.items, ...page.items] : page.items,
-        nextCursor: page.nextCursor,
-        loadingMore: false,
-      }));
-    } catch (caught) {
-      if (id !== request.current) return;
-      if ((caught as CodedError).code === 'WORKSPACE_NOT_FOUND') {
-        await onInvalid();
-        return;
-      }
-      setState({ status: 'error', message: errorMessage(caught) });
-    } finally {
-      if (cursor) loadingMore.current = false;
-    }
-  }, [api, onInvalid, workspaceId]);
-
-  useEffect(() => {
-    queueMicrotask(() => void load());
-    return () => { request.current += 1; loadingMore.current = false; };
-  }, [load]);
-
-  if (state.status === 'loading') return <section><p className="eyebrow">Projects</p><h1>项目</h1><p role="status">正在加载项目…</p></section>;
-  if (state.status === 'error') return <section className="notice"><h1>无法加载项目</h1><p role="alert">{state.message}</p><button type="button" onClick={() => void load()}>重试</button></section>;
-  return (
-    <section>
-      <div className="page-title"><div><p className="eyebrow">Projects</p><h1>项目</h1></div><button type="button" className="ghost" onClick={() => void load()}>刷新</button></div>
-      {state.items.length === 0 ? (
-        <div className="empty"><span className="empty-mark" aria-hidden="true">◇</span><h2>这里还没有可访问的项目</h2><p>刷新列表，或切换到其他 Workspace。</p><button type="button" onClick={() => void load()}>刷新</button></div>
-      ) : (
-        <ul className="project-list">{state.items.map((project) => <li key={project.projectId}><span className="project-glyph" aria-hidden="true">P</span><div className="project-copy"><h2 className="user-content">{project.name}</h2><small className="user-content">{project.projectId}</small></div></li>)}</ul>
-      )}
-      {state.nextCursor ? <button type="button" className="secondary load-more" disabled={state.loadingMore} onClick={() => void load(state.nextCursor)}>{state.loadingMore ? '正在加载…' : '加载更多'}</button> : null}
-    </section>
+    <main id="main-content" className="center">
+      <section className="notice account-home" aria-labelledby="account-title">
+        {user.avatarUrl
+          ? <img className="account-avatar" src={user.avatarUrl} alt="" width="72" height="72" referrerPolicy="no-referrer" />
+          : <span className="account-avatar avatar-fallback" aria-hidden="true">{initials}</span>}
+        <p className="eyebrow">已登录</p>
+        <h1 id="account-title" className="user-content">{user.displayName}</h1>
+        <p>GitHub 登录已就绪。更多功能将在后续版本提供。</p>
+        <button type="button" className="secondary" disabled={loggingOut} onClick={() => {
+          setLoggingOut(true);
+          void auth.logout().finally(() => setLoggingOut(false));
+        }}>{loggingOut ? '正在退出…' : '退出登录'}</button>
+      </section>
+    </main>
   );
 }

@@ -32,39 +32,32 @@ describe('FixedHttpTransport', () => {
     await expect(transport.request({ method: 'GET', path: '/desktop/v1/workspaces/not-a-uuid/projects?limit=50' })).rejects.toThrow('Endpoint is not allowlisted');
   });
 
-  it('allows only the fixed Project path and query keys while preserving an encoded opaque cursor', async () => {
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ items: [] }));
-    const transport = new FixedHttpTransport('local', fetcher);
-    const path = '/desktop/v1/workspaces/11111111-1111-4111-8111-111111111111/projects?cursor=opaque%2Bvalue%2Fwith%3Dpadding&limit=50';
-
-    await expect(transport.request({ method: 'GET', path })).resolves.toEqual({ items: [] });
-    expect(fetcher).toHaveBeenCalledWith(`${CORE_API_ORIGINS.local}${path}`, expect.any(Object));
-    await expect(transport.request({ method: 'GET', path: `${path}&role=ADMIN` })).rejects.toThrow('Endpoint is not allowlisted');
-    await expect(transport.request({ method: 'GET', path: '/desktop/v1/workspaces/11111111-1111-4111-8111-111111111111/projects?cursor=a&cursor=b&limit=50' })).rejects.toThrow('Endpoint is not allowlisted');
+  it('rejects removed Workspace, Project, and session-delivery endpoints', async () => {
+    const transport = new FixedHttpTransport('local', vi.fn());
+    for (const path of [
+      '/desktop/v1/workspaces',
+      '/desktop/v1/workspaces/11111111-1111-4111-8111-111111111111/projects?limit=50',
+      '/desktop/v1/auth/federated/deliveries/delivery-id/ack',
+      '/desktop/v1/auth/federated/deliveries/delivery-id/abandon',
+    ]) {
+      await expect(transport.request({ method: 'POST', path })).rejects.toThrow('Endpoint is not allowlisted');
+    }
   });
 
-  it('sends only owned authorization, idempotency and JSON request fields', async () => {
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ workspaceId: '11111111-1111-4111-8111-111111111111' }, 201));
+  it('sends only owned authorization and JSON fields for logout', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     const transport = new FixedHttpTransport('production', fetcher);
-
     await transport.request({
-      method: 'POST',
-      path: '/desktop/v1/workspaces',
-      body: { name: 'North Star' },
-      accessToken: 'access-secret',
-      idempotencyKey: '22222222-2222-4222-8222-222222222222',
-      outcomeUnknownOnNetworkFailure: true,
+      method: 'POST', path: '/desktop/v1/auth/session/logout', accessToken: 'access-secret', body: {},
     });
-
-    expect(fetcher).toHaveBeenCalledWith(`${CORE_API_ORIGINS.production}/desktop/v1/workspaces`, expect.objectContaining({
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer access-secret',
-        'Idempotency-Key': '22222222-2222-4222-8222-222222222222',
-      },
-      body: JSON.stringify({ name: 'North Star' }),
-    }));
+    expect(fetcher).toHaveBeenCalledWith(
+      `${CORE_API_ORIGINS.production}/desktop/v1/auth/session/logout`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer access-secret' },
+        body: JSON.stringify({}),
+      }),
+    );
   });
 
   it.each([
@@ -76,7 +69,7 @@ describe('FixedHttpTransport', () => {
     [418, 'unknown'],
   ] as const)('maps HTTP %s Problem Details to a stable %s error', async (status, category) => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse({
-      code: 'STABLE_CODE', path: 'email', retryAfterSeconds: 12, detail: 'must not cross the boundary',
+      code: 'STABLE_CODE', path: 'displayName', retryAfterSeconds: 12, detail: 'must not cross the boundary',
     }, status));
     const transport = new FixedHttpTransport('local', fetcher);
 
@@ -84,7 +77,7 @@ describe('FixedHttpTransport', () => {
     expect(error).toBeInstanceOf(TransportError);
     expect(error).toMatchObject({
       status,
-      detail: { code: 'STABLE_CODE', category, path: 'email', retryAfterSeconds: 12 },
+      detail: { code: 'STABLE_CODE', category, path: 'displayName', retryAfterSeconds: 12 },
     });
     expect(error).not.toHaveProperty('detail.detail');
   });
@@ -109,7 +102,7 @@ describe('FixedHttpTransport', () => {
       init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
     })) as unknown as typeof fetch;
     const transport = new FixedHttpTransport('local', fetcher);
-    const request = transport.request({ method: 'POST', path: '/desktop/v1/auth/login/password', body: {}, timeoutMs: 5 });
+    const request = transport.request({ method: 'POST', path: '/desktop/v1/auth/federated/attempts', body: {}, timeoutMs: 5 });
     const expectation = expect(request).rejects.toMatchObject({ name: 'AbortError' });
     await vi.advanceTimersByTimeAsync(5);
     await expectation;
@@ -121,10 +114,10 @@ describe('FixedHttpTransport', () => {
     const transport = new FixedHttpTransport('local', vi.fn().mockRejectedValue(networkFailure));
 
     await expect(transport.request({
-      method: 'POST', path: '/desktop/v1/auth/login/password', body: {},
+      method: 'POST', path: '/desktop/v1/auth/federated/attempts', body: {},
     })).rejects.toBe(networkFailure);
     await expect(transport.request({
-      method: 'POST', path: '/desktop/v1/auth/registration', body: {}, outcomeUnknownOnNetworkFailure: true,
+      method: 'POST', path: '/desktop/v1/auth/federated/registrations', body: {}, outcomeUnknownOnNetworkFailure: true,
     })).rejects.toBeInstanceOf(OutcomeUnknownError);
   });
 });

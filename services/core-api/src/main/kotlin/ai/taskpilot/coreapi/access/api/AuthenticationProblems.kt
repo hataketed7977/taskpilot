@@ -87,10 +87,6 @@ class AuthenticationProblemHandler {
 
     private fun safeDetail(code: String): String =
         when (code) {
-            "INVALID_CREDENTIALS" -> "The credentials could not be verified."
-            "INVALID_OR_EXPIRED_CODE" -> "The verification code is invalid or expired."
-            "REGISTRATION_CONTEXT_EXPIRED" -> "Verify the email address again."
-            "PASSWORD_RESET_CONTEXT_EXPIRED" -> "Verify the email address again."
             "AUTHENTICATION_REQUIRED" -> "Authentication is required."
             "AUTHENTICATION_RATE_LIMITED" -> "Try again later."
             "AUTHENTICATION_TEMPORARILY_UNAVAILABLE" -> "Authentication is temporarily unavailable."

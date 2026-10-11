@@ -33,15 +33,13 @@ signing/notarization or signed-installer behavior, native credential integration
 and final visual smoke are recorded separately on macOS arm64 and Windows x64
 before claiming that platform is release-ready.
 
-The opt-in Core API system test selected by
-`TASKPILOT_PACKAGED_SYSTEM_JOURNEY=true` launches the current platform's
-packaged Electron binary with `ELECTRON_RUN_AS_NODE=1`, loads the compiled
-Main/Preload modules from `app.asar`, and crosses typed IPC into the real Core
-API/PostgreSQL fixture, capture-mail adapter, and native OS credential backend.
-It intentionally creates no `BrowserWindow`, and the normal Core API gate does
-not build or require a Desktop package. This proves packaged code and native
-credential boundaries, not packaged window layout, keyboard behavior, visual
-error states, signing, installer, or the other operating system.
+The portable local system test may cross compiled Main/Preload/IPC into a real
+loopback Core API and PostgreSQL while GitHub is deliberately unconfigured. It
+proves health, capability-disabled behavior, and absence of retired email routes
+without a browser or Provider call. Real GitHub OAuth and native credential
+persistence require separate manual/current-platform evidence. The previous
+capture-mail packaged journey was removed with the email-auth capability; no
+packaged or native result is implied by the portable gate.
 
 ## Test Layers
 
@@ -50,7 +48,7 @@ error states, signing, installer, or the other operating system.
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
 | Main/Preload contract | Channel allowlist, schema validation, serialization, authorization and capability exposure |
-| Main integration | Window lifecycle, opaque-session refresh/recovery, credential adapter, authenticated cloud client, lazy fixed-path Runtime launch, JSON-RPC/JSONL stdio, backpressure and child supervision with owned test doubles |
+| Main integration | Fixed federated client, loopback method/path/body/size rules, attempt crash recovery, system-browser URL allowlist, direct session handoff, refresh rotation, credential adapter, authenticated cloud client, and generation fencing with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
 
@@ -84,16 +82,15 @@ error states, signing, installer, or the other operating system.
   Main cloud-client session state, and Renderer-visible protected state; the
   previous account cannot remain usable.
 
-The first implementation slice tests separate in-app registration/password
-login/email-code login/password-reset flows, complete refresh-response mapping,
-credential-write failure, crash/restart recovery, logout, Workspace
-list/select/create, active Workspace restoration, and a real read-only Project
-list. Project tests cover the fixed HTTP adapter and typed IPC capability,
-protected-API `401` single-flight recovery, environment/`UserId`/`WorkspaceId`
-query scope, Workspace-switch late responses, item-scope mismatch rejection,
-cursor pagination, and distinct loading/data/empty/error states. The same suite
-proves there is no Project create endpoint/capability/CTA and no Runtime startup.
-Project mutations and Agent-execution scenarios remain later capability changes.
+The Current auth-only suite covers GitHub capability discovery,
+receiver-before-attempt/browser ordering, exact loopback validation and restart
+rebinding, valid-proof-only Desktop activation, Main-only registration
+continuation, direct session handoff, credential-write failure cleanup, refresh
+rotation, logout, legal-document navigation and draft retention, cancellation
+without an extra restart step, authenticated account presentation, and generation
+fencing. It proves Renderer has no token/network capability and that the slice
+does not start Agent Runtime. Workspace/Project and Agent-execution scenarios
+remain later changes.
 
 ## Agent Presentation Boundary
 
@@ -103,9 +100,8 @@ Project mutations and Agent-execution scenarios remain later capability changes.
   without branching on a provider name.
 - A `REMOTE_MANAGED` run remains viewable and reloadable when Agent Runtime is
   not installed, not started, incompatible, or unhealthy.
-- Runtime startup failure affects only `LOCAL_DESKTOP` actions and cannot fail
-  authentication, Workspace list/select/create, active Workspace restoration, or
-  the read-only Project list.
+- Runtime startup failure affects only future `LOCAL_DESKTOP` actions and cannot
+  fail the current authentication/session journey.
 
 ## Renderer Behavior
 
@@ -152,3 +148,15 @@ accessibility assertions, IPC contract checks, and risk-appropriate current-host
 packaged or native checks pass. A release claim for macOS or Windows additionally
 requires that platform's native release matrix; emulation or another host is
 insufficient evidence for that platform.
+
+## Federated Login Evidence Boundary
+
+Main/Preload automated tests use a fixed HTTP client, loopback/browser doubles and
+credential stores; they do not open a real browser or call GitHub. Renderer and
+Cypress tests prove the safe capability experience, no-date consent copy,
+in-app legal-document navigation with draft retention, and unknown-bundle
+failure. Packaged Electron,
+native credential prompts, real GitHub OAuth, macOS signing/notarization and
+Windows installer behavior require separate manual/current-platform evidence and
+are not implied by the portable gates. No deep-link or WebView path exists to
+test in this slice.

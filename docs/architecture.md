@@ -17,12 +17,12 @@ frontend, Gateway, backend, CLI, or infrastructure decisions until a real
 subproject exists to own the detail.
 
 The repository now contains runnable Desktop and Core API subprojects. Their
-current first-use slice covers first-party authentication, session recovery,
-Organization Workspace list/create, and a Workspace-scoped read-only Project
-list, backed by production Flyway migrations and non-production runtime OpenAPI.
-Agent Runtime and Gateway remain documentation-only boundaries; broader product,
-Agent-execution, deployment, signing, and update capabilities below remain
-Target unless explicitly marked Current.
+current first-use slice covers system-browser GitHub authentication, first
+registration, opaque-session restore/refresh/logout, production Flyway
+migrations for durable identity facts, Redis-backed temporary authentication
+state, and non-production runtime OpenAPI. Workspace and Project capabilities,
+Agent Runtime, Gateway, broader product behavior, deployment, signing, and
+updates remain Target unless explicitly marked Current.
 
 ## Diagram Conventions
 
@@ -65,8 +65,9 @@ flowchart LR
     edge --> api
     edge -.->|future centralized edge policy| gateway
     gateway -.->|future routing| api
-    gateway -.->|optional technical state| redis
-    api --> postgres
+    gateway -.->|future optional technical state| redis
+    api -->|durable business facts| postgres
+    api -->|OAuth attempts, rate limits, sessions| redis
     api -->|provider-neutral adapter| provider
     desktop -->|JSON-RPC 2.0 / JSONL over stdio| runtime
     runtime --> workspace
@@ -123,9 +124,12 @@ boundary, not an MVP request hop; introducing it requires a separate Change for
 a proven multi-backend, multi-API-surface, or centralized edge-policy need and
 must not weaken Core API authentication or authorization.
 
-Redis is optional technical infrastructure. A future Gateway may use it for a
-proven distributed rate-limit requirement. `core-api` adds Redis only for a
-documented cache or coordination use case; Redis never owns business truth.
+Redis is current technical infrastructure for Core API OAuth attempts,
+registration continuations, login rate limits, and opaque sessions. These keys
+are bounded by TTL and fail closed when Redis is unavailable. PostgreSQL remains
+the system of record for durable User, External Identity, and legal-acceptance
+facts; Redis never owns business truth. A future Gateway may also use Redis only
+for a separately justified technical requirement.
 
 ## Top-Level Project Boundaries
 
@@ -183,8 +187,8 @@ future CLI receives the same structure when created.
   [`services/gateway/docs/architecture.md`](../services/gateway/docs/architecture.md).
 - Core API: Kotlin, Spring Boot, and Spring Modulith. See
   [`services/core-api/docs/architecture.md`](../services/core-api/docs/architecture.md).
-- Data: PostgreSQL as the system of record; Redis only for a justified
-  short-lived technical cache or coordination use case.
+- Data: PostgreSQL as the system of record for durable business facts; Redis for
+  bounded, short-lived OAuth workflow, rate-limit, and opaque-session state.
 - Build: pnpm for JavaScript projects, Cargo for the Rust Runtime, and Gradle
   Kotlin DSL for Kotlin projects.
 - Local development: the root pnpm commands are a cross-project entry point,
@@ -192,20 +196,31 @@ future CLI receives the same structure when created.
   `bootstrap` validates system prerequisites, installs the locked JavaScript
   graph, precompiles Desktop and Core API, and pulls missing images; routine
   `dev` delegates Core API compilation/runtime to the Gradle Wrapper and Flyway
-  execution to Spring Boot. Compose owns only PostgreSQL and a Mailpit SMTP sink.
-  Each new checkout has a deterministic Compose project, independent PostgreSQL
-  volume, and persisted loopback ports propagated through Compose, Spring Boot,
-  Vite, Electron, and Desktop transport. Existing local environments retain
-  their legacy project and ports to preserve data. Git-ignored state records
-  only process ownership and logs. The controller proves ownership, waits for
-  confirmed process exit before forgetting state, never takes over unknown
-  processes, and never repairs or resets migrations automatically. The `local`
-  profile binds Core API and default plaintext SMTP to loopback and applies
-  production Flyway migrations before Desktop starts. Development may explicitly
-  select an external SMTP test provider through Git-ignored `.env.local` values;
-  that path reuses the production mail adapter, rejects incomplete or plaintext
-  transport configuration before startup, and is verified manually rather than
-  by automated smoke. This is not a production deployment topology.
+  execution to Spring Boot. Compose owns PostgreSQL and Redis. Each checkout has
+  a deterministic Compose project, independent PostgreSQL/Redis volumes, and persisted
+  loopback ports propagated through Compose, Spring Boot, Vite, Electron, and
+  Desktop transport. Git-ignored `.env.local` owns the GitHub OAuth App values
+  and independent federated HMAC/AEAD keys; incomplete configuration leaves the
+  Core API healthy while disabling the capability. Git-ignored state records
+  only process ownership and logs. Re-running the complete launcher replaces
+  only host process trees proven to belong to the same checkout, waits for the
+  previous launcher to exit, and uses PID-conditional state cleanup so an old
+  launcher cannot erase its successor's record. The controller never takes
+  over or stops unknown processes and never runs Flyway repair. For a Core API
+  startup failure that is specifically classified as a Flyway schema-history
+  incompatibility, it may rebuild the disposable local PostgreSQL volume and
+  retry once only after proving all three boundaries: Flyway reported the exact
+  configured loopback JDBC target in the current startup log, the Compose
+  project belongs to this checkout, and the volume has matching standard
+  Compose project and logical-volume labels. Connection failures, ordinary
+  migration SQL errors, external or non-loopback databases, unknown resources,
+  and a second startup failure fail closed without deletion. Compose startup
+  removes only orphan containers in the same proven project. Automated smoke
+  checks health and fail-closed behavior in an isolated temporary Core API
+  without rewriting the real OAuth configuration or contacting GitHub. The
+  real macOS development OAuth journey was manually accepted on 2026-10-12;
+  browser close/focus remains platform evidence rather than a unit-test claim.
+  This is not a production deployment topology.
 
 Stable, mutually compatible versions are selected when each subproject is
 initialized. Windows and macOS share product code and protocols, but signing,
@@ -449,15 +464,12 @@ threshold is an architectural policy change, not a local test workaround.
   not required until a later Change establishes that contract lifecycle.
 - Desktop Main initially owns narrow hand-written transport types checked
   against runtime OpenAPI contract fixtures. The first contract covers in-app
-  authentication/session lifecycle, Workspace list/create, and read-only Project
-  list for an active `WorkspaceId`; generated TypeScript transport types may be
-  introduced later only with an explicit source-of-truth and drift policy.
-- Core API `access` owns User/session and Workspace Membership authorization;
-  Project Work owns Project, Project Membership, and the Project list query. The
-  latter consumes a narrow trusted Workspace-membership fact and never reads
-  Access private tables. A Project list requires both memberships for the same
-  User and Workspace, and Desktop query state is scoped by environment,
-  `UserId`, and `WorkspaceId`.
+  GitHub authentication and opaque-session lifecycle; generated TypeScript
+  transport types may be introduced later only with an explicit source-of-truth
+  and drift policy.
+- Core API `access` currently owns User, External Identity, legal acceptance,
+  and session authentication. Workspace membership authorization and Project
+  contracts remain Target and require their own runnable slice.
 - The public API exposes HTTP only; TaskPilot does not publish a public SDK.
 - The future CLI consumes the public HTTP API like any external client.
 - In the MVP, the deployment edge routes the Desktop to Core API without
@@ -473,22 +485,39 @@ threshold is an architectural policy change, not a local test workaround.
 
 ### Identity and Execution Authorization
 
-Desktop identity is established through the approved in-app email
-authentication contract: password is the default login method, while email OTP
-is an explicit alternative and also supports registration and password reset.
-Core API owns User credentials, OTP challenges, opaque access tokens, refresh
-session families, session rotation and revocation. Electron Main owns the
-credentialed Desktop client and stores long-lived refresh material only through
-OS credential facilities; Renderer receives only authenticated state and a safe
-`CurrentUserView`. The deployment edge does not normalize or assert identity.
-Core API remains authoritative for Workspace/Project access and business
-authorization. The first authenticated journey establishes an active
-`WorkspaceId`, then loads the real authorized Project list; it does not route
-that query through a Gateway or imply Project creation. A future Gateway may
-apply route-specific credential validation or normalize internal context only as
-defense in depth; credential formats remain route-specific, and Core API still
-independently authenticates and authorizes. Desktop credentials never enter
-Renderer or Agent Runtime.
+**Current Core API boundary:** Desktop identity is established through the
+GitHub federated endpoints owned by Core API. Core API exposes an anonymous
+capability, creates short-lived attempts bound to an exact loopback completion
+URI, receives only the fixed GitHub callback, validates one-time state and PKCE,
+and requires both the Main-held poll secret and browser completion proof before
+returning a registration continuation or an issued active session. The callback
+page sends the proof only to the bound loopback origin, attempts best-effort
+browser close after loopback success, and Main activates the existing Desktop
+window only after persisting that proof. Provider HTTP
+calls run outside database transactions; raw Provider payloads and tokens do not
+cross the adapter or persist. Core API owns stable internal `UserId`,
+provider-neutral External Identity mapping, immutable User Agreement/Privacy
+Policy consent-bundle acceptance, opaque access/refresh sessions, token rotation,
+replay revocation, and logout.
+
+**Current Desktop boundary:** Electron Main launches the system browser, owns
+the loopback receiver and all poll, completion, continuation, access, and
+refresh secrets, and stores long-lived refresh material only through OS
+credential facilities. Renderer receives only presentable state and a safe
+`CurrentUserView`; it never receives those secrets. Automated tests cover this
+boundary with browser, loopback, Provider, and credential doubles; real GitHub
+OAuth, packaged native credential behavior, and release-platform certification
+remain unverified. No embedded WebView, repository permission, Gateway identity
+assertion, or production deployment behavior is implied.
+
+The deployment edge does not normalize or assert identity. Core API remains
+authoritative for current authentication and future Workspace/Project business
+authorization. The current authenticated journey ends at the account view;
+Workspace onboarding and Project discovery remain Target. A future Gateway may
+apply route-specific credential
+validation or normalize internal context only as defense in depth; credential
+formats remain route-specific, and Core API still independently authenticates
+and authorizes. Desktop credentials never enter Renderer or Agent Runtime.
 
 Before Runtime execution exists, a behavior change must define a short-lived
 execution grant bound to issuer, User, Workspace, Project, Agent Run, Attempt,

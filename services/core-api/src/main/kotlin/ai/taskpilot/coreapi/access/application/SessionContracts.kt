@@ -1,10 +1,12 @@
 package ai.taskpilot.coreapi.access.application
 
-import java.util.UUID
+import ai.taskpilot.coreapi.access.model.UserId
+import java.net.URI
 
-data class RefreshSessionCommand(
-    val refreshToken: String,
-    val refreshRequestId: UUID,
+data class SessionUser(
+    val userId: UserId,
+    val displayName: String,
+    val avatarUrl: URI?,
 )
 
 sealed interface RefreshSessionResult {
@@ -24,7 +26,9 @@ sealed interface CurrentUserResult {
 }
 
 interface SessionUseCases {
-    fun refresh(command: RefreshSessionCommand): RefreshSessionResult
+    fun issue(user: SessionUser): IssuedSession
+
+    fun refresh(refreshToken: String): RefreshSessionResult
 
     fun currentUser(accessToken: String): CurrentUserResult
 

@@ -51,14 +51,24 @@ export function recordService(name, service, file = statePath, root = repository
   writeState(state, file);
 }
 
-export function forgetService(name, file = statePath, root = repositoryRoot) {
+function forgetRecordedService(name, file, root, expectedPid) {
   const state = readState(file, root);
+  if (expectedPid !== undefined && state.services[name]?.pid !== expectedPid) return false;
   delete state.services[name];
   if (Object.keys(state.services).length === 0) {
     rmSync(file, { force: true });
-    return;
+    return true;
   }
   writeState(state, file);
+  return true;
+}
+
+export function forgetService(name, file = statePath, root = repositoryRoot) {
+  return forgetRecordedService(name, file, root);
+}
+
+export function forgetServiceIfPid(name, expectedPid, file = statePath, root = repositoryRoot) {
+  return forgetRecordedService(name, file, root, expectedPid);
 }
 
 export function isProcessAlive(pid) {
@@ -84,6 +94,28 @@ export function getProcessCommandLine(pid, platform = process.platform) {
   } catch {
     return '';
   }
+}
+
+export function getParentProcessId(pid, platform = process.platform) {
+  try {
+    if (platform === 'win32') {
+      const output = execFileSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        `(Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\").ParentProcessId`,
+      ], { encoding: 'utf8', windowsHide: true }).trim();
+      const parentPid = Number(output);
+      return Number.isInteger(parentPid) && parentPid > 0 ? parentPid : null;
+    }
+    const output = execFileSync('ps', ['-p', String(pid), '-o', 'ppid='], { encoding: 'utf8' }).trim();
+    const parentPid = Number(output);
+    return Number.isInteger(parentPid) && parentPid > 0 ? parentPid : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isDevControllerProcess(commandLine) {
+  return /(?:^|[\\/\s])tools[\\/]dev[\\/]dev\.mjs(?:\s|$)/i.test(commandLine ?? '');
 }
 
 export function isOwnedProcess(serviceName, commandLine, root = repositoryRoot) {
@@ -156,13 +188,13 @@ export async function stopRecordedService(name, options = {}) {
   const inspected = inspectRecordedService(name, options);
   if (inspected.status === 'not-recorded') return inspected;
   if (inspected.status === 'stale') {
-    forgetService(name, file, root);
+    forgetServiceIfPid(name, inspected.pid, file, root);
     return inspected;
   }
   if (inspected.status !== 'owned') return inspected;
   const stopped = await stopProcessAndWait(inspected.pid, options);
   if (!stopped) return { ...inspected, status: 'stop-failed' };
-  forgetService(name, file, root);
+  forgetServiceIfPid(name, inspected.pid, file, root);
   return { ...inspected, status: 'stopped' };
 }
 

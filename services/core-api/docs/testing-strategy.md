@@ -10,85 +10,30 @@
 
 ## Current Executable Foundation
 
-**Current:** the initialized Core API keeps all test code, test resources, and
-architecture fixtures under `src/test`. The standard Gradle `test` task is the
-single complete suite entry and therefore requires a working container runtime
-for its PostgreSQL-backed tests. Developers keep the fast feedback loop by using
-JUnit selectors on that task rather than separate source sets or test tasks.
+The Current Core API suite covers the runnable auth-only slice:
 
-| Command | Current purpose |
-| --- | --- |
-| `./gradlew :services:core-api:test` | Complete unit, architecture, module-context, startup/health, HTTP, Flyway, and real PostgreSQL suite; unavailable containers fail visibly rather than causing skips or an H2 fallback |
-| `./gradlew :services:core-api:test --tests '*Architecture*'` | Focused architecture checks without starting PostgreSQL |
-| `./gradlew :services:core-api:test --tests 'ai.taskpilot.coreapi.*ModuleTest'` | Four standalone capability contexts using the standard test runtime |
-| `./gradlew :services:core-api:test --tests '*IntegrationTest'` | All Testcontainers PostgreSQL, Flyway, HTTP, persistence, and opt-in system-journey integration classes |
-| `./gradlew :services:core-api:verifyBuildContract` | Standard-layout, fixture isolation, Detekt roots, dependency coordinates, fixed versions, quality tasks, and executable Boot JAR boundary checks |
-| `./gradlew :services:core-api:qualityCheck` | Complete routine Core API gate: compile, ktlint, Detekt, standard `test`, build-contract verification, and Kover XML/HTML/threshold verification |
+- unit tests for purpose-separated HMAC/token digests, PKCE, AEAD binding,
+  fail-closed configuration, Provider mapping, session policy, and Problem
+  Details;
+- PostgreSQL/Testcontainers tests for the three-table Flyway baseline,
+  External Identity uniqueness without email merging, atomic first
+  registration, and concurrent registration;
+- Redis/Testcontainers tests for attempt/state/proof/continuation single use,
+  cancellation/expiry, rate limiting, active session issue, token rotation,
+  old-refresh replay revocation, immediate logout, and corrupt-state fail-closed
+  behavior;
+- Spring HTTP integration tests for capability, loopback URI validation,
+  callback/state/PKCE handling, registration, known-identity login, refresh,
+  logout, current user, non-enumerating errors, and secret redaction;
+- runtime OpenAPI tests for exactly the implemented auth/session/current-user
+  routes and Production-default document disablement; and
+- module, architecture, compile, formatting, Detekt, executable JAR, and Kover
+  gates through `:services:core-api:qualityCheck`.
 
-All production and test Kotlin code is in `src/main/kotlin` and
-`src/test/kotlin`. Test-only Java is limited to architecture fixtures under
-`src/test`: Spring Modulith fixtures live in ordinary `src/test/java`, remain on
-the standard test runtime, and are scanned with an explicit ArchUnit import
-option so test-output packages are not silently excluded. FQCN-conflicting
-ArchUnit fixtures live in `src/test/architecture-fixtures/java`; the internal
-`architectureFixtures` compilation source set has no `testImplementation`
-inheritance, is absent from the normal test runtime classpath, and its output
-paths are supplied explicitly to the self-test importer. This internal
-compilation boundary is not another test-suite entry.
-
-Kover aggregates execution of the standard `test` task over main production
-classes and enforces 80% line and 75% branch coverage. Its only explicit
-exclusions are the exact four annotation-only capability marker classes and the
-empty architecture-root marker. The application entry point and security
-configuration remain included. Because every current production line was
-introduced by the foundation Change, this first whole-module result is an
-equivalent bootstrap changed-code gate. It is not a substitute for diff-aware
-changed executable coverage once later changes mix new and existing code.
-
-Detekt scans only Kotlin under `src/main/kotlin` and `src/test/kotlin`; its
-test-source exceptions are limited to test naming, HTTP status literals, and
-test-only constant-returning probes. Production Flyway migrations live under
-`src/main/resources/db/migration` and are required in the executable Boot JAR.
-The test-only probe lives under `src/test/resources/db/integration` and is
-excluded from that JAR. Unit tests cover email normalization, password policy,
-Argon2id parameter/salt behavior, dummy-hash authentication, opportunistic
-rehash, OTP/continuation security policy, purpose/template mapping, delivery
-outcome semantics, configuration fail-closed behavior, and secret-safe mail
-events. SMTP adapter tests cover purpose-specific messages, sender/recipient
-validation, provider failure classification, explicit host, and required
-transport TLS fail-closed assembly without making a network connection.
-PostgreSQL tests cover the production schema, stable identifiers, identity
-uniqueness and rollback, challenge/continuation expiry and atomic consumption,
-resend supersession, shared rate-limit state, and concurrency. The broader
-scenarios and tools below remain **Target** until their owning features exist.
-
-The full-application integration suite also owns an opt-in packaged Desktop
-journey. With `TASKPILOT_PACKAGED_SYSTEM_JOURNEY=true`, it starts the current
-platform's already-built Electron artifact in Node mode, loads Main/Preload from
-`app.asar`, and drives authentication, Workspace onboarding, and the read-only
-Project list against this suite's real Core API, PostgreSQL, and capture-mail
-fixture while using the native OS credential backend. The test does not create
-a window and remains opt-in so the ordinary Core API gate neither builds nor
-requires a Desktop package. Native packaged-window and cross-platform release
-evidence remain separate Desktop gates.
-
-The repeatable local mail smoke runs against Compose PostgreSQL and Mailpit with
-Core API's explicit `local` profile. It requests registration, login OTP, and
-password-reset codes through HTTP, reads the actual SMTP messages from Mailpit,
-uses each code to complete its flow, and reports only flow names and boundary
-names. It does not print OTPs, passwords, tokens, or generated `.env.local`
-values. This proves local assembly and SMTP protocol integration; ordinary unit
-and CI tests still use the capture adapter when infrastructure semantics are not
-under test.
-
-A real external-provider verification-mail smoke is a release-environment gate,
-not a Change-completion, local, or pull-request dependency. Run registration,
-login OTP, and password reset through the production adapter with
-`taskpilot.verification.smtp.from`, standard `spring.mail.host`/port/TLS
-properties, and credentials supplied only by the runtime secret store. Record
-only provider-safe identifiers and outcomes; never persist the recipient, OTP,
-password, or SMTP secret as test evidence. Without this smoke, the corresponding
-deployment cannot be called mail-provider release-ready.
+The Provider boundary uses local fakes and never calls GitHub in automated
+checks. Workspace/Project, Agent Runtime, Gateway, real GitHub, production
+rollout, and cross-platform Desktop native behavior are not implied by this
+suite.
 
 ## Principles
 
@@ -136,7 +81,7 @@ contract. Do not mock the state transition or use case under test.
 
 ## Business Model Coverage
 
-### Workspace and access
+### Target Workspace and access
 
 - Organization Workspace creation and creator Membership commit atomically;
   retries with the same idempotency key return the same Workspace and conflicting
@@ -149,7 +94,7 @@ contract. Do not mock the state transition or use case under test.
   rewriting unrelated business history.
 - An Agent cannot satisfy human membership or approval requirements.
 
-### Initial Project discovery
+### Target initial Project discovery
 
 - The read-only Project list first requires an effective Workspace Membership,
   then returns only Projects with an effective Project Membership for the same
@@ -233,8 +178,16 @@ Also prove:
 
 ## Persistence and Migration Cases
 
-- Run migrations from an empty supported PostgreSQL version.
-- Upgrade from each supported released baseline once releases exist.
+- Run migrations from an empty supported PostgreSQL version and assert the
+  baseline as a database catalog contract: business tables live only in their
+  approved capability schemas, `public` contains only Flyway metadata, entity
+  primary keys are `id UUID`, operational-key exceptions are allowlisted, and
+  constraint/index names use the approved prefixes within PostgreSQL's
+  identifier limit.
+- Upgrade from each supported released baseline once releases exist. Before the
+  first release, resetting the baseline is allowed only with the explicitly
+  agreed disposable-data policy; it is not evidence of a production migration
+  or rollback strategy.
 - Verify foreign keys, tenant-scoped uniqueness, checks, version columns, JSONB
   validation assumptions, and job/lease indexes.
 - Test real query plans for measured high-risk Board and job-claim queries when
@@ -253,12 +206,11 @@ Also prove:
 - Stable error codes cover authorization, validation, conflict, stale version,
   unsupported definition, and idempotency conflict.
 - Public breaking changes fail compatibility checks once a baseline exists.
-- In the initial Desktop phase, runtime OpenAPI contract tests for
-  authentication/session, Workspace list/create, and read-only Project list,
-  together with Desktop Main adapter fixtures, detect consumed-shape drift; no
-  generated Desktop client or
+- In the current Desktop phase, runtime OpenAPI contract tests for
+  authentication, session, and current-user routes, together with Desktop Main
+  adapter fixtures, detect consumed-shape drift; no generated Desktop client or
   breaking-compatibility gate is required until a later Change establishes a
-  versioned contract lifecycle.
+  versioned contract lifecycle. Workspace and Project contracts remain Target.
 - Allowed actions aid presentation but never bypass a negative command check.
 
 ## Durable Job and Agent Execution Cases

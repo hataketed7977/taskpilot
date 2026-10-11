@@ -9,30 +9,24 @@ spring:
     password: ${TASKPILOT_POSTGRES_PASSWORD}
   flyway:
     enabled: true
-  mail:
-    host: ${TASKPILOT_VERIFICATION_SMTP_HOST:127.0.0.1}
-    port: ${TASKPILOT_VERIFICATION_SMTP_PORT:${TASKPILOT_SMTP_PORT:1025}}
-    username: ${TASKPILOT_VERIFICATION_SMTP_USERNAME:}
-    password: ${TASKPILOT_VERIFICATION_SMTP_PASSWORD:}
-    properties:
-      mail.smtp.auth: ${TASKPILOT_VERIFICATION_SMTP_AUTH:false}
-      mail.smtp.starttls.enable: ${TASKPILOT_VERIFICATION_SMTP_STARTTLS:false}
-      mail.smtp.starttls.required: ${TASKPILOT_VERIFICATION_SMTP_STARTTLS:false}
-      mail.smtp.ssl.enable: ${TASKPILOT_VERIFICATION_SMTP_SSL:false}
-      mail.smtp.connectiontimeout: 3000
-      mail.smtp.timeout: 3000
-      mail.smtp.writetimeout: 3000
+  data:
+    redis:
+      host: 127.0.0.1
+      port: ${TASKPILOT_REDIS_PORT:6379}
+      password: ${TASKPILOT_REDIS_PASSWORD}
+      timeout: 2s
 
 taskpilot:
   authentication:
     enabled: true
     token-pepper-base64: ${TASKPILOT_AUTH_TOKEN_PEPPER_BASE64}
-    recovery-key-base64: ${TASKPILOT_AUTH_RECOVERY_KEY_BASE64}
-    terms-version: "2026-09-01"
-  verification:
-    enabled: true
-    pepper-base64: ${TASKPILOT_VERIFICATION_PEPPER_BASE64}
-    request-maximum-attempts: 100
-    mail-adapter: ${TASKPILOT_VERIFICATION_MAIL_ADAPTER:local}
-    smtp:
-      from: ${TASKPILOT_VERIFICATION_SMTP_FROM:no-reply@taskpilot.local}
+    legal-bundle-version: "2026-09-01"
+    terms-version: "terms-2026-09-01"
+    privacy-version: "privacy-2026-09-01"
+    legal-locale: "zh-CN"
+    github:
+      client-id: ${TASKPILOT_GITHUB_CLIENT_ID:}
+      client-secret: ${TASKPILOT_GITHUB_CLIENT_SECRET:}
+      callback-uri: ${TASKPILOT_GITHUB_CALLBACK_URI:}
+      hmac-key-base64: ${TASKPILOT_FEDERATED_HMAC_KEY_BASE64:}
+      aead-key-base64: ${TASKPILOT_FEDERATED_AEAD_KEY_BASE64:}

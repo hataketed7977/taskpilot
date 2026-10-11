@@ -18,17 +18,22 @@ services:
       timeout: 5s
       retries: 20
 
-  mailpit:
-    image: axllent/mailpit:v1.27.8
+  redis:
+    image: redis:7.4-alpine
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${TASKPILOT_REDIS_PASSWORD:?Run pnpm bootstrap to create .env.local}
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${TASKPILOT_REDIS_PASSWORD:?Run pnpm bootstrap to create .env.local}"]
     ports:
-      - "127.0.0.1:${TASKPILOT_SMTP_PORT:-1025}:1025"
-      - "127.0.0.1:${TASKPILOT_MAILPIT_HTTP_PORT:-8025}:8025"
+      - "127.0.0.1:${TASKPILOT_REDIS_PORT:-6379}:6379"
+    volumes:
+      - taskpilot-redis-data:/data
     healthcheck:
-      test: ["CMD", "/mailpit", "readyz"]
+      test: ['CMD-SHELL', 'redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG']
       interval: 2s
       timeout: 5s
       retries: 20
 
 volumes:
   taskpilot-postgres-data:
+  taskpilot-redis-data:

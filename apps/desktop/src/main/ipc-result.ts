@@ -5,7 +5,7 @@ import { OutcomeUnknownError, TransportError } from './api/transport.js';
 const categories = new Set<DesktopError['category']>([
   'validation', 'authentication', 'authorization', 'conflict', 'temporary', 'unknown',
 ]);
-const recoveries = new Set<NonNullable<DesktopError['recovery']>>(['RETRY', 'SIGN_IN', 'CHOOSE_WORKSPACE']);
+const recoveries = new Set<NonNullable<DesktopError['recovery']>>(['RETRY', 'SIGN_IN']);
 
 export function toDesktopError(error: unknown): DesktopError {
   if (error instanceof z.ZodError) return { code: 'IPC_INPUT_INVALID', category: 'validation' };

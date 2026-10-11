@@ -4,7 +4,6 @@ export interface StoredCredential {
   userId: string;
   refreshToken: string;
   refreshTokenExpiresAt: string;
-  pendingRefreshRequestId?: string;
 }
 
 export interface CredentialStore {
@@ -67,8 +66,7 @@ interface CurrentAccountState {
 
 /**
  * Persists session recovery material directly in the platform credential store.
- * Both the refresh token and an optional pending refresh request id are encoded
- * in one value so a platform set-password operation replaces them atomically.
+ * The current refresh credential is replaced atomically after every successful rotation.
  */
 export class KeyringCredentialStore implements CredentialStore {
   constructor(private readonly createEntry: NativeCredentialEntryFactory) {}
@@ -158,9 +156,6 @@ export class KeyringCredentialStore implements CredentialStore {
       userId: candidate.userId,
       refreshToken: candidate.refreshToken,
       refreshTokenExpiresAt: candidate.refreshTokenExpiresAt,
-      ...(candidate.pendingRefreshRequestId === undefined
-        ? {}
-        : { pendingRefreshRequestId: candidate.pendingRefreshRequestId }),
     };
   }
 
@@ -169,15 +164,13 @@ export class KeyringCredentialStore implements CredentialStore {
     const candidate = value as Record<string, unknown>;
     const keys = Object.keys(candidate);
     return candidate.version === 1
-      && keys.every(key => ['version', 'userId', 'refreshToken', 'refreshTokenExpiresAt', 'pendingRefreshRequestId'].includes(key))
+      && keys.every(key => ['version', 'userId', 'refreshToken', 'refreshTokenExpiresAt'].includes(key))
       && typeof candidate.userId === 'string'
       && USER_ID.test(candidate.userId)
       && typeof candidate.refreshToken === 'string'
       && candidate.refreshToken.length > 0
       && typeof candidate.refreshTokenExpiresAt === 'string'
-      && candidate.refreshTokenExpiresAt.length > 0
-      && (candidate.pendingRefreshRequestId === undefined
-        || (typeof candidate.pendingRefreshRequestId === 'string' && candidate.pendingRefreshRequestId.length > 0));
+      && candidate.refreshTokenExpiresAt.length > 0;
   }
 
   private validateCredential(credential: StoredCredential) {

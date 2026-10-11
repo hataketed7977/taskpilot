@@ -8,15 +8,6 @@ export async function coreApiHealth(url, fetchImpl = fetch) {
   }
 }
 
-export async function mailpitHealth(url, fetchImpl = fetch) {
-  try {
-    const response = await fetchImpl(`${url}/api/v1/info`, { signal: AbortSignal.timeout(1500) });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 export async function waitForHealth(check, { timeoutMs = 120_000, intervalMs = 1_000, isAlive } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

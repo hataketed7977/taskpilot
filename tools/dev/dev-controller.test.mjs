@@ -6,10 +6,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { classifyComposeProject, parseComposePs } from './compose-manager.mjs';
 import { childCommands, defaultLocalSettings, localConfiguration } from './dev-config.mjs';
-import { assertDesktopCoreApi, childExitedUnexpectedly, doctorHasBlockingProblems, parseCli, stopHostServices, waitForChild, waitForSpawn } from './dev.mjs';
+import { assertDesktopCoreApi, assertDesktopPortReplaceable, childExitedUnexpectedly, doctorHasBlockingProblems, isolatedSmokeEnvironment, parseCli, replaceRecordedHostServices, reserveLoopbackPort, stopHostServices, stopIsolatedSmokeCoreApi, waitForChild, waitForSpawn } from './dev.mjs';
 import { parseMajorVersion, parsePnpmVersion, portConflictMessage, supportsNodeVersion } from './preflight.mjs';
 import {
   emptyState,
+  forgetServiceIfPid,
   inspectRecordedService,
   isOwnedProcess,
   recordService,
@@ -22,9 +23,50 @@ const root = path.resolve('/tmp/taskpilot-checkout');
 
 test('CLI parses supported lifecycle commands and log options', () => {
   assert.deepEqual(parseCli([]), { command: 'start', service: 'core-api', follow: false });
-  assert.deepEqual(parseCli(['logs', '--service', 'mailpit', '--follow']), { command: 'logs', service: 'mailpit', follow: true });
+  assert.deepEqual(parseCli(['logs', '--service', 'postgres', '--follow']), { command: 'logs', service: 'postgres', follow: true });
+  assert.throws(() => parseCli(['logs', '--service', 'mailpit']), /service must be/i);
   assert.throws(() => parseCli(['logs', '--service', 'unknown']), /service must be/);
   assert.throws(() => parseCli(['explode']), /Unknown command/);
+});
+
+test('smoke isolates disabled GitHub configuration without mutating the source environment', async () => {
+  const source = {
+    TASKPILOT_POSTGRES_PASSWORD: 'database-secret',
+    TASKPILOT_REDIS_PASSWORD: 'redis-secret',
+    TASKPILOT_GITHUB_CLIENT_ID: 'real-client-id',
+    TASKPILOT_GITHUB_CLIENT_SECRET: 'real-client-secret',
+    TASKPILOT_GITHUB_CALLBACK_URI: 'http://127.0.0.1:8080/desktop/v1/auth/federated/github/callback',
+    TASKPILOT_FEDERATED_HMAC_KEY_BASE64: 'hmac',
+    TASKPILOT_FEDERATED_AEAD_KEY_BASE64: 'aead',
+    TASKPILOT_CORE_API_PORT: '8080',
+    TASKPILOT_CORE_API_URL: 'http://127.0.0.1:8080',
+    SERVER_PORT: '8080',
+  };
+
+  const port = await reserveLoopbackPort();
+  const isolated = isolatedSmokeEnvironment(source, port);
+
+  assert.equal(source.TASKPILOT_GITHUB_CLIENT_ID, 'real-client-id');
+  assert.equal(isolated.TASKPILOT_GITHUB_CLIENT_ID, '');
+  assert.equal(isolated.TASKPILOT_GITHUB_CLIENT_SECRET, '');
+  assert.equal(isolated.TASKPILOT_GITHUB_CALLBACK_URI, '');
+  assert.equal(isolated.TASKPILOT_FEDERATED_HMAC_KEY_BASE64, '');
+  assert.equal(isolated.TASKPILOT_FEDERATED_AEAD_KEY_BASE64, '');
+  assert.equal(isolated.TASKPILOT_POSTGRES_PASSWORD, 'database-secret');
+  assert.equal(isolated.TASKPILOT_REDIS_PASSWORD, 'redis-secret');
+  assert.equal(isolated.TASKPILOT_CORE_API_PORT, String(port));
+  assert.equal(isolated.TASKPILOT_CORE_API_URL, `http://127.0.0.1:${port}`);
+  assert.equal(isolated.SERVER_PORT, String(port));
+});
+
+test('smoke reports a temporary Core API that cannot be stopped', async () => {
+  await assert.rejects(
+    stopIsolatedSmokeCoreApi(
+      { child: { pid: 4242 }, logPath: '/tmp/taskpilot-core-api-smoke.log' },
+      async () => false,
+    ),
+    /Failed to stop isolated fail-closed Core API PID 4242/,
+  );
 });
 
 test('doctor fails when prerequisites, environment, or project dependencies are invalid', () => {
@@ -45,6 +87,19 @@ test('Desktop accepts only a healthy Core API owned by this checkout', () => {
   assert.throws(
     () => assertDesktopCoreApi({ status: 'owned', pid: 42 }, false, 'http://127.0.0.1:48080'),
     /not healthy/,
+  );
+});
+
+test('an occupied Desktop port is replaceable only when its recorded process is owned', () => {
+  assert.doesNotThrow(() => assertDesktopPortReplaceable(true, { status: 'owned', pid: 42 }, 5173));
+  assert.doesNotThrow(() => assertDesktopPortReplaceable(false, { status: 'not-recorded' }, 5173));
+  assert.throws(
+    () => assertDesktopPortReplaceable(true, { status: 'not-recorded' }, 5173),
+    /will not stop or reuse it/i,
+  );
+  assert.throws(
+    () => assertDesktopPortReplaceable(true, { status: 'unowned', pid: 42 }, 5173),
+    /will not stop or reuse it/i,
   );
 });
 
@@ -83,13 +138,14 @@ test('local settings are stable per checkout and validate distinct overrides', (
   assert.equal(config.desktopDevServerUrl, `http://127.0.0.1:${settings.TASKPILOT_DESKTOP_DEV_SERVER_PORT}`);
   assert.equal(new Set([
     config.postgresPort,
-    config.smtpPort,
-    config.mailpitHttpPort,
+    config.redisPort,
     config.coreApiPort,
     config.desktopDevServerPort,
-  ]).size, 5);
-  assert.throws(() => localConfiguration({ ...settings, TASKPILOT_SMTP_PORT: '0' }, root), /between 1 and 65535/);
-  assert.throws(() => localConfiguration({ ...settings, TASKPILOT_SMTP_PORT: settings.TASKPILOT_POSTGRES_PORT }, root), /distinct ports/);
+  ]).size, 4);
+  assert.equal('smtpPort' in config, false);
+  assert.equal('mailpitHttpPort' in config, false);
+  assert.throws(() => localConfiguration({ ...settings, TASKPILOT_CORE_API_PORT: '0' }, root), /between 1 and 65535/);
+  assert.throws(() => localConfiguration({ ...settings, TASKPILOT_CORE_API_PORT: settings.TASKPILOT_POSTGRES_PORT }, root), /distinct ports/);
   assert.throws(() => localConfiguration({ ...settings, TASKPILOT_COMPOSE_PROJECT: 'INVALID NAME' }, root), /Compose project name/);
 });
 
@@ -177,6 +233,110 @@ test('stop refuses to kill a live process when ownership cannot be proven', asyn
       stopTree: () => assert.fail('unowned processes must not be killed'),
     });
     assert.equal(result.status, 'unowned');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('start replacement signals a proven previous launcher before cleaning residual service state', async () => {
+  const events = [];
+  let waitCount = 0;
+  await replaceRecordedHostServices(['desktop', 'coreApi'], {
+    inspectService: name => name === 'desktop'
+      ? { status: 'owned', pid: 101 }
+      : { status: 'stale', pid: 102 },
+    stopService: async name => {
+      events.push(`service:${name}`);
+      return name === 'desktop'
+        ? { status: 'not-recorded' }
+        : { status: 'stale', pid: 102 };
+    },
+    parentProcessId: () => 99,
+    processCommandLine: () => 'node tools/dev/dev.mjs start',
+    signalController: pid => events.push(`signal:${pid}`),
+    waitForController: async () => ++waitCount > 1,
+    forceController: () => assert.fail('launcher exits after residual cleanup'),
+  });
+  assert.deepEqual(events, ['signal:99', 'service:desktop', 'service:coreApi']);
+});
+
+test('start replacement force-stops a proven launcher only after service cleanup', async () => {
+  const events = [];
+  let forced = false;
+  await replaceRecordedHostServices(['desktop'], {
+    inspectService: () => ({ status: 'owned', pid: 101 }),
+    stopService: async () => {
+      events.push('service');
+      return { status: 'stopped', pid: 101 };
+    },
+    parentProcessId: () => 99,
+    processCommandLine: () => 'node tools/dev/dev.mjs start',
+    signalController: pid => events.push(`signal:${pid}`),
+    waitForController: async () => forced,
+    forceController: pid => {
+      forced = true;
+      events.push(`force:${pid}`);
+    },
+  });
+  assert.deepEqual(events, ['signal:99', 'service', 'force:99']);
+});
+
+test('start replacement directly stops owned services when their launcher no longer exists', async () => {
+  const stopped = [];
+  await replaceRecordedHostServices(['desktop'], {
+    inspectService: () => ({ status: 'owned', pid: 101 }),
+    stopService: async name => {
+      stopped.push(name);
+      return { status: 'stopped', pid: 101 };
+    },
+    parentProcessId: () => null,
+    signalController: () => assert.fail('there is no launcher to stop'),
+  });
+  assert.deepEqual(stopped, ['desktop']);
+});
+
+test('start replacement refuses to signal a launcher PID whose identity changed', async () => {
+  let commandChecks = 0;
+  await assert.rejects(
+    replaceRecordedHostServices(['desktop'], {
+      inspectService: () => ({ status: 'owned', pid: 101 }),
+      stopService: async () => assert.fail('service cleanup must wait for launcher validation'),
+      parentProcessId: () => 99,
+      processCommandLine: () => ++commandChecks === 1
+        ? 'node tools/dev/dev.mjs start'
+        : 'node /another/project/server.mjs',
+      signalController: () => assert.fail('a reused launcher PID must not be signalled'),
+    }),
+    /changed identity.*before it could be stopped/i,
+  );
+});
+
+test('start replacement refuses all stops when any recorded host process is unowned', async () => {
+  const stopped = [];
+  await assert.rejects(
+    replaceRecordedHostServices(['desktop', 'coreApi'], {
+      inspectService: name => name === 'desktop'
+        ? { status: 'owned', pid: 101 }
+        : { status: 'unowned', pid: 102 },
+      stopService: async name => {
+        stopped.push(name);
+        return { status: 'stopped', pid: 101 };
+      },
+    }),
+    /ownership could not be proven.*coreApi PID 102/i,
+  );
+  assert.deepEqual(stopped, []);
+});
+
+test('PID-conditional cleanup cannot remove a replacement service record', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-dev-replacement-'));
+  const file = path.join(directory, 'state.json');
+  try {
+    recordService('desktop', { pid: 202, startedAt: new Date().toISOString() }, file, root);
+    assert.equal(forgetServiceIfPid('desktop', 101, file, root), false);
+    const state = JSON.parse(readFileSync(file, 'utf8'));
+    assert.equal(state.services.desktop.pid, 202);
+    assert.equal(forgetServiceIfPid('desktop', 202, file, root), true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
