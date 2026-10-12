@@ -81,6 +81,18 @@ contract. Do not mock the state transition or use case under test.
 
 ## Business Model Coverage
 
+### Current federated registration and legal acceptance
+
+- Parameterized application tests accept each configured `zh-CN`/`en` quartet
+  and assert that `TermsAcceptance` persists all four identity fields together.
+- Unknown locale, wrong version, duplicate locale, non-canonical locale, and
+  empty/invalid allowlist cases fail closed and leave no durable registration.
+- PostgreSQL integration tests prove User, External Identity, and acceptance are
+  atomic and preserve server-generated `acceptedAt`; API/OpenAPI and migration
+  tests freeze the existing DTO and schema shapes.
+- The tests do not claim server-side message localization: locale is interpreted
+  only as part of the legal-text quartet.
+
 ### Target Workspace and access
 
 - Organization Workspace creation and creator Membership commit atomically;

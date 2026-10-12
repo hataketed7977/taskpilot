@@ -18,12 +18,12 @@ class FederatedAuthenticationDependencies(
     private val runtime: FederatedRuntimeDependencies,
 ) {
     val clock = runtime.clock
-    val currentLegalBundle = runtime.currentLegalBundle
+    val currentLegalDocuments = runtime.currentLegalDocuments
     val codec = FederatedAuthenticationCodec(aeadFactory, objectMapper)
     val security by lazy(securityFactory)
     val provider by lazy { providerFactory() }
 
-    fun capabilityEnabled(): Boolean = configured && currentLegalBundle.isValid()
+    fun capabilityEnabled(): Boolean = configured && currentLegalDocuments.isValid()
 }
 
 data class LegalDocumentBundle(
@@ -31,16 +31,36 @@ data class LegalDocumentBundle(
     val termsVersion: String,
     val privacyVersion: String,
     val locale: String,
+)
+
+data class ApprovedLegalDocuments(
+    val legalBundleVersion: String,
+    val termsVersion: String,
+    val privacyVersion: String,
+    val locales: List<String>,
 ) {
-    fun isValid() =
-        legalBundleVersion.isNotBlank() && termsVersion.isNotBlank() && privacyVersion.isNotBlank() &&
-            locale.isNotBlank()
+    fun isValid(): Boolean =
+        legalBundleVersion.isNotBlank() &&
+            termsVersion.isNotBlank() &&
+            privacyVersion.isNotBlank() &&
+            locales.isNotEmpty() &&
+            locales.size == locales.toSet().size &&
+            locales.all { it in SUPPORTED_LEGAL_LOCALES }
+
+    fun accepts(bundle: LegalDocumentBundle): Boolean =
+        isValid() &&
+            bundle.legalBundleVersion == legalBundleVersion &&
+            bundle.termsVersion == termsVersion &&
+            bundle.privacyVersion == privacyVersion &&
+            bundle.locale in locales
 }
 
 data class FederatedRuntimeDependencies(
     val clock: Clock,
-    val currentLegalBundle: LegalDocumentBundle,
+    val currentLegalDocuments: ApprovedLegalDocuments,
 )
+
+private val SUPPORTED_LEGAL_LOCALES = setOf("zh-CN", "en")
 
 class FederatedAuthenticationCodec(
     aeadFactory: () -> FederatedAead,

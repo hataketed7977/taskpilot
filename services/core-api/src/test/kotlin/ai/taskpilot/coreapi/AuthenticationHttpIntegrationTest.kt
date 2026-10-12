@@ -126,6 +126,18 @@ class AuthenticationHttpIntegrationTest(
     }
 
     @Test
+    fun `approved locales persist the exact legal quadruple and invalid combinations write nothing`() {
+        listOf("zh-CN", "en").forEach(::registerAndAssertLegalQuadruple)
+
+        listOf(
+            mapOf("locale" to "fr"),
+            mapOf("legalBundleVersion" to "old"),
+            mapOf("termsVersion" to "old"),
+            mapOf("privacyVersion" to "old"),
+        ).forEach(::assertLegalBundleRejected)
+    }
+
+    @Test
     fun `known external identity signs in without registration`() {
         val first = completeAttempt()
         val preview = poll(first.created, first.proof).json().nested("registration")
@@ -193,6 +205,72 @@ class AuthenticationHttpIntegrationTest(
         assertTrue(limited.json().requiredText("code") == "AUTHENTICATION_RATE_LIMITED")
     }
 
+    private fun registerAndAssertLegalQuadruple(locale: String) {
+        clearState()
+        val completed = completeAttempt()
+        val preview = poll(completed.created, completed.proof).json().nested("registration")
+        val response =
+            request(
+                "POST",
+                "/desktop/v1/auth/federated/registrations",
+                registrationBody(preview, locale = locale),
+            )
+        assertEquals(201, response.status)
+        assertPersistedLegalQuadruple(locale)
+    }
+
+    private fun assertLegalBundleRejected(overrides: Map<String, String>) {
+        clearState()
+        val completed = completeAttempt()
+        val preview = poll(completed.created, completed.proof).json().nested("registration")
+        val response =
+            request(
+                "POST",
+                "/desktop/v1/auth/federated/registrations",
+                registrationBody(
+                    preview,
+                    locale = overrides["locale"] ?: "zh-CN",
+                    legalBundleVersion = overrides["legalBundleVersion"] ?: "2026-09",
+                    termsVersion = overrides["termsVersion"] ?: "terms-2026-09",
+                    privacyVersion = overrides["privacyVersion"] ?: "privacy-2026-09",
+                ),
+            )
+        assertEquals(409, response.status)
+        assertEquals("LEGAL_BUNDLE_REJECTED", response.json()["code"])
+        listOf("users", "external_identities", "terms_acceptances").forEach { table ->
+            assertEquals(0, persistedRowCount(table), table)
+        }
+    }
+
+    private fun persistedRowCount(table: String): Int =
+        postgres.createConnection("").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT count(*) FROM access.$table").use { result ->
+                    assertTrue(result.next())
+                    result.getInt(1)
+                }
+            }
+        }
+
+    private fun assertPersistedLegalQuadruple(locale: String) {
+        postgres.createConnection("").use { connection ->
+            connection
+                .prepareStatement(
+                    "SELECT legal_bundle_version, terms_version, privacy_version, locale " +
+                        "FROM access.terms_acceptances",
+                ).use { statement ->
+                    statement.executeQuery().use { result ->
+                        assertTrue(result.next())
+                        assertEquals("2026-09", result.getString("legal_bundle_version"))
+                        assertEquals("terms-2026-09", result.getString("terms_version"))
+                        assertEquals("privacy-2026-09", result.getString("privacy_version"))
+                        assertEquals(locale, result.getString("locale"))
+                        assertFalse(result.next())
+                    }
+                }
+        }
+    }
+
     private fun completeAttempt(): CompletedAttempt {
         val created = createAttempt()
         val state = URI(created.requiredText("authorizationUrl")).queryParameters().getValue("state")
@@ -214,17 +292,22 @@ class AuthenticationHttpIntegrationTest(
     private fun attemptBody(installationId: String) =
         """{"provider":"github","installationId":"$installationId","completionUri":"$VALID_COMPLETION_URI"}"""
 
-    private fun registrationBody(preview: Map<String, Any?>) =
-        """
+    private fun registrationBody(
+        preview: Map<String, Any?>,
+        locale: String = "zh-CN",
+        legalBundleVersion: String = "2026-09",
+        termsVersion: String = "terms-2026-09",
+        privacyVersion: String = "privacy-2026-09",
+    ) = """
         {
           "continuationId":"${preview.requiredText("continuationId")}",
           "continuationSecret":"${preview.requiredText("continuationSecret")}",
           "displayName":"Octo Cat",
           "useSuggestedAvatar":true,
-          "legalBundleVersion":"2026-09",
-          "termsVersion":"terms-2026-09",
-          "privacyVersion":"privacy-2026-09",
-          "locale":"zh-CN"
+          "legalBundleVersion":"$legalBundleVersion",
+          "termsVersion":"$termsVersion",
+          "privacyVersion":"$privacyVersion",
+          "locale":"$locale"
         }
         """.trimIndent()
 
@@ -310,7 +393,7 @@ class AuthenticationHttpIntegrationTest(
             registry.add("taskpilot.authentication.legal-bundle-version") { "2026-09" }
             registry.add("taskpilot.authentication.terms-version") { "terms-2026-09" }
             registry.add("taskpilot.authentication.privacy-version") { "privacy-2026-09" }
-            registry.add("taskpilot.authentication.legal-locale") { "zh-CN" }
+            registry.add("taskpilot.authentication.legal-locales") { "zh-CN,en" }
             registry.add("taskpilot.authentication.github.client-id") { "client-id" }
             registry.add("taskpilot.authentication.github.client-secret") { "client-secret" }
             registry.add("taskpilot.authentication.github.callback-uri") { CALLBACK_URI }

@@ -363,7 +363,7 @@ class OpenApiIntegrationTest(
             registry.add("taskpilot.authentication.legal-bundle-version") { "2026-09" }
             registry.add("taskpilot.authentication.terms-version") { "terms-2026-09" }
             registry.add("taskpilot.authentication.privacy-version") { "privacy-2026-09" }
-            registry.add("taskpilot.authentication.legal-locale") { "zh-CN" }
+            registry.add("taskpilot.authentication.legal-locales") { "zh-CN,en" }
             registry.add("taskpilot.authentication.github.client-id") { "openapi-client-id" }
             registry.add("taskpilot.authentication.github.client-secret") { "openapi-github-client-secret-sentinel" }
             registry.add(

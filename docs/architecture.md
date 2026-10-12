@@ -131,6 +131,16 @@ the system of record for durable User, External Identity, and legal-acceptance
 facts; Redis never owns business truth. A future Gateway may also use Redis only
 for a separately justified technical requirement.
 
+Current first registration treats `(locale, legalBundleVersion, termsVersion,
+privacyVersion)` as the cross-project identity of the exact legal texts shown by
+Desktop. Core API accepts only a canonical, duplicate-free configured locale
+allowlist combined with its configured version triple, generates `acceptedAt`,
+and atomically stores the complete acceptance evidence with User and External
+Identity. Unknown or non-canonical combinations fail closed before durable
+writes. This allowlist is a legal-contract boundary, not general server-side
+i18n: Problem Details remain stable transport contracts, locale is not a User
+attribute, and the HTTP DTO and PostgreSQL schema are unchanged.
+
 ## Top-Level Project Boundaries
 
 ```text

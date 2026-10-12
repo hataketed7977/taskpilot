@@ -1,5 +1,6 @@
 package ai.taskpilot.coreapi.access.infrastructure
 
+import ai.taskpilot.coreapi.access.application.ApprovedLegalDocuments
 import ai.taskpilot.coreapi.access.application.FederatedAead
 import ai.taskpilot.coreapi.access.application.FederatedAttemptRateLimiter
 import ai.taskpilot.coreapi.access.application.FederatedAuthenticationDependencies
@@ -9,7 +10,6 @@ import ai.taskpilot.coreapi.access.application.FederatedLoginSecurity
 import ai.taskpilot.coreapi.access.application.FederatedLoginStore
 import ai.taskpilot.coreapi.access.application.FederatedRuntimeDependencies
 import ai.taskpilot.coreapi.access.application.FederatedTokenGenerator
-import ai.taskpilot.coreapi.access.application.LegalDocumentBundle
 import ai.taskpilot.coreapi.access.application.SecureFederatedTokenGenerator
 import ai.taskpilot.coreapi.access.persistence.JdbcFederatedIdentityStore
 import ai.taskpilot.coreapi.access.persistence.RedisFederatedLoginStore
@@ -121,11 +121,11 @@ class FederatedAuthenticationRuntimeConfiguration {
         objectMapper,
         FederatedRuntimeDependencies(
             clock,
-            LegalDocumentBundle(
+            ApprovedLegalDocuments(
                 authenticationProperties.legalBundleVersion,
                 authenticationProperties.termsVersion,
                 authenticationProperties.privacyVersion,
-                authenticationProperties.legalLocale,
+                authenticationProperties.legalLocales,
             ),
         ),
     )

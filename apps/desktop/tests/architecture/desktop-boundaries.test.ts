@@ -69,6 +69,26 @@ describe('Desktop process boundary', () => {
     expect(`${app}\n${main}`).not.toMatch(/from ['"](?:node:|electron)|\bfetch\s*\(|agent-runtime|runtime:/i);
   });
 
+  it('keeps localization static, text-only and inside the Renderer boundary', async () => {
+    const [factory, provider, state, locale, messages] = await Promise.all([
+      source('src/renderer/i18n/i18n.ts'),
+      source('src/renderer/i18n/locale-context.tsx'),
+      source('src/renderer/i18n/locale-state.ts'),
+      source('src/renderer/i18n/locale.ts'),
+      source('src/renderer/i18n/messages.ts'),
+    ]);
+    const localization = `${factory}
+${provider}
+${state}
+${locale}
+${messages}`;
+    expect(localization).not.toMatch(/from ['"](?:node:|electron)|\bfetch\s*\(|https?:\/\/|ipcRenderer|window\.taskpilot/i);
+    expect(localization).not.toMatch(/i18next-http-backend|i18next-fs-backend|BackendModule/);
+    expect(localization).not.toContain('dangerouslySetInnerHTML');
+    expect(factory).toContain('resources');
+    expect(factory).toContain("fallbackLng: 'en'");
+  });
+
   it('keeps long user-controlled names inside shrinkable layout regions', async () => {
     const value = await source('src/renderer/styles.css');
     expect(value).toMatch(/\.user-content[^}]*overflow-wrap:\s*anywhere/);

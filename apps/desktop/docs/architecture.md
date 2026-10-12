@@ -188,20 +188,24 @@ link, embed a WebView, or hold the GitHub client secret.
 
 ## Legal Documents and Localization
 
-**Current:** First registration ships one versioned `zh-CN` legal bundle in the
-Renderer. The bundle separately versions the User Agreement and Privacy Policy,
-and the registration contract identifies the bundle, both exact texts, and the
-locale. The displayed effective date belongs to each legal document; it is not
-part of the first-use heading or the user's profile. Core API remains the
-acceptance authority and generates `acceptedAt`.
+**Current:** Renderer owns a local internationalization context backed by pinned
+`i18next` and `react-i18next` dependencies. It resolves `zh-CN` and `en` from a
+safe local preference first and then the ordered operating-system language list,
+defaults unsupported language lists and missing ordinary messages to English,
+and keeps `<html lang>` synchronized. The preference is non-sensitive Renderer
+state in `localStorage`; storage failure leaves the in-memory choice usable.
+Message resources are static application modules: localization performs no
+network fetch and introduces no Main, Preload, or generic IPC capability.
 
-**Next feature TODO (priority):** establish Desktop internationalization before
-adding another authentication provider or materially expanding first-use UI.
-That feature must extract hard-coded Renderer copy, select a supported locale
-from the operating system, define an explicit fallback, localize dates and
-stable error presentation, and resolve legal documents by supported
-`version + locale`. This slice intentionally adds neither an i18n framework nor
-a language switcher and supports only `zh-CN`.
+Auth and Account surfaces resolve all product copy from the static catalogs and
+expose one shared keyboard-operable language selector. First registration ships
+versioned `zh-CN` and `en` User Agreement/Privacy Policy bundles. The complete
+`(locale, legalBundleVersion, termsVersion, privacyVersion)` quartet identifies
+the exact displayed texts; a missing or unknown quartet has no cross-locale
+fallback and blocks consent/registration. Switching language preserves profile
+input but invalidates consent to the previously displayed texts. Effective dates
+use `Intl.DateTimeFormat` with the bundle locale. Core API remains the acceptance
+authority and generates `acceptedAt`.
 
 ## Electron Security Baseline
 

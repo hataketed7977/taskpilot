@@ -12,6 +12,10 @@
 
 - Window lifecycle, navigation, application shell, and first-party workflows.
 - Accessible keyboard and pointer interaction in the React Renderer.
+- Renderer-owned `zh-CN`/`en` locale resolution, non-sensitive local
+  preference, static message resources, English ordinary-message fallback, and
+  synchronization of the document language; no localization IPC or remote
+  resource loader.
 - Provider-neutral typed presentation of cloud state, Agent Run progress,
   normalized capabilities, logs, approvals, Diff, and artifacts without becoming
   their business source of truth.
@@ -59,6 +63,7 @@
 | `main/runtime-client` | Fixed-path Runtime launch, JSON-RPC/JSONL stdio client, generated contracts, version/capability negotiation, health, cancellation, shutdown and child failure state |
 | `preload` | Narrow typed capabilities exposed to a sandboxed Renderer |
 | `renderer/app` | Providers, routing, auth boundary, global error handling |
+| `renderer/i18n` | Supported locale resolution, safe local preference, static message catalogs, fallback policy and document-language synchronization |
 | `renderer/pages` | Route/window entry and page composition |
 | `renderer/modules/<domain>` | Cohesive first-party UI capability and its presentation logic |
 | `renderer/components` | Application-wide business-neutral React components |

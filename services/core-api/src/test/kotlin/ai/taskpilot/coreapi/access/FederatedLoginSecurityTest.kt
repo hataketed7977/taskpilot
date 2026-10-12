@@ -1,10 +1,10 @@
 package ai.taskpilot.coreapi.access
 
+import ai.taskpilot.coreapi.access.application.ApprovedLegalDocuments
 import ai.taskpilot.coreapi.access.application.FederatedAead
 import ai.taskpilot.coreapi.access.application.FederatedAuthenticationInputPolicy
 import ai.taskpilot.coreapi.access.application.FederatedLoginSecurity
 import ai.taskpilot.coreapi.access.application.FederatedSecretPurpose
-import ai.taskpilot.coreapi.access.application.LegalDocumentBundle
 import ai.taskpilot.coreapi.access.application.SessionPolicy
 import ai.taskpilot.coreapi.access.infrastructure.FederatedAuthenticationProperties
 import java.net.URI
@@ -67,11 +67,14 @@ class FederatedLoginSecurityTest {
 
     @Test
     fun `legal bundle and session policy reject incomplete unsafe configuration`() {
-        assertTrue(LegalDocumentBundle("bundle", "terms", "privacy", "zh-CN").isValid())
-        assertFalse(LegalDocumentBundle("", "terms", "privacy", "zh-CN").isValid())
-        assertFalse(LegalDocumentBundle("bundle", "", "privacy", "zh-CN").isValid())
-        assertFalse(LegalDocumentBundle("bundle", "terms", "", "zh-CN").isValid())
-        assertFalse(LegalDocumentBundle("bundle", "terms", "privacy", "").isValid())
+        assertTrue(ApprovedLegalDocuments("bundle", "terms", "privacy", listOf("zh-CN", "en")).isValid())
+        assertFalse(ApprovedLegalDocuments("", "terms", "privacy", listOf("zh-CN")).isValid())
+        assertFalse(ApprovedLegalDocuments("bundle", "", "privacy", listOf("zh-CN")).isValid())
+        assertFalse(ApprovedLegalDocuments("bundle", "terms", "", listOf("zh-CN")).isValid())
+        assertFalse(ApprovedLegalDocuments("bundle", "terms", "privacy", emptyList()).isValid())
+        assertFalse(ApprovedLegalDocuments("bundle", "terms", "privacy", listOf("zh-CN", "zh-CN")).isValid())
+        assertFalse(ApprovedLegalDocuments("bundle", "terms", "privacy", listOf("fr")).isValid())
+        assertFalse(ApprovedLegalDocuments("bundle", "terms", "privacy", listOf("zh-cn")).isValid())
 
         assertFailsWith<IllegalArgumentException> {
             SessionPolicy(Duration.ZERO, Duration.ofDays(1), Duration.ofDays(2))

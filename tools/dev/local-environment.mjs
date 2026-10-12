@@ -10,6 +10,7 @@ const requiredKeys = [
   'TASKPILOT_POSTGRES_PASSWORD',
   'TASKPILOT_REDIS_PASSWORD',
   'TASKPILOT_AUTH_TOKEN_PEPPER_BASE64',
+  'TASKPILOT_AUTH_LEGAL_LOCALES',
 ];
 const githubCredentialKeys = [
   'TASKPILOT_GITHUB_CLIENT_ID',
@@ -93,6 +94,20 @@ const localEnvironmentSections = [
         key: 'TASKPILOT_DESKTOP_DEV_SERVER_PORT',
         comments: ['Host port for the Desktop Renderer Vite development server.'],
         example: '55432',
+      },
+    ],
+  },
+  {
+    title: 'Legal documents',
+    introduction: [
+      'Canonical comma-separated locales accepted for the current legal document versions.',
+      'Keep this aligned with the static Desktop legal catalog; unsupported or duplicate values fail closed.',
+    ],
+    fields: [
+      {
+        key: 'TASKPILOT_AUTH_LEGAL_LOCALES',
+        comments: ['Approved legal-document locales for local registration.'],
+        example: 'zh-CN,en',
       },
     ],
   },
@@ -278,6 +293,7 @@ function missingGeneratedValues(values, root) {
   if (!values.TASKPILOT_POSTGRES_PASSWORD) additions.TASKPILOT_POSTGRES_PASSWORD = randomBytes(24).toString('base64url');
   if (!values.TASKPILOT_REDIS_PASSWORD) additions.TASKPILOT_REDIS_PASSWORD = randomBytes(24).toString('base64url');
   if (!values.TASKPILOT_AUTH_TOKEN_PEPPER_BASE64) additions.TASKPILOT_AUTH_TOKEN_PEPPER_BASE64 = randomBytes(32).toString('base64');
+  if (!values.TASKPILOT_AUTH_LEGAL_LOCALES) additions.TASKPILOT_AUTH_LEGAL_LOCALES = 'zh-CN,en';
   if (!values.TASKPILOT_FEDERATED_HMAC_KEY_BASE64) additions.TASKPILOT_FEDERATED_HMAC_KEY_BASE64 = randomBytes(32).toString('base64');
   if (!values.TASKPILOT_FEDERATED_AEAD_KEY_BASE64) additions.TASKPILOT_FEDERATED_AEAD_KEY_BASE64 = randomBytes(32).toString('base64');
   for (const [key, value] of Object.entries(settings)) if (!values[key]) additions[key] = value;

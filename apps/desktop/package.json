@@ -27,8 +27,10 @@
     "@fontsource-variable/inter": "latest",
     "@fontsource-variable/newsreader": "latest",
     "@napi-rs/keyring": "2.1.0",
+    "i18next": "26.4.3",
     "react": "latest",
     "react-dom": "latest",
+    "react-i18next": "17.0.16",
     "zod": "latest"
   },
   "devDependencies": {

@@ -1,4 +1,5 @@
 import { App } from '../../src/renderer/App';
+import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
 import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
 
 const user = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
@@ -19,10 +20,16 @@ function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilotDeskto
   } };
 }
 
+
+function mountApp(api: TaskPilotDesktopApi, locale: 'zh-CN' | 'en' = 'zh-CN') {
+  cy.mount(<LocaleProvider initialLanguages={[locale]}><App api={api} /></LocaleProvider>);
+}
+
 describe('Desktop first-use experience', () => {
+  beforeEach(() => { cy.clearLocalStorage(); });
   it('offers only GitHub and cancellation returns directly to sign-in', () => {
     const api = apiFor();
-    cy.mount(<App api={api} />);
+    mountApp(api);
     cy.findByRole('heading', { name: '登录 TaskPilot' }).should('be.visible');
     cy.findByRole('button', { name: '使用 GitHub 登录' }).focus().should('be.focused').click();
     cy.findByRole('heading', { name: '在浏览器中继续' }).should('be.visible');
@@ -35,7 +42,7 @@ describe('Desktop first-use experience', () => {
   it('fails closed when GitHub capability is unavailable', () => {
     const api = apiFor();
     (api.auth.getCapabilities as Cypress.Agent<sinon.SinonStub>).resolves({ github: { enabled: false } });
-    cy.mount(<App api={api} />);
+    mountApp(api);
     cy.findByRole('heading', { name: 'GitHub 登录尚未配置' }).should('be.visible');
     cy.findByRole('button', { name: '使用 GitHub 登录' }).should('not.exist');
   });
@@ -46,7 +53,7 @@ describe('Desktop first-use experience', () => {
       status: 'registrationRequired', flowId: 'opaque-flow',
       suggestedDisplayName: '', legalBundleVersion: '2026-09-01',
     });
-    cy.mount(<App api={api} />);
+    mountApp(api);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).click();
     cy.findByRole('button', { name: '创建 TaskPilot 账号' }).click();
     cy.findByRole('alert').should('contain.text', '显示名称');
@@ -67,7 +74,7 @@ describe('Desktop first-use experience', () => {
       status: 'registrationRequired', flowId: 'opaque-flow',
       suggestedDisplayName: 'octocat', legalBundleVersion: '2026-09-01',
     });
-    cy.mount(<App api={api} />);
+    mountApp(api);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).click();
     cy.findByLabelText('显示名称').clear().type('Ada Lovelace');
     cy.contains(/2026-09-01|版本/).should('not.exist');
@@ -82,7 +89,7 @@ describe('Desktop first-use experience', () => {
   it('keeps the auth surface usable at narrow width and respects reduced motion', () => {
     const api = apiFor();
     cy.viewport(480, 640);
-    cy.mount(<App api={api} />);
+    mountApp(api);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).should('be.visible');
     cy.document().then((document) => {
       expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth);
@@ -95,9 +102,56 @@ describe('Desktop first-use experience', () => {
 
   it('shows the authenticated account and preserves logout', () => {
     const api = apiFor({ status: 'authenticated', currentUser: user });
-    cy.mount(<App api={api} />);
+    mountApp(api);
     cy.findByRole('heading', { name: 'Ada' }).should('be.visible');
     cy.findByRole('button', { name: '退出登录' }).click();
     cy.wrap(api.auth.logout).should('have.been.calledOnce');
   });
+
+  it('switches waiting and error states to English at the minimum supported viewport without restarting auth', () => {
+    const api = apiFor();
+    cy.viewport(960, 640);
+    mountApp(api);
+    cy.findByRole('button', { name: '使用 GitHub 登录' }).click();
+    cy.findByRole('heading', { name: '在浏览器中继续' }).should('be.visible');
+    cy.findByRole('combobox', { name: '语言' }).focus().select('en').should('be.focused');
+    cy.findByRole('heading', { name: 'Continue in your browser' }).should('be.visible');
+    cy.findByRole('status').should('contain.text', 'Waiting for you to finish GitHub authorization');
+    cy.wrap(api.auth.startGitHubSignIn).should('have.been.calledOnce');
+    cy.document().its('documentElement.lang').should('equal', 'en');
+  });
+
+  it('keeps the longest English registration content and legal actions reachable at minimum viewport', () => {
+    const api = apiFor();
+    (api.auth.startGitHubSignIn as Cypress.Agent<sinon.SinonStub>).resolves({
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada',
+      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01',
+    });
+    cy.viewport(960, 640);
+    mountApp(api, 'en');
+    cy.findByRole('button', { name: 'Sign in with GitHub' }).click();
+    cy.findByRole('heading', { name: 'Create your TaskPilot account' }).should('be.visible');
+    cy.findByRole('checkbox', { name: /Terms of Service.*Privacy Policy/ }).should('be.visible');
+    cy.findByRole('button', { name: 'Terms of Service' }).click();
+    cy.findByRole('heading', { name: 'TaskPilot Terms of Service' }).should('be.visible');
+    cy.findByRole('region', { name: 'Legal document content' }).focus().should('be.focused');
+    cy.findByRole('button', { name: '← Back to account creation' }).should('be.visible').click();
+    cy.findByRole('button', { name: 'Create TaskPilot account' }).should('be.visible');
+    cy.document().then((document) => {
+      expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth);
+    });
+  });
+
+  it('switches the authenticated account to English without changing the user or logging out', () => {
+    const api = apiFor({ status: 'authenticated', currentUser: user });
+    cy.viewport(1280, 800);
+    mountApp(api);
+    cy.findByRole('heading', { name: 'Ada' }).should('be.visible');
+    cy.findByRole('combobox', { name: '语言' }).select('en');
+    cy.findByRole('heading', { name: 'Ada' }).should('be.visible');
+    cy.contains('GitHub sign-in is ready').should('be.visible');
+    cy.findByRole('button', { name: 'Sign out' }).should('be.visible');
+    cy.wrap(api.auth.logout).should('not.have.been.called');
+  });
+
 });

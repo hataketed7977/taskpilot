@@ -106,10 +106,22 @@ remain later changes.
 ## Renderer Behavior
 
 Test user-observable states rather than implementation details: success, empty,
-loading, rejection, permission denied, connection loss/recovery, stale response, partial log,
-large output, keyboard focus, and reduced motion where applicable. Mock at the
-Preload capability boundary, never by importing Main internals into Renderer
-tests. Main cloud-client tests own the HTTP adapter and credential lifecycle.
+loading, rejection, permission denied, connection loss/recovery, stale response,
+partial log, large output, keyboard focus, and reduced motion where applicable.
+Mock at the Preload capability boundary, never by importing Main internals into
+Renderer tests. Main cloud-client tests own the HTTP adapter and credential
+lifecycle.
+
+**Current bilingual evidence:** Renderer tests cover ordered system-language
+resolution, saved-preference precedence, English fallback, storage failure,
+message-key parity, immediate `<html lang>` updates, offline switching with no
+auth request, and preservation of flow/session/profile state. Legal-catalog tests
+cover exact `zh-CN`/`en` quartets, UTC date formatting, no cross-locale legal
+fallback, and consent invalidation without losing non-legal registration input.
+Cypress exercises login, waiting, error, registration, focus retention,
+keyboard-scrollable legal content, and account switching at `960 × 640`, plus
+the existing `480 × 640` overflow and reduced-motion regression. Long English
+copy must wrap without horizontal loss or hiding primary actions.
 
 ## Packaged and Native Matrix
 
@@ -153,9 +165,10 @@ insufficient evidence for that platform.
 
 Main/Preload automated tests use a fixed HTTP client, loopback/browser doubles and
 credential stores; they do not open a real browser or call GitHub. Renderer and
-Cypress tests prove the safe capability experience, no-date consent copy,
-in-app legal-document navigation with draft retention, and unknown-bundle
-failure. Packaged Electron,
+Cypress tests prove the safe bilingual capability experience, no-date consent
+copy, in-app keyboard-accessible legal-document navigation with draft retention,
+exact bilingual bundle selection, locale-switch consent invalidation, and
+unknown-bundle failure. Packaged Electron,
 native credential prompts, real GitHub OAuth, macOS signing/notarization and
 Windows installer behavior require separate manual/current-platform evidence and
 are not implied by the portable gates. No deep-link or WebView path exists to

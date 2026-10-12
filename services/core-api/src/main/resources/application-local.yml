@@ -23,7 +23,7 @@ taskpilot:
     legal-bundle-version: "2026-09-01"
     terms-version: "terms-2026-09-01"
     privacy-version: "privacy-2026-09-01"
-    legal-locale: "zh-CN"
+    legal-locales: ${TASKPILOT_AUTH_LEGAL_LOCALES:zh-CN,en}
     github:
       client-id: ${TASKPILOT_GITHUB_CLIENT_ID:}
       client-secret: ${TASKPILOT_GITHUB_CLIENT_SECRET:}

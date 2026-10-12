@@ -1,5 +1,6 @@
 package ai.taskpilot.coreapi.access
 
+import ai.taskpilot.coreapi.access.application.ApprovedLegalDocuments
 import ai.taskpilot.coreapi.access.application.CreateFederatedAttemptCommand
 import ai.taskpilot.coreapi.access.application.CurrentUserResult
 import ai.taskpilot.coreapi.access.application.CurrentUserView
@@ -22,7 +23,6 @@ import ai.taskpilot.coreapi.access.application.FederatedProviderFailureCategory
 import ai.taskpilot.coreapi.access.application.FederatedRuntimeDependencies
 import ai.taskpilot.coreapi.access.application.FederatedTokenGenerator
 import ai.taskpilot.coreapi.access.application.IssuedSession
-import ai.taskpilot.coreapi.access.application.LegalDocumentBundle
 import ai.taskpilot.coreapi.access.application.PollFederatedAttemptCommand
 import ai.taskpilot.coreapi.access.application.ProviderIdentity
 import ai.taskpilot.coreapi.access.application.RefreshSessionResult
@@ -102,6 +102,56 @@ class FederatedAuthenticationServiceTest {
         assertEquals("Ada", authenticated.session.currentUser.displayName)
         assertNotNull(identities.registration)
         assertEquals(FederatedLoginAttemptStatus.COMPLETED, store.status)
+    }
+
+    @Test
+    fun `each approved locale persists the exact legal quadruple`() {
+        listOf("zh-CN", "en").forEach { locale ->
+            identities.registration = null
+            val pending =
+                assertIs<FederatedPollResult.RegistrationRequired>(
+                    service.poll(PollFederatedAttemptCommand(prepareIdentity(), "poll", "proof")),
+                )
+
+            service.register(registrationCommand(pending, locale))
+
+            val acceptance = assertNotNull(identities.registration).termsAcceptance
+            assertEquals("bundle-v1", acceptance.legalBundleVersion)
+            assertEquals("terms-v1", acceptance.termsVersion)
+            assertEquals("privacy-v1", acceptance.privacyVersion)
+            assertEquals(locale, acceptance.locale)
+        }
+    }
+
+    @Test
+    fun `unknown locale and wrong legal versions leave no durable registration`() {
+        listOf(
+            RejectedLegalBundle("bundle-v1", "terms-v1", "privacy-v1", "fr"),
+            RejectedLegalBundle("old", "terms-v1", "privacy-v1", "zh-CN"),
+            RejectedLegalBundle("bundle-v1", "old", "privacy-v1", "zh-CN"),
+            RejectedLegalBundle("bundle-v1", "terms-v1", "old", "zh-CN"),
+        ).forEach { rejected ->
+            identities.registration = null
+            val pending =
+                assertIs<FederatedPollResult.RegistrationRequired>(
+                    service.poll(PollFederatedAttemptCommand(prepareIdentity(), "poll", "proof")),
+                )
+            assertFailsWith<FederatedLegalBundleRejected> {
+                service.register(
+                    RegisterFederatedUserCommand(
+                        ContinuationId(pending.continuationId),
+                        pending.continuationSecret,
+                        "Ada",
+                        true,
+                        rejected.legalBundleVersion,
+                        rejected.termsVersion,
+                        rejected.privacyVersion,
+                        rejected.locale,
+                    ),
+                )
+            }
+            assertEquals(null, identities.registration)
+        }
     }
 
     @Test
@@ -280,17 +330,26 @@ class FederatedAuthenticationServiceTest {
         assertFailsWith<FederatedContextInvalid> { service.cancel(attempt, "poll") }
     }
 
-    private fun registrationCommand(pending: FederatedPollResult.RegistrationRequired) =
-        RegisterFederatedUserCommand(
-            ContinuationId(pending.continuationId),
-            pending.continuationSecret,
-            "Ada",
-            true,
-            "bundle-v1",
-            "terms-v1",
-            "privacy-v1",
-            "zh-CN",
-        )
+    private data class RejectedLegalBundle(
+        val legalBundleVersion: String,
+        val termsVersion: String,
+        val privacyVersion: String,
+        val locale: String,
+    )
+
+    private fun registrationCommand(
+        pending: FederatedPollResult.RegistrationRequired,
+        locale: String = "zh-CN",
+    ) = RegisterFederatedUserCommand(
+        ContinuationId(pending.continuationId),
+        pending.continuationSecret,
+        "Ada",
+        true,
+        "bundle-v1",
+        "terms-v1",
+        "privacy-v1",
+        locale,
+    )
 
     private fun callbackAttempt(): AttemptId {
         provider.failure = null
@@ -337,7 +396,7 @@ class FederatedAuthenticationServiceTest {
                 mapper,
                 FederatedRuntimeDependencies(
                     Clock.fixed(now, ZoneOffset.UTC),
-                    LegalDocumentBundle("bundle-v1", "terms-v1", "privacy-v1", "zh-CN"),
+                    ApprovedLegalDocuments("bundle-v1", "terms-v1", "privacy-v1", listOf("zh-CN", "en")),
                 ),
             )
         return FederatedAuthenticationService(store, identities, StubRateLimiter(), sessions, dependencies)

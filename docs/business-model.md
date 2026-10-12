@@ -422,15 +422,18 @@ stateDiagram-v2
 ```
 
 The first registration transaction creates exactly one User, its first
-External Identity, and acceptance of the current legal-document bundle.
-`TermsAcceptance.legalBundleVersion` is the immutable identifier for the
-displayed User Agreement and Privacy Policy combination; `termsVersion` and
-`privacyVersion` identify the exact texts in that combination. `locale` records
-the version the user actually read as acceptance evidence but does not create
-an independent consent identity, and server-generated `acceptedAt` records when
-the combination was accepted. The first-use UI does not expose these internal
+External Identity, and acceptance of the current legal-document bundle. In the
+multilingual catalog, `(locale, legalBundleVersion, termsVersion,
+privacyVersion)` is the immutable identity of the exact User Agreement and
+Privacy Policy texts the user read; none of the three version fields identifies
+that text independently of `locale`. `TermsAcceptance` stores the complete
+quartet, and server-generated `acceptedAt` records when it was accepted. Locale
+is acceptance evidence and Desktop presentation state, not a User attribute or
+an independent account identity. The first-use UI does not expose these internal
 identifiers, links both documents without auto-checking consent, and fails
-closed when the server requires a bundle the installed client cannot present.
+closed when the server requires a quartet the installed client cannot present.
+Switching locale invalidates the in-progress consent while preserving non-legal
+registration input.
 Concurrent registration of the same external identity may succeed at most once
 and must leave no orphan User or terms record. After an existing identity is
 resolved or first registration commits, Core API directly issues an active

@@ -368,12 +368,16 @@ The same bounded content area replaces itself for every stable auth state:
 | authenticated handoff | Announce completion briefly while the authoritative session subscription moves the app into the account view. |
 
 Polling and reconnect timers stop on cancellation, authentication, unmount, or
-flow replacement. Keyboard order follows the visual order, all actions have a
-visible focus indicator, status changes use `role="status"`, actionable failures
-use `role="alert"`, narrow windows remain scrollable, and reduced-motion users
-receive no decorative transition. Portable Renderer/Cypress checks cover these
-contracts; packaged Electron, native credential storage, macOS, and Windows
-remain separate release evidence.
+flow replacement. The Current Auth and Account surfaces provide the same compact
+native language selector for `简体中文` and `English`; switching is immediate and
+does not restart authentication or change the signed-in User. Keyboard order
+follows the visual order, all actions and the independently scrollable legal
+body have a visible focus indicator, status changes use `role="status"`,
+actionable failures use `role="alert"`, long English copy wraps at the `960 ×
+640` minimum, narrow windows remain scrollable, and reduced-motion users receive
+no decorative transition. Portable Renderer/Cypress checks cover these
+contracts; packaged Electron, native credential storage, final platform visual
+review, macOS, and Windows remain separate release evidence.
 
 ### Workspace selection
 

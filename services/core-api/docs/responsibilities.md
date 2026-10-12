@@ -15,7 +15,11 @@ guardrails plus one implemented `access` slice. That slice owns stable User
 identity, provider-neutral External Identity uniqueness, legal acceptance,
 GitHub OAuth attempts and registration continuations, login rate limiting,
 opaque session issue/rotation/replay revocation/logout, `CurrentUserView`, and
-the corresponding Desktop HTTP adapters. The GitHub adapter performs only
+the corresponding Desktop HTTP adapters. Access also owns the configured legal
+locale allowlist, exact `(locale, legalBundleVersion, termsVersion,
+privacyVersion)` validation, atomic acceptance persistence, and server-generated
+`acceptedAt`; it does not own Desktop language preference or general server-side
+i18n. The GitHub adapter performs only
 authorization/token/authenticated-user exchange outside database transactions
 and returns a normalized durable identity; it does not persist Provider tokens.
 

@@ -25,7 +25,7 @@ data class AuthenticationProperties(
     val legalBundleVersion: String = "",
     val termsVersion: String = "",
     val privacyVersion: String = "",
-    val legalLocale: String = "",
+    val legalLocales: List<String> = emptyList(),
     val accessTtl: Duration = Duration.ofMinutes(DEFAULT_ACCESS_TTL_MINUTES),
     val refreshInactivityTtl: Duration = Duration.ofDays(DEFAULT_REFRESH_INACTIVITY_TTL_DAYS),
     val refreshAbsoluteTtl: Duration = Duration.ofDays(DEFAULT_REFRESH_ABSOLUTE_TTL_DAYS),

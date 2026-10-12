@@ -3,10 +3,15 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
+import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
 import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
 
 const currentUser = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
 const waiting: FederatedAuthFlowView = { status: 'waiting', flowId: 'opaque-flow', expiresAt: '2030-01-01T00:00:00Z' };
+
+function renderApp(api: TaskPilotDesktopApi) {
+  return render(<LocaleProvider initialLanguages={['zh-CN']}><App api={api} /></LocaleProvider>);
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -30,12 +35,12 @@ function signedOutApi(): TaskPilotDesktopApi {
   };
 }
 
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); window.localStorage.clear(); vi.useRealTimers(); });
 
 describe('GitHub authentication UX', () => {
   it('shows one GitHub entry with a keyboard skip target and no email fallback', async () => {
     const api = signedOutApi();
-    render(<App api={api} />);
+    renderApp(api);
 
     expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '跳到主要内容' })).toHaveAttribute('href', '#main-content');
@@ -52,7 +57,7 @@ describe('GitHub authentication UX', () => {
       .mockResolvedValueOnce({ github: { enabled: false } })
       .mockResolvedValueOnce({ github: { enabled: true } });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
 
     expect(await screen.findByRole('heading', { name: 'GitHub 登录尚未配置' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '使用 GitHub 登录' })).not.toBeInTheDocument();
@@ -66,7 +71,7 @@ describe('GitHub authentication UX', () => {
     const result = deferred<FederatedAuthFlowView>();
     vi.mocked(api.auth.startGitHubSignIn).mockReturnValue(result.promise);
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
 
     const start = await screen.findByRole('button', { name: '使用 GitHub 登录' });
     await operator.click(start);
@@ -82,7 +87,7 @@ describe('GitHub authentication UX', () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({ status: 'authenticated', currentUser });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
 
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
     expect(await screen.findByRole('heading', { name: 'Ada' })).toBeInTheDocument();
@@ -101,7 +106,7 @@ describe('GitHub authentication UX', () => {
       publishSession?.({ status: 'signedOut' });
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
 
     await operator.click(await screen.findByRole('button', { name: '退出登录' }));
 
@@ -117,7 +122,7 @@ describe('GitHub authentication UX', () => {
       .mockResolvedValueOnce({ status: 'completionRequired', flowId: 'opaque-flow', expiresAt: '2030-01-01T00:00:00Z' })
       .mockResolvedValueOnce({ status: 'denied', flowId: 'opaque-flow' });
     const operator = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     await act(() => vi.advanceTimersByTimeAsync(1_100));
@@ -139,7 +144,7 @@ describe('GitHub authentication UX', () => {
     const completed = deferred<FederatedAuthFlowView>();
     vi.mocked(api.auth.completeGitHubRegistration).mockReturnValue(completed.promise);
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     const name = await screen.findByLabelText('显示名称');
@@ -171,7 +176,7 @@ describe('GitHub authentication UX', () => {
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'octocat', legalBundleVersion: '2026-09-01',
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     const name = await screen.findByLabelText('显示名称');
@@ -202,7 +207,7 @@ describe('GitHub authentication UX', () => {
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01',
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     await operator.click(screen.getByRole('button', { name: '《用户协议》' }));
@@ -219,7 +224,7 @@ describe('GitHub authentication UX', () => {
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: 'future-bundle',
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('当前协议已更新，请更新 TaskPilot 后继续');
@@ -234,7 +239,7 @@ describe('GitHub authentication UX', () => {
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01',
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     expect(await screen.findByRole('heading', { name: '创建 TaskPilot 账号' })).toBeInTheDocument();
@@ -248,7 +253,7 @@ describe('GitHub authentication UX', () => {
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Andy Zhang', legalBundleVersion: '2026-09-01',
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     expect(await screen.findByLabelText('头像缩写：AZ')).toHaveTextContent('AZ');
@@ -264,7 +269,7 @@ describe('GitHub authentication UX', () => {
   it('cancels a waiting flow and returns directly to the initial sign-in view', async () => {
     const api = signedOutApi();
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
     await operator.click(await screen.findByRole('button', { name: '取消登录' }));
 
@@ -283,7 +288,7 @@ describe('GitHub authentication UX', () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({ status, flowId: 'opaque-flow' });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新开始' })).toBeEnabled();
@@ -295,7 +300,7 @@ describe('GitHub authentication UX', () => {
       code: 'FEDERATED_LOGIN_CONTEXT_INVALID', category: 'conflict',
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
 
     expect(await screen.findByRole('heading', { name: '登录请求已过期' }, { timeout: 2_000 })).toBeInTheDocument();
@@ -312,7 +317,7 @@ describe('GitHub authentication UX', () => {
       code: 'UNEXPECTED_DESKTOP_ERROR', category: 'unknown', message: 'provider-secret-value',
     });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
     expect(await screen.findByRole('heading', { name: '暂时无法连接' })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('raw provider detail');
@@ -328,7 +333,7 @@ describe('GitHub authentication UX', () => {
     });
     vi.mocked(api.auth.completeGitHubRegistration).mockRejectedValue({ code: 'VALIDATION_FAILED', category: 'validation', path: 'displayName' });
     const operator = userEvent.setup();
-    render(<App api={api} />);
+    renderApp(api);
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
     await operator.click(await screen.findByRole('checkbox', { name: /我已阅读并同意《用户协议》，并确认已阅读《隐私政策》/ }));
     await operator.click(screen.getByRole('button', { name: '创建 TaskPilot 账号' }));

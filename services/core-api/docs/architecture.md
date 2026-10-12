@@ -105,15 +105,21 @@ posts proof to the bound loopback receiver, and attempts best-effort close only
 after loopback success. Stable Problem Details hide Provider payloads and OAuth,
 poll, completion, continuation, and TaskPilot credential material.
 
-First registration validates the exact configured legal bundle and atomically
-stores User, External Identity, and Terms Acceptance in PostgreSQL. Known
-identity login and successful registration directly issue an active opaque
-Redis session. Refresh rotates both credentials; replay of an old refresh token
-revokes the session family, logout revokes immediately, and corrupt or
-unavailable Redis state fails closed. Existing-identity login updates only
-`lastAuthenticatedAt`, never the TaskPilot-owned display name or avatar.
-Incomplete GitHub/HMAC/AEAD configuration keeps the service healthy but disables
-the capability.
+First registration validates the exact `(locale, legalBundleVersion,
+termsVersion, privacyVersion)` quartet against a canonical, duplicate-free
+configured legal-locale allowlist and one configured version triple. Unknown,
+non-canonical, duplicate, or mismatched configuration fails closed. A valid
+registration atomically stores User, External Identity, and the complete Terms
+Acceptance quartet in PostgreSQL with server-generated `acceptedAt`; rejection
+leaves no durable registration. This is legal-document validation rather than a
+general server-side localization facility, and it changes neither HTTP DTOs nor
+the database schema. Known identity login and successful registration directly
+issue an active opaque Redis session. Refresh rotates both credentials; replay
+of an old refresh token revokes the session family, logout revokes immediately,
+and corrupt or unavailable Redis state fails closed. Existing-identity login
+updates only `lastAuthenticatedAt`, never the TaskPilot-owned display name or
+avatar. Incomplete GitHub/HMAC/AEAD/legal configuration keeps the service healthy
+but disables the capability.
 
 **Current Desktop collaboration:** Desktop Main alone launches the system
 browser, hosts the loopback receiver, combines poll and completion proof, holds

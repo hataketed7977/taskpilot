@@ -183,7 +183,7 @@ class FederatedAuthenticationService(
                 command.privacyVersion,
                 command.locale,
             )
-        if (submitted != dependencies.currentLegalBundle) throw FederatedLegalBundleRejected()
+        if (!dependencies.currentLegalDocuments.accepts(submitted)) throw FederatedLegalBundleRejected()
         val now = dependencies.clock.instant()
         val claim =
             store.claimRegistration(
@@ -290,7 +290,7 @@ class FederatedAuthenticationService(
                     continuationSecret,
                     identity.suggestedDisplayName,
                     identity.suggestedAvatarUrl,
-                    dependencies.currentLegalBundle.legalBundleVersion,
+                    dependencies.currentLegalDocuments.legalBundleVersion,
                     dependencies.clock.instant().plus(REGISTRATION_TTL),
                 )
             if (!store.requireRegistration(

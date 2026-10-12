@@ -101,7 +101,7 @@ class FederatedCapabilityDisabledHttpIntegrationTest(
             registry.add("taskpilot.authentication.legal-bundle-version") { "2026-09" }
             registry.add("taskpilot.authentication.terms-version") { "terms-2026-09" }
             registry.add("taskpilot.authentication.privacy-version") { "privacy-2026-09" }
-            registry.add("taskpilot.authentication.legal-locale") { "zh-CN" }
+            registry.add("taskpilot.authentication.legal-locales") { "zh-CN,en" }
             registry.add("taskpilot.authentication.github.client-id") { "client-id" }
             registry.add("taskpilot.authentication.github.callback-uri") {
                 "http://127.0.0.1:18080/desktop/v1/auth/federated/github/callback"

@@ -16,6 +16,7 @@ const validEnvironment = [
   'TASKPILOT_POSTGRES_PASSWORD=database-secret',
   'TASKPILOT_REDIS_PASSWORD=redis-secret',
   `TASKPILOT_AUTH_TOKEN_PEPPER_BASE64=${Buffer.alloc(32, 3).toString('base64')}`,
+  'TASKPILOT_AUTH_LEGAL_LOCALES=zh-CN,en',
   '',
 ].join('\n');
 const completeFederated = {
@@ -155,6 +156,7 @@ test('checked-in example exactly matches the documented generated template', () 
     'Redis',
     'Core API',
     'Desktop',
+    'Legal documents',
     'Session security',
     'GitHub OAuth App',
     'Federated login security',
