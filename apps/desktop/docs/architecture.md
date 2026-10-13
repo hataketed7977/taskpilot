@@ -202,10 +202,13 @@ expose one shared keyboard-operable language selector. First registration ships
 versioned `zh-CN` and `en` User Agreement/Privacy Policy bundles. The complete
 `(locale, legalBundleVersion, termsVersion, privacyVersion)` quartet identifies
 the exact displayed texts; a missing or unknown quartet has no cross-locale
-fallback and blocks consent/registration. Switching language preserves profile
-input but invalidates consent to the previously displayed texts. Effective dates
-use `Intl.DateTimeFormat` with the bundle locale. Core API remains the acceptance
-authority and generates `acceptedAt`.
+fallback and blocks consent/registration. Core API's registration preview supplies
+the required version triple and canonical legal-locale allowlist; Main retains the
+private continuation while Renderer receives only that legal metadata and the safe
+profile preview. Switching language preserves profile input but invalidates consent
+to the previously displayed texts. Effective dates use `Intl.DateTimeFormat` with
+the bundle locale. Core API remains the acceptance authority and generates
+`acceptedAt`.
 
 ## Electron Security Baseline
 

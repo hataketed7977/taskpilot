@@ -21,7 +21,8 @@ const issued = {
 const registration = {
   continuationId: 'continuation-id', continuationSecret: 'continuation-secret-value',
   suggestedDisplayName: 'Ada', suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
-  legalBundleVersion: '2026-01', expiresAt: '2031-01-01T00:00:00Z',
+  legalBundleVersion: '2026-01', termsVersion: 'terms-2026-01', privacyVersion: 'privacy-2026-01',
+  legalLocales: ['zh-CN', 'en'], expiresAt: '2031-01-01T00:00:00Z',
 };
 
 function receiverFixture(events: string[] = []) {
@@ -124,6 +125,7 @@ describe('FederatedAuthCoordinator', () => {
     expect(view).toEqual({
       status: 'registrationRequired', flowId: flowId(started), suggestedDisplayName: 'Ada',
       suggestedAvatarUrl: registration.suggestedAvatarUrl, legalBundleVersion: '2026-01',
+      termsVersion: 'terms-2026-01', privacyVersion: 'privacy-2026-01', legalLocales: ['zh-CN', 'en'],
     });
     expect(JSON.stringify(view)).not.toMatch(/continuation|secret|proof/i);
     expect((await current.recovery.load('local'))?.registration?.continuationSecret)

@@ -51,7 +51,7 @@ describe('Desktop first-use experience', () => {
     const api = apiFor();
     (api.auth.startGitHubSignIn as Cypress.Agent<sinon.SinonStub>).resolves({
       status: 'registrationRequired', flowId: 'opaque-flow',
-      suggestedDisplayName: '', legalBundleVersion: '2026-09-01',
+      suggestedDisplayName: '', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     mountApp(api);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).click();
@@ -72,7 +72,7 @@ describe('Desktop first-use experience', () => {
     const api = apiFor();
     (api.auth.startGitHubSignIn as Cypress.Agent<sinon.SinonStub>).resolves({
       status: 'registrationRequired', flowId: 'opaque-flow',
-      suggestedDisplayName: 'octocat', legalBundleVersion: '2026-09-01',
+      suggestedDisplayName: 'octocat', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     mountApp(api);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).click();
@@ -125,7 +125,7 @@ describe('Desktop first-use experience', () => {
     const api = apiFor();
     (api.auth.startGitHubSignIn as Cypress.Agent<sinon.SinonStub>).resolves({
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada',
-      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01',
+      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     cy.viewport(960, 640);
     mountApp(api, 'en');

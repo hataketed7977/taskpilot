@@ -169,6 +169,9 @@ data class FederatedRegistrationResultPayload(
     val suggestedDisplayName: String,
     val suggestedAvatarUrl: URI?,
     val legalBundleVersion: String,
+    val termsVersion: String,
+    val privacyVersion: String,
+    val legalLocales: List<String>,
     val expiresAt: Instant,
 ) {
     fun toPollResult() =
@@ -178,6 +181,9 @@ data class FederatedRegistrationResultPayload(
             suggestedDisplayName,
             suggestedAvatarUrl,
             legalBundleVersion,
+            termsVersion,
+            privacyVersion,
+            legalLocales,
             expiresAt,
         )
 }

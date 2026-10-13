@@ -139,7 +139,7 @@ and atomically stores the complete acceptance evidence with User and External
 Identity. Unknown or non-canonical combinations fail closed before durable
 writes. This allowlist is a legal-contract boundary, not general server-side
 i18n: Problem Details remain stable transport contracts, locale is not a User
-attribute, and the HTTP DTO and PostgreSQL schema are unchanged.
+attribute. The registration preview HTTP DTO exposes the required version triple and canonical legal-locale allowlist to Desktop so it can fail closed before submission; the PostgreSQL schema is unchanged.
 
 ## Top-Level Project Boundaries
 

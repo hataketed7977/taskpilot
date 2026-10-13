@@ -112,8 +112,7 @@ non-canonical, duplicate, or mismatched configuration fails closed. A valid
 registration atomically stores User, External Identity, and the complete Terms
 Acceptance quartet in PostgreSQL with server-generated `acceptedAt`; rejection
 leaves no durable registration. This is legal-document validation rather than a
-general server-side localization facility, and it changes neither HTTP DTOs nor
-the database schema. Known identity login and successful registration directly
+general server-side localization facility. The registration preview response exposes the required version triple and legal-locale allowlist to Desktop; the registration request contract and database schema are unchanged. Known identity login and successful registration directly
 issue an active opaque Redis session. Refresh rotates both credentials; replay
 of an old refresh token revokes the session family, logout revokes immediately,
 and corrupt or unavailable Redis state fails closed. Existing-identity login

@@ -199,19 +199,19 @@ elevation, native-chrome, and screenshot review before it is claimed.
 
 ## Typography
 
-Bundle fonts so layout does not change with an arbitrary host installation:
+The Current authentication and account surfaces bundle **Inter Variable** for
+Latin text and numbers, with the platform sans-serif stack providing Chinese
+fallback. This is the approved typography for the runnable first-use slice; it
+must be checked with both Chinese and English content on each release platform.
+It does not silently decide the later application shell's complete CJK or
+machine-readable font stack.
 
-- **Latin and numbers:** IBM Plex Sans, chosen for its technical but human
-  proportions and clear distinction between dense metadata and prose.
-- **Simplified Chinese:** Noto Sans SC, with weight and size tuned alongside IBM
-  Plex Sans rather than accepted as an unreviewed fallback.
-- **Machine-readable values only:** JetBrains Mono for IDs, paths, timestamps,
-  shortcut chords, and future logs. Do not use monospace for ordinary labels or
-  decorative metadata.
-
-If font packaging or licensing prevents these exact families, replacement is a
-design decision requiring side-by-side Chinese and English screenshots, not a
-silent fallback to a generic stack.
+When the Workspace/Project shell is implemented, select and bundle its Latin,
+Simplified Chinese, and machine-readable families from real dense-screen
+fixtures. Machine-readable values may use a monospace family, but ordinary
+labels and decorative metadata must not. Any replacement or expansion of the
+Current stack requires side-by-side Chinese and English screenshots rather than
+an arbitrary host-font fallback.
 
 | Style | Size / line height | Weight | Use |
 | --- | --- | --- | --- |
@@ -221,13 +221,17 @@ silent fallback to a generic stack.
 | Body | `14 / 21` | 400 | Default content and descriptions |
 | Section title | `16 / 22` | 600 | Pane and form section headings |
 | Page title | `20 / 28` | 600 | Workspace or Project destination title |
-| Auth title | `28 / 36` | 600 | Login only; never used as marketing display type |
+| Auth decision title | `32–40 / 35–43` | 600 or 700 | Sign-in, registration, legal, and recovery state titles |
+| Signed-out brand title | `40–62 / 40–61` | 600 or 700 | Product promise in the authentication brand panel only |
 
 Guidance:
 
 - Use sentence case; do not add tracked all-caps eyebrow labels.
-- Left-align application content. Center only a bounded authentication or empty
-  state whose job is a single decision.
+- Left-align application content. The signed-out authentication layout may pair
+  one concise product statement with a bounded decision panel; authenticated
+  product surfaces do not use marketing display type.
+- Center only a bounded authentication decision or empty state; keep forms and
+  readable copy left-aligned within that surface.
 - Keep prose lines below 72 characters where possible; tables and records follow
   column needs rather than prose width.
 - Truncate mutable names only after preserving a tooltip or accessible full
@@ -307,21 +311,29 @@ contract.
 ### Authentication
 
 ```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ TaskPilot                                                                  │
-│                                                                            │
-│                    Sign in to TaskPilot                                    │
-│                    Continue in your system browser.                        │
-│                    [ Continue with GitHub                 ]                  │
-│                                                                            │
-│                    One GitHub identity maps to one stable TaskPilot User.  │
-└────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────┬─────────────────────────────────────────┐
+│ TaskPilot                        │ Language                                │
+│                                  │                                         │
+│ People and Agents collaborate    │ Sign in to TaskPilot                    │
+│ on one board.                    │ Verify your identity with GitHub.       │
+│                                  │ [ Sign in with GitHub                  ] │
+│ A concise board trace reinforces │                                         │
+│ the product model.               │ Authorization opens in the browser.     │
+└──────────────────────────────────┴─────────────────────────────────────────┘
 ```
 
-Authentication remains a focused utility view in the existing **Quiet control
-desk** language, not a marketing landing page. It uses one left-aligned decision
-panel and one emphasized action: **Continue with GitHub**. The first slice has
-no provider selector, email fallback, deep link, embedded browser/WebView, or
+Authentication uses the **Quiet control desk** palette and interaction grammar,
+with a distinct signed-out composition: one restrained brand panel describes
+human-and-Agent board collaboration while one left-aligned decision panel owns
+the active authentication task. A low-contrast board field spans the lower
+brand panel as ambient product context; it fades behind the mid-upper product
+statement instead of behaving like a separate bottom illustration. The brand
+panel is product orientation, not a second form, feature inventory, or place for
+implementation and storage rules.
+At narrow widths it yields entirely to the decision panel.
+
+The first slice has one emphasized action: **Sign in with GitHub**. It has no
+provider selector, email fallback, deep link, embedded browser/WebView, or
 preview of future providers. OAuth always opens the system browser; the
 Renderer retains only an opaque flow identifier and never receives Provider,
 registration-continuation or TaskPilot session secrets.
@@ -332,16 +344,19 @@ decision panel with one registration form:
 
 ```text
 Create your TaskPilot account
+[ avatar ]          [x] Use GitHub avatar   (when available)
 Display name        [ suggested name                         ]
-GitHub avatar       [ preview ] [x] Use this avatar   (when available)
 Consent             [ ] I agree to User Agreement and have read Privacy Policy
                     [ User Agreement ] [ Privacy Policy ]
                                             [ Create account ]
 ```
 
-The display name is editable. The avatar choice appears only when GitHub
-provides a safe preview URL; absence or image-load failure leaves a neutral
-fallback and does not block registration. Consent is explicit and bound to one immutable
+The avatar is a compact optional choice rather than a profile explainer; do not
+show its URL, persistence mechanism, future settings, or implementation rules in
+the form. The display name is a separate full-width editable field. The avatar
+choice appears only when GitHub provides a safe preview URL; absence or
+image-load failure leaves a neutral initials fallback and does not block
+registration. Consent is explicit and bound to one immutable
 User Agreement plus Privacy Policy bundle, while the checkbox hides the internal
 bundle identifier. Both documents open read-only inside the same auth surface;
 returning preserves the draft and reading never checks consent automatically. An

@@ -7,7 +7,7 @@ import type {
   TaskPilotDesktopApi,
 } from '../shared/contracts';
 import { useLocale } from './i18n/locale-state';
-import { currentLegalBundle, formatLegalEffectiveDate, legalDocument, type LegalBundle, type LegalDocumentKind } from './legal/legal-bundle';
+import { formatLegalEffectiveDate, legalDocument, resolveLegalBundle, type LegalBundle, type LegalDocumentKind } from './legal/legal-bundle';
 import { displayNameInitials } from './profile';
 
 type CodedError = Error & { code?: string; path?: string; retryAfterSeconds?: number; recovery?: string };
@@ -172,13 +172,43 @@ function AuthExperience({ auth, onAuthenticated }: {
       <a className="skip-link" href="#main-content">{t('auth.skip')}</a>
       <main id="main-content" className="auth-layout">
         <aside className="brand-panel">
-          <div className="wordmark"><span>TP</span> TaskPilot</div>
-          <div>
-            <p className="eyebrow">{t('auth.brandEyebrow')}</p>
+          <div className="wordmark">
+            <span className="brand-glyph" aria-hidden="true"><i /><i /><i /><i /></span>
+            <span>TaskPilot</span>
+          </div>
+          <div className="brand-message">
+            <p className="brand-signal">{t('auth.brandEyebrow')}</p>
             <h1>{t('auth.brandTitleLine1')}<br />{t('auth.brandTitleLine2')}</h1>
             <p className="brand-copy">{t('auth.brandCopy')}</p>
           </div>
-          <p className="trust-note">{t('auth.trustNote')}</p>
+          <div className="brand-foot" aria-hidden="true">
+            <span>{t('auth.brandPointIdentity')}</span>
+            <span>{t('auth.brandPointVisibility')}</span>
+            <span>{t('auth.brandPointControl')}</span>
+          </div>
+          <div className="board-signature" aria-hidden="true">
+            <div className="board-toolbar">
+              <span className="board-toolbar-mark"><i /><i /><i /></span>
+              <span className="board-toolbar-title" />
+              <span className="board-toolbar-actions"><i /><i /></span>
+            </div>
+            <div className="board-lanes">
+              <div className="board-lane board-lane--human">
+                <span className="board-lane-heading"><i /><b /></span>
+                <span className="board-ticket board-ticket--wide"><i /><b /><em /></span>
+                <span className="board-ticket board-ticket--compact"><i /><b /><em /></span>
+              </div>
+              <div className="board-lane board-lane--agent">
+                <span className="board-lane-heading"><i /><b /></span>
+                <span className="board-ticket board-ticket--active"><i /><b /><em /></span>
+                <span className="board-ticket"><i /><b /><em /></span>
+              </div>
+              <div className="board-lane board-lane--review">
+                <span className="board-lane-heading"><i /><b /></span>
+                <span className="board-ticket board-ticket--review"><i /><b /><em /></span>
+              </div>
+            </div>
+          </div>
         </aside>
         <section className="auth-panel" aria-label={t('auth.region')}>
           <LanguageSelector />
@@ -317,7 +347,13 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
 }) {
   const { locale } = useLocale();
   const { t } = useTranslation();
-  const legalBundle = currentLegalBundle(locale);
+  const [legalRejected, setLegalRejected] = useState(false);
+  const legalBundle = legalRejected ? undefined : resolveLegalBundle({
+    locale,
+    legalBundleVersion: view.legalBundleVersion,
+    termsVersion: view.termsVersion,
+    privacyVersion: view.privacyVersion,
+  });
   const [displayName, setDisplayName] = useState(view.suggestedDisplayName);
   const [acceptedLocale, setAcceptedLocale] = useState<typeof locale>();
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind>();
@@ -333,7 +369,7 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
   const privacyLinkRef = useRef<HTMLButtonElement>(null);
   const legalReturnFocus = useRef<LegalDocumentKind | undefined>(undefined);
   const errorId = 'github-registration-error';
-  const legalBundleSupported = legalBundle !== undefined && view.legalBundleVersion === legalBundle.version;
+  const legalBundleSupported = legalBundle !== undefined && view.legalLocales.includes(locale);
   const acceptedTerms = acceptedLocale === locale;
   const error = errorKey ? {
     errorName: t('registration.errorName'),
@@ -391,6 +427,11 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
         setErrorPath(path);
         if (path === 'displayName') nameRef.current?.focus();
         else termsRef.current?.focus();
+      } else if (code === 'LEGAL_BUNDLE_REJECTED') {
+        setLegalRejected(true);
+        setAcceptedLocale(undefined);
+        setErrorKey(undefined);
+        setErrorPath(undefined);
       } else {
         onIssue(caught);
       }
@@ -413,32 +454,27 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
       </button>
       <p className="eyebrow">{t('registration.eyebrow')}</p>
       <h2>{t('registration.title')}</h2>
-      <p className="muted">{t('registration.description')}</p>
       {!legalBundleSupported
         ? <p className="error" role="alert">{t('registration.legalUnsupported')}</p>
         : null}
-      <form noValidate onSubmit={(event) => void submit(event)}>
-        <div className="profile-editor">
-          <div className="profile-avatar">
-            {view.suggestedAvatarUrl && avatarAvailable ? (
-              <img src={view.suggestedAvatarUrl} alt={t('registration.avatarPreview')} width="56" height="56"
-                onError={() => { setAvatarAvailable(false); setUseSuggestedAvatar(false); }} />
-            ) : (
-              <span className="avatar-fallback" aria-label={t('registration.avatarInitials', { initials: displayNameInitials(displayName) })}>
-                {displayNameInitials(displayName)}
-              </span>
-            )}
-          </div>
-          <div className="profile-fields">
-            <Field name="displayName" label={t('registration.displayName')} autoComplete="name" autoFocus value={displayName}
-              onChange={(value) => { setDisplayName(value); setErrorKey(undefined); setErrorPath(undefined); }} inputRef={nameRef}
-              errorId={errorPath === 'displayName' ? errorId : undefined} />
-            {view.suggestedAvatarUrl && avatarAvailable ? (
-              <label className="avatar-option"><input type="checkbox" checked={useSuggestedAvatar}
-                onChange={(event) => setUseSuggestedAvatar(event.target.checked)} />{t('registration.useAvatar')}</label>
-            ) : null}
-          </div>
+      <form className="registration-form" noValidate onSubmit={(event) => void submit(event)}>
+        <div className={`avatar-choice-row${view.suggestedAvatarUrl && avatarAvailable ? '' : ' avatar-choice-row--fallback'}`}>
+          {view.suggestedAvatarUrl && avatarAvailable ? (
+            <img className="profile-avatar" src={view.suggestedAvatarUrl} alt="" width="48" height="48" referrerPolicy="no-referrer"
+              onError={() => { setAvatarAvailable(false); setUseSuggestedAvatar(false); }} />
+          ) : (
+            <span className="profile-avatar avatar-fallback" aria-label={t('registration.avatarInitials', { initials: displayNameInitials(displayName) })}>
+              {displayNameInitials(displayName)}
+            </span>
+          )}
+          {view.suggestedAvatarUrl && avatarAvailable ? (
+            <label className="avatar-option"><input type="checkbox" checked={useSuggestedAvatar}
+              onChange={(event) => setUseSuggestedAvatar(event.target.checked)} />{t('registration.useAvatar')}</label>
+          ) : null}
         </div>
+        <Field name="displayName" label={t('registration.displayName')} autoComplete="name" autoFocus value={displayName}
+          onChange={(value) => { setDisplayName(value); setErrorKey(undefined); setErrorPath(undefined); }} inputRef={nameRef}
+          errorId={errorPath === 'displayName' ? errorId : undefined} />
         <div className="terms-check">
           <input id="legal-consent" ref={termsRef} type="checkbox" checked={acceptedTerms} disabled={!legalBundleSupported || blocked}
             aria-label={t('registration.consentLabel')}
@@ -447,10 +483,10 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
             onChange={(event) => { setAcceptedLocale(event.target.checked ? locale : undefined); setErrorKey(undefined); setErrorPath(undefined); }} />
           <div className="terms-copy">
             <label htmlFor="legal-consent">{t('registration.consentBeforeTerms')}</label>
-            <button ref={termsLinkRef} type="button" className="legal-link" disabled={blocked}
+            <button ref={termsLinkRef} type="button" className="legal-link" disabled={!legalBundleSupported || blocked}
               onClick={() => openLegalDocument('terms')}>{t('registration.terms')}</button>
             <label htmlFor="legal-consent">{t('registration.consentBeforePrivacy')}</label>
-            <button ref={privacyLinkRef} type="button" className="legal-link" disabled={blocked}
+            <button ref={privacyLinkRef} type="button" className="legal-link" disabled={!legalBundleSupported || blocked}
               onClick={() => openLegalDocument('privacy')}>{t('registration.privacy')}</button>
           </div>
         </div>
@@ -487,11 +523,18 @@ function LanguageSelector({ inline = false }: { inline?: boolean }) {
   const { t } = useTranslation();
   return (
     <label className={`language-selector${inline ? ' language-selector--inline' : ''}`}>
-      <span>{t('language.label')}</span>
+      <span className="visually-hidden">{t('language.label')}</span>
+      <svg className="language-selector__icon" viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="10" cy="10" r="7.25" />
+        <path d="M2.9 10h14.2M10 2.75c2.05 2.02 3.1 4.44 3.1 7.25S12.05 15.23 10 17.25C7.95 15.23 6.9 12.81 6.9 10S7.95 4.77 10 2.75Z" />
+      </svg>
       <select aria-label={t('language.label')} value={locale} onChange={(event) => void changeLocale(event.target.value as 'zh-CN' | 'en')}>
         <option value="zh-CN">{t('language.chinese')}</option>
         <option value="en">{t('language.english')}</option>
       </select>
+      <svg className="language-selector__chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="m4.5 6 3.5 3.5L11.5 6" />
+      </svg>
     </label>
   );
 }

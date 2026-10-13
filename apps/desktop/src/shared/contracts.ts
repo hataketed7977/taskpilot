@@ -16,7 +16,7 @@ export interface GitHubCapabilityView { enabled: boolean }
 export type FederatedAuthFlowView =
   | { status: 'waiting'; flowId: string; expiresAt: string }
   | { status: 'completionRequired'; flowId: string; expiresAt: string }
-  | { status: 'registrationRequired'; flowId: string; suggestedDisplayName: string; suggestedAvatarUrl?: string; legalBundleVersion: string }
+  | { status: 'registrationRequired'; flowId: string; suggestedDisplayName: string; suggestedAvatarUrl?: string; legalBundleVersion: string; termsVersion: string; privacyVersion: string; legalLocales: string[] }
   | { status: 'denied' | 'cancelled' | 'expired' | 'failed' | 'resultUnavailable'; flowId: string }
   | { status: 'authenticated'; currentUser: CurrentUserView };
 

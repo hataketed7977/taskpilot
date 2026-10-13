@@ -61,7 +61,7 @@ describe('localized authentication and account experience', () => {
     const api = apiFor();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'octocat',
-      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01',
+      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     const operator = userEvent.setup();
     renderApp(api);

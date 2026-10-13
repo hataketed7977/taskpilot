@@ -80,6 +80,10 @@ class AuthenticationHttpIntegrationTest(
         val pending = poll(completed.created, completed.proof)
         assertEquals("REGISTRATION_REQUIRED", pending.json()["status"])
         val registration = pending.json().nested("registration")
+        assertEquals("2026-09", registration.requiredText("legalBundleVersion"))
+        assertEquals("terms-2026-09", registration.requiredText("termsVersion"))
+        assertEquals("privacy-2026-09", registration.requiredText("privacyVersion"))
+        assertEquals(listOf("zh-CN", "en"), registration["legalLocales"])
 
         val authenticated =
             request(

@@ -291,6 +291,9 @@ class FederatedAuthenticationService(
                     identity.suggestedDisplayName,
                     identity.suggestedAvatarUrl,
                     dependencies.currentLegalDocuments.legalBundleVersion,
+                    dependencies.currentLegalDocuments.termsVersion,
+                    dependencies.currentLegalDocuments.privacyVersion,
+                    dependencies.currentLegalDocuments.locales.toList(),
                     dependencies.clock.instant().plus(REGISTRATION_TTL),
                 )
             if (!store.requireRegistration(
@@ -435,6 +438,9 @@ sealed interface FederatedPollResult {
         val suggestedDisplayName: String,
         val suggestedAvatarUrl: URI?,
         val legalBundleVersion: String,
+        val termsVersion: String,
+        val privacyVersion: String,
+        val legalLocales: List<String>,
         val expiresAt: Instant,
     ) : FederatedPollResult
 }

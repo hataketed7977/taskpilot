@@ -46,6 +46,13 @@ describe('Desktop process boundary', () => {
     expect(vite).toContain('ws://127.0.0.1:${developmentPort}');
   });
 
+  it('allows only the trusted GitHub avatar host for remote Renderer images', async () => {
+    const value = await source('src/renderer/index.html');
+    const policy = value.match(/Content-Security-Policy" content="([^"]+)"/)?.[1];
+    expect(policy).toContain("img-src 'self' data: https://avatars.githubusercontent.com;");
+    expect(policy).not.toMatch(/img-src[^;]*\shttps:([;\s]|$)|img-src[^;]*\*/);
+  });
+
   it('keeps React Fast Refresh enabled after the initial Preload build', async () => {
     const value = await source('scripts/dev.mjs');
     expect(value).toContain("process.env.NODE_ENV = 'development'");
@@ -97,8 +104,8 @@ ${messages}`;
   it('uses width-based zoom resilience and honors reduced motion', async () => {
     const value = await source('src/renderer/styles.css');
     expect(value).not.toContain('@media(zoom');
-    expect(value).toMatch(/@media\(max-width:\s*720px\)/);
-    expect(value).toMatch(/@media\(prefers-reduced-motion:\s*reduce\)/);
+    expect(value).toMatch(/@media\s*\(\s*max-width:\s*760px\s*\)/);
+    expect(value).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)/);
   });
 
 });

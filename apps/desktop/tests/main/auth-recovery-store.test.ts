@@ -40,10 +40,46 @@ describe('FederatedAuthRecoveryStore', () => {
       ...recovery,
       registration: {
         continuationId: 'id', continuationSecret: 'short', suggestedDisplayName: 'Ada',
-        legalBundleVersion: 'v1', expiresAt: '2031-01-01T00:00:00Z',
+        legalBundleVersion: 'v1', termsVersion: 'terms-v1', privacyVersion: 'privacy-v1',
+        legalLocales: ['zh-CN'], expiresAt: '2031-01-01T00:00:00Z',
       },
     });
     await expect(store.load('local')).rejects.toThrow('Invalid federated auth recovery');
+  });
+
+  it('round-trips the complete legal requirement for a pending registration', async () => {
+    const store = new MemoryFederatedAuthRecoveryStore();
+    const pending = {
+      ...recovery,
+      registration: {
+        continuationId: 'continuation-id', continuationSecret: 'continuation-secret-value',
+        suggestedDisplayName: 'Ada', legalBundleVersion: 'v1', termsVersion: 'terms-v1',
+        privacyVersion: 'privacy-v1', legalLocales: ['zh-CN', 'en'], expiresAt: '2031-01-01T00:00:00Z',
+      },
+    };
+    await store.save('local', pending);
+    expect((await store.load('local'))?.registration).toEqual(pending.registration);
+  });
+
+  it.each([
+    ['missing terms version', { privacyVersion: 'privacy-v1', legalLocales: ['zh-CN'] }],
+    ['missing privacy version', { termsVersion: 'terms-v1', legalLocales: ['zh-CN'] }],
+    ['empty terms version', { termsVersion: '', privacyVersion: 'privacy-v1', legalLocales: ['zh-CN'] }],
+    ['empty privacy version', { termsVersion: 'terms-v1', privacyVersion: '', legalLocales: ['zh-CN'] }],
+    ['empty legal locales', { termsVersion: 'terms-v1', privacyVersion: 'privacy-v1', legalLocales: [] }],
+    ['duplicate legal locales', { termsVersion: 'terms-v1', privacyVersion: 'privacy-v1', legalLocales: ['zh-CN', 'zh-CN'] }],
+    ['invalid legal locales', { termsVersion: 'terms-v1', privacyVersion: 'privacy-v1', legalLocales: ['zh-CN', 1] }],
+    ['non-array legal locales', { termsVersion: 'terms-v1', privacyVersion: 'privacy-v1', legalLocales: 'zh-CN' }],
+  ])('rejects a registration recovery with %s', async (_case, legalRequirement) => {
+    const store = new MemoryFederatedAuthRecoveryStore();
+    await expect(store.save('local', {
+      ...recovery,
+      registration: {
+        continuationId: 'continuation-id', continuationSecret: 'continuation-secret-value',
+        suggestedDisplayName: 'Ada', legalBundleVersion: 'v1', expiresAt: '2031-01-01T00:00:00Z',
+        ...legalRequirement,
+      },
+    } as never)).rejects.toThrow('Invalid federated auth recovery');
   });
 
   it('rejects unsafe authorization and completion URLs', async () => {

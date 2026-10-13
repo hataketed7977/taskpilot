@@ -1,4 +1,4 @@
-import type { SupportedLocale } from '../i18n/locale';
+import { isSupportedLocale, type SupportedLocale } from '../i18n/locale';
 import { privacyEn } from './en/privacy-v1';
 import { termsEn } from './en/terms-v1';
 import { privacyZhCn } from './zh-CN/privacy-v1';
@@ -62,7 +62,7 @@ export function resolveLegalBundle(
   identity: LegalBundleIdentity,
   catalog: LegalBundleCatalog = LEGAL_BUNDLE_CATALOG,
 ): LegalBundle | undefined {
-  if (identity.locale !== 'zh-CN' && identity.locale !== 'en') return undefined;
+  if (!isSupportedLocale(identity.locale)) return undefined;
   const bundle = catalog[identity.locale]?.[identity.legalBundleVersion];
   if (!bundle) return undefined;
   return bundle.terms.version === identity.termsVersion && bundle.privacy.version === identity.privacyVersion

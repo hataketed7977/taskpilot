@@ -14,6 +14,9 @@ export interface RegistrationPreviewResponse {
   suggestedDisplayName: string;
   suggestedAvatarUrl?: string;
   legalBundleVersion: string;
+  termsVersion: string;
+  privacyVersion: string;
+  legalLocales: string[];
   expiresAt: string;
 }
 

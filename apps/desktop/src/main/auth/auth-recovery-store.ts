@@ -7,6 +7,9 @@ export interface RegistrationRecovery {
   suggestedDisplayName: string;
   suggestedAvatarUrl?: string;
   legalBundleVersion: string;
+  termsVersion: string;
+  privacyVersion: string;
+  legalLocales: string[];
   expiresAt: string;
 }
 
@@ -84,12 +87,15 @@ function validateRecovery(value: unknown): asserts value is FederatedAuthRecover
 
 function validateRegistration(value: unknown): asserts value is RegistrationRecovery {
   const item = recordWithKeys(value, [
-    'continuationId', 'continuationSecret', 'suggestedDisplayName', 'suggestedAvatarUrl', 'legalBundleVersion', 'expiresAt',
+    'continuationId', 'continuationSecret', 'suggestedDisplayName', 'suggestedAvatarUrl', 'legalBundleVersion', 'termsVersion', 'privacyVersion', 'legalLocales', 'expiresAt',
   ]);
   if (!boundedString(item.continuationId, 1, 128)
     || !secret(item.continuationSecret)
     || !boundedString(item.suggestedDisplayName, 1, 120)
     || !boundedString(item.legalBundleVersion, 1, 128)
+    || !boundedString(item.termsVersion, 1, 128)
+    || !boundedString(item.privacyVersion, 1, 128)
+    || !legalLocales(item.legalLocales)
     || !timestamp(item.expiresAt)
     || (item.suggestedAvatarUrl !== undefined && !safeAvatarUrl(item.suggestedAvatarUrl))) {
     throw new Error('Invalid federated auth recovery');
@@ -105,6 +111,14 @@ function recordWithKeys(value: unknown, allowedKeys: string[]): Record<string, u
 
 function boundedString(value: unknown, min: number, max: number): value is string {
   return typeof value === 'string' && value.length >= min && value.length <= max;
+}
+
+function legalLocales(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.length <= 32
+    && value.every(locale => boundedString(locale, 1, 35))
+    && new Set(value).size === value.length;
 }
 
 function secret(value: unknown): value is string {

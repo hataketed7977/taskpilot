@@ -8,6 +8,17 @@ import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '..
 
 const currentUser = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
 const waiting: FederatedAuthFlowView = { status: 'waiting', flowId: 'opaque-flow', expiresAt: '2030-01-01T00:00:00Z' };
+type RegistrationRequiredView = Extract<FederatedAuthFlowView, { status: 'registrationRequired' }>;
+const registrationRequired = (overrides: Partial<RegistrationRequiredView> = {}): RegistrationRequiredView => ({
+  status: 'registrationRequired',
+  flowId: 'opaque-flow',
+  suggestedDisplayName: 'Ada',
+  legalBundleVersion: '2026-09-01',
+  termsVersion: 'terms-2026-09-01',
+  privacyVersion: 'privacy-2026-09-01',
+  legalLocales: ['zh-CN', 'en'],
+  ...overrides,
+});
 
 function renderApp(api: TaskPilotDesktopApi) {
   return render(<LocaleProvider initialLanguages={['zh-CN']}><App api={api} /></LocaleProvider>);
@@ -138,7 +149,7 @@ describe('GitHub authentication UX', () => {
     const api = signedOutApi();
     const registration: FederatedAuthFlowView = {
       status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'octocat',
-      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01',
+      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     };
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue(registration);
     const completed = deferred<FederatedAuthFlowView>();
@@ -170,10 +181,27 @@ describe('GitHub authentication UX', () => {
     expect(await screen.findByRole('heading', { name: 'Ada' })).toBeInTheDocument();
   });
 
+  it('keeps first registration concise while preserving the optional GitHub avatar choice', async () => {
+    const api = signedOutApi();
+    vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'octocat',
+      suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
+    });
+    const operator = userEvent.setup();
+    renderApp(api);
+    await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
+
+    expect(await screen.findByRole('heading', { name: '创建 TaskPilot 账号' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '使用 GitHub 头像' })).toBeChecked();
+    expect(document.querySelector('.profile-avatar')).toHaveAttribute('referrerpolicy', 'no-referrer');
+    expect(screen.queryByText('GitHub 身份已验证。确认公开资料后即可继续。')).not.toBeInTheDocument();
+    expect(screen.queryByText(/账号设置|头像链接|公开头像/)).not.toBeInTheDocument();
+  });
+
   it('opens both legal documents without exposing the bundle id or losing the registration draft', async () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
-      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'octocat', legalBundleVersion: '2026-09-01',
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'octocat', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     const operator = userEvent.setup();
     renderApp(api);
@@ -204,7 +232,7 @@ describe('GitHub authentication UX', () => {
   it('restores keyboard focus to the legal-document link after returning to registration', async () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
-      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01',
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     const operator = userEvent.setup();
     renderApp(api);
@@ -221,7 +249,7 @@ describe('GitHub authentication UX', () => {
   it('fails closed when the server requires an unknown legal bundle', async () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
-      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: 'future-bundle',
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: 'future-bundle', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     const operator = userEvent.setup();
     renderApp(api);
@@ -233,10 +261,51 @@ describe('GitHub authentication UX', () => {
     expect(api.auth.completeGitHubRegistration).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['termsVersion', 'future-terms'],
+    ['privacyVersion', 'future-privacy'],
+    ['legalLocales', ['en']],
+  ])('fails closed when the server legal requirement mismatches %s', async (field, value) => {
+    const api = signedOutApi();
+    vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue(registrationRequired({ [field]: value }));
+    const operator = userEvent.setup();
+    renderApp(api);
+    await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('当前协议已更新，请更新 TaskPilot 后继续');
+    expect(screen.getByRole('checkbox', { name: /用户协议.*隐私政策/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '创建 TaskPilot 账号' })).toBeDisabled();
+    expect(api.auth.completeGitHubRegistration).not.toHaveBeenCalled();
+  });
+
+  it('fails closed in registration when the server rejects a stale legal bundle', async () => {
+    const api = signedOutApi();
+    vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue(registrationRequired());
+    vi.mocked(api.auth.completeGitHubRegistration).mockRejectedValue({
+      code: 'LEGAL_BUNDLE_REJECTED', category: 'conflict', path: 'legalBundleVersion', message: 'raw server detail',
+    });
+    const operator = userEvent.setup();
+    renderApp(api);
+    await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
+    const name = await screen.findByLabelText('显示名称');
+    await operator.clear(name);
+    await operator.type(name, 'Ada Draft');
+    await operator.click(screen.getByRole('checkbox', { name: /用户协议.*隐私政策/ }));
+    await operator.click(screen.getByRole('button', { name: '创建 TaskPilot 账号' }));
+
+    expect(await screen.findByRole('heading', { name: '创建 TaskPilot 账号' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('当前协议已更新，请更新 TaskPilot 后继续');
+    expect(screen.getByLabelText('显示名称')).toHaveValue('Ada Draft');
+    expect(screen.getByRole('checkbox', { name: /用户协议.*隐私政策/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '创建 TaskPilot 账号' })).toBeDisabled();
+    expect(screen.queryByRole('heading', { name: '无法完成 GitHub 登录' })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('raw server detail');
+  });
+
   it('allows registration without an avatar and does not render a broken image choice', async () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
-      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01',
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     const operator = userEvent.setup();
     renderApp(api);
@@ -250,7 +319,7 @@ describe('GitHub authentication UX', () => {
   it('cancels first registration and returns to login methods without an extra restart step', async () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
-      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Andy Zhang', legalBundleVersion: '2026-09-01',
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Andy Zhang', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     const operator = userEvent.setup();
     renderApp(api);
@@ -329,7 +398,7 @@ describe('GitHub authentication UX', () => {
   it('associates a server validation path with the display-name field', async () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
-      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01',
+      status: 'registrationRequired', flowId: 'opaque-flow', suggestedDisplayName: 'Ada', legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', legalLocales: ['zh-CN', 'en'],
     });
     vi.mocked(api.auth.completeGitHubRegistration).mockRejectedValue({ code: 'VALIDATION_FAILED', category: 'validation', path: 'displayName' });
     const operator = userEvent.setup();

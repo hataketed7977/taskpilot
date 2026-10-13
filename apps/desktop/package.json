@@ -25,7 +25,6 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "latest",
-    "@fontsource-variable/newsreader": "latest",
     "@napi-rs/keyring": "2.1.0",
     "i18next": "26.4.3",
     "react": "latest",

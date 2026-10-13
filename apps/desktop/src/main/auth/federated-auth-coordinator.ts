@@ -253,6 +253,9 @@ export class FederatedAuthCoordinator {
         suggestedDisplayName: recovery.registration.suggestedDisplayName,
         ...(recovery.registration.suggestedAvatarUrl ? { suggestedAvatarUrl: recovery.registration.suggestedAvatarUrl } : {}),
         legalBundleVersion: recovery.registration.legalBundleVersion,
+        termsVersion: recovery.registration.termsVersion,
+        privacyVersion: recovery.registration.privacyVersion,
+        legalLocales: [...recovery.registration.legalLocales],
       };
     }
     return { status: 'waiting', flowId: recovery.flowId, expiresAt: recovery.expiresAt };

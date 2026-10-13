@@ -25,6 +25,9 @@ function signedOutApi(): TaskPilotDesktopApi {
         suggestedDisplayName: 'octocat',
         suggestedAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
         legalBundleVersion: '2026-09-01',
+        termsVersion: 'terms-2026-09-01',
+        privacyVersion: 'privacy-2026-09-01',
+        legalLocales: ['zh-CN', 'en'],
       }),
       continueGitHubSignIn: vi.fn(),
       completeGitHubRegistration: vi.fn().mockResolvedValue({

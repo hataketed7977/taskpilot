@@ -227,6 +227,9 @@ private fun FederatedPollResult.toResponse(): FederatedPollResponse =
                     suggestedDisplayName,
                     suggestedAvatarUrl,
                     legalBundleVersion,
+                    termsVersion,
+                    privacyVersion,
+                    legalLocales,
                     expiresAt,
                 ),
             )
@@ -271,6 +274,9 @@ data class RegistrationPreviewResponse(
     val suggestedDisplayName: String,
     val suggestedAvatarUrl: URI?,
     val legalBundleVersion: String,
+    val termsVersion: String,
+    val privacyVersion: String,
+    val legalLocales: List<String>,
     val expiresAt: java.time.Instant,
 )
 
