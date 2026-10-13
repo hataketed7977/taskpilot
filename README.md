@@ -64,8 +64,9 @@ pnpm dev
 ```
 
 `bootstrap` validates tools, creates or normalizes the Git-ignored `.env.local`
-without replacing existing values, installs the locked JavaScript graph,
-compiles Desktop and Core API, and pulls the PostgreSQL and Redis images. The local file
+without replacing existing values, installs this checkout's repository-managed
+Git hooks, installs the locked JavaScript graph, compiles Desktop and Core API,
+and pulls the PostgreSQL and Redis images. The local file
 uses the same documented sections and key order as `.env.local.example`;
 checkout values and secrets are preserved by key during upgrades. Settings from
 the retired email-authentication stack are moved to the Git-ignored
@@ -110,6 +111,75 @@ pnpm dev:stop         # stop owned processes/containers; keep database data
 pnpm dev:smoke        # health + disabled GitHub capability; never contacts GitHub
 pnpm check            # launcher, Desktop, and Core API quality gates
 ```
+
+### Commit quality gates
+
+`pnpm bootstrap` installs the versioned hooks for the current checkout. To
+install or repair only the hooks, run:
+
+```bash
+pnpm hooks:install
+```
+
+The installer enables Git's worktree-specific configuration and sets
+`core.hooksPath` to the relative `.githooks` directory for this worktree only.
+Each linked worktree must install its own hooks. If another effective hooks path
+is already configured at the worktree, local, global, or system level, the
+installer fails without overwriting it and reports the current value, source,
+and expected value. Decide whether to keep, migrate, or compose that hook
+manager, update Git configuration explicitly, and rerun the installer. The
+only accepted value is the normalized relative path `.githooks`; even an
+absolute path that resolves to this checkout's `.githooks` is treated as a
+custom path and refused. Set the value explicitly to `.githooks` before
+retrying. Git invokes the versioned hook entries through a POSIX-compatible
+shell, and that hook environment must be able to find `node` on `PATH`.
+
+Commit subjects use this format:
+
+```text
+<type>(<optional-scope>)<optional-!>: <description>
+```
+
+Allowed types are `feat`, `fix`, `refactor`, `docs`, `test`, `build`, `ci`,
+`perf`, `chore`, and `revert`. A scope may contain lowercase letters, digits,
+and hyphens. The non-empty description starts with a lowercase letter or digit
+and has no trailing period. Only the first line is validated. Git's default
+`Revert "..."` subject is deliberately rejected; edit it to repository format,
+for example `revert(core-api): restore previous session behavior`.
+
+`pre-commit` selects tests only from staged paths, deduplicates them, and runs
+them in this order:
+
+| Staged path | Quality gate |
+| --- | --- |
+| `.githooks/**`, `tools/git-hooks/**` | `pnpm hooks:test` |
+| `tools/dev/**`, `compose.yaml`, `.env.local.example` | `pnpm dev:test` |
+| `apps/desktop/**` executable/configuration paths | `pnpm --filter @taskpilot/desktop qualityCheck` |
+| `services/core-api/**`, root Gradle files, `gradle/**` | `./gradlew --no-daemon :services:core-api:qualityCheck` |
+| Root `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Hook tooling, dev tooling, and Desktop gates |
+| Markdown, OpenSpec, Agent instructions, known repository metadata | Explicitly exempt |
+
+An unmapped executable path is rejected until its owner and quality command are
+added to the mapping. Renames affect source and target modules; copies affect
+the target module. Before running a selected gate, the hook also rejects
+tracked unstaged or untracked files inside any selected module or its mapped
+shared boundary, because module tests read the worktree rather than an isolated
+index snapshot. Unrelated mapped modules do not block the commit. The hook does
+not stash, restore, clean, or change the index; stage, restore, or move the
+listed files yourself.
+
+Use the stable commands below to reproduce a rejection:
+
+```bash
+pnpm hooks:test                              # test the hook implementation
+pnpm hooks:pre-commit                        # evaluate the current staged index
+pnpm hooks:commit-msg -- <message-file>      # validate a Git message file
+```
+
+Gate output identifies the failed rule or quality gate, reason, triggering
+paths, command, and next step. These local hooks are fast feedback, not a
+security boundary: Git's native `git commit --no-verify` can bypass them, and
+CI/release checks remain independently responsible for enforced quality.
 
 `dev:desktop` refuses to start unless the Core API is healthy and recorded as
 owned by this checkout. The controller waits for a replaced launcher to exit

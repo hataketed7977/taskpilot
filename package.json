@@ -15,6 +15,10 @@
     "dev:help": "node tools/dev/dev.mjs help",
     "dev:smoke": "node tools/dev/dev.mjs smoke",
     "check": "node tools/dev/check.mjs",
+    "hooks:install": "node tools/git-hooks/install.mjs",
+    "hooks:test": "node --test tools/git-hooks/*.test.mjs",
+    "hooks:pre-commit": "node tools/git-hooks/pre-commit.mjs",
+    "hooks:commit-msg": "node tools/git-hooks/commit-msg.mjs",
     "dev:test": "node --test tools/dev/*.test.mjs",
     "desktop:quality": "pnpm --filter @taskpilot/desktop qualityCheck"
   }

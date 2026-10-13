@@ -345,6 +345,62 @@ or re-test OpenSpec's own generation, state-machine, or validation behavior.
 Use OpenSpec's official schema and strict validation commands for repository-owned
 artifacts.
 
+## Repository Commit Quality Strategy (Current)
+
+The repository owns local `pre-commit` and `commit-msg` feedback gates in
+`.githooks/`, with dependency-free Node implementations and tests in
+`tools/git-hooks/`. `pnpm bootstrap` reuses `pnpm hooks:install` behavior to set
+the relative `.githooks` path through Git worktree-specific configuration.
+Installation is per checkout: it pins an inherited expected value for the
+current worktree, leaves linked worktrees unchanged, and fails closed rather
+than overwriting any effective custom `core.hooksPath`.
+
+The commit-message contract is
+`<type>(<optional-scope>)<optional-!>: <description>`. Its allowed type set is
+`feat`, `fix`, `refactor`, `docs`, `test`, `build`, `ci`, `perf`, `chore`, and
+`revert`. There are no implicit merge, revert, fixup, or squash exemptions; in
+particular, Git's default `Revert "..."` subject must be edited to a value such
+as `revert(core-api): restore previous session behavior`.
+
+The pre-commit selector treats the staged Git index as the only source for
+which modules changed. It parses NUL-delimited name-status records, classifies
+both sides of a rename and only the target of a copy, deduplicates gates, and
+runs them in the fixed order below:
+
+| Owner | Versioned path boundary | Current command |
+| --- | --- | --- |
+| Hook tooling | `.githooks/**`, `tools/git-hooks/**` | `pnpm hooks:test` |
+| Development tooling | `tools/dev/**`, `compose.yaml`, `.env.local.example` | `pnpm dev:test` |
+| Desktop | Executable/configuration paths under `apps/desktop/**` | `pnpm --filter @taskpilot/desktop qualityCheck` |
+| Core API | Executable/configuration paths under `services/core-api/**`, root Gradle files, `gradle/**` | platform wrapper plus `--no-daemon :services:core-api:qualityCheck` |
+
+Root pnpm package, workspace, and lock files select Hook tooling, Development
+tooling, and Desktop together. Markdown, OpenSpec artifacts, Agent instructions,
+and known repository metadata are explicit exemptions. Any other staged path
+fails closed until its ownership and quality gate are declared. This mapping
+accelerates local feedback only; main or release verification must still catch
+an incorrect dependency map as required by the risk-based test policy.
+
+Module quality commands execute against the worktree, so selection alone cannot
+prove that the staged snapshot was tested. Before execution, the hook rejects
+tracked unstaged and untracked files that map to a selected gate, while ignoring
+dirty files in unrelated mapped modules. It never stashes, resets, cleans,
+constructs another worktree, or mutates the index. Each failure reports the
+rule or gate, concrete cause, triggering paths and command when applicable, and
+a manual next step. Child Desktop and Core API testing strategies continue to
+own the contents of their quality gates; this repository strategy only owns
+selection and orchestration.
+
+POSIX quality commands execute directly with fixed argv. On Windows, Node cannot
+directly launch `.cmd` or `.bat`, so only those fixed commands use an escaped
+`cmd.exe` adapter; staged paths and commit content never enter that command line.
+
+The hooks are developer feedback rather than a trust or supply-chain boundary:
+`git commit --no-verify` can bypass them. They do not replace CI, review,
+release, or supported-platform evidence. Automated tests cover platform logical
+commands, the Windows batch adapter, and the POSIX hook entry used by Git for
+Windows, but real Windows Git execution remains separate platform evidence.
+
 ## Cross-Project Testing Boundaries
 
 - Each subproject owns comprehensive risk-based tests for its behavior and
