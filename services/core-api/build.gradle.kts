@@ -113,6 +113,7 @@ kover {
                 classes(
                     "ai.taskpilot.coreapi.CoreApiArchitectureRoot",
                     "ai.taskpilot.coreapi.access.AccessModule",
+                    "ai.taskpilot.coreapi.project.ProjectModule",
                     "ai.taskpilot.coreapi.automation.AutomationModule",
                     "ai.taskpilot.coreapi.agent.AgentModule",
                 )

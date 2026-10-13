@@ -6,10 +6,10 @@ import kotlin.test.assertEquals
 
 class CoreApiModularityTest {
     @Test
-    fun `production module graph contains exactly the runnable capabilities`() {
+    fun `production module graph contains exactly the declared capabilities`() {
         val modules = ApplicationModules.of("ai.taskpilot.coreapi")
         val moduleNames = modules.map { it.identifier.toString() }.toSet()
-        assertEquals(setOf("access", "automation", "agent"), moduleNames)
+        assertEquals(setOf("access", "project", "automation", "agent"), moduleNames)
         modules.verify()
     }
 }
