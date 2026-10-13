@@ -185,16 +185,41 @@ implementation still requires focused automated tests, source review, and any
 owning architecture or contract updates. Proposed change artifacts describe a
 future delta and must not be presented as current behavior.
 
-The default completion sequence is `openspec-apply-change`, the focused and
-affected automated checks declared by the Change's test plan, applicable delta
-spec sync, and then `openspec-archive-change`. Task completion and OpenSpec
-validation are structural signals; they do not replace passing tests or the
-archive workflow's spec-sync assessment.
+Every product or system Change follows these human-gated handoffs:
 
-`openspec-verify-change` is optional. Use it when the user requests an
-independent review or when the change's security, data, authorization,
-deployment, or business risk warrants a second read-only pass. Verification
-findings loop back to apply, but routine completion does not require a receipt,
+1. **Explore and propose:** explore current evidence first. After the user
+   authorizes proposal creation, create or update the Change, validate it, and
+   self-review all planning artifacts for scope, decisions, non-goals,
+   acceptance behavior, model impact, test coverage, and internal consistency.
+   Report the result and stop before Apply so the user can arrange an
+   independent planning review. Address review findings through
+   `openspec-update-change`, self-review again, and wait for the user's explicit
+   authorization to Apply.
+2. **Apply and implementation review:** Apply only after that authorization.
+   Implement the approved scope, run the declared focused and affected checks,
+   reconcile tasks and owning documentation, and self-review the actual diff
+   against the Change. Report the implementation as awaiting independent code
+   review and manual acceptance, then stop. The user owns reviewer assignment;
+   do not spawn or substitute an independent reviewer unless explicitly asked.
+   Fix reported findings or acceptance defects within the approved Change,
+   rerun affected checks, self-review the fixes, and return to this handoff.
+3. **Manual archive gate:** completed tasks, passing tests, successful
+   validation, a clean self-review, an independent review with no findings, or
+   the user's report that manual testing passed do not authorize spec sync or
+   archive. Keep the Change active and describe it as awaiting explicit archive
+   authorization. Run `openspec-sync-specs` only when the user explicitly asks
+   for spec sync, and run `openspec-archive-change` only when the user explicitly
+   asks to archive the Change. An archive instruction authorizes the archive
+   workflow's applicable delta-spec sync, final model/documentation-drift audit,
+   archive operation, and post-archive validation; a sync-only instruction does
+   not authorize archive.
+
+Do not collapse these handoffs because the same Agent authored the Change or
+implementation, and do not infer authorization from an earlier general request
+to finish the feature. `openspec-verify-change` remains optional support for the
+independent review stage when the user requests it or explicitly asks this Agent
+to arrange a risk-based second pass. Verification findings loop back to update
+or Apply as appropriate, but routine completion does not require a receipt,
 workspace fingerprint, verification policy, or repository archive preflight.
 
 TDD is a development strategy for business-feature behavior with clear,
