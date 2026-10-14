@@ -20,10 +20,13 @@ export interface RegistrationPreviewResponse {
   expiresAt: string;
 }
 
+export interface FederatedBootstrapResponse { workspaceId: string; projectId: string }
+
 export interface FederatedPollResponse {
   status: 'WAITING' | 'COMPLETION_REQUIRED' | 'DENIED' | 'CANCELLED' | 'FAILED' | 'COMPLETED' | 'REGISTRATION_REQUIRED' | 'AUTHENTICATED';
   registration?: RegistrationPreviewResponse;
   session?: IssuedSession;
+  bootstrap?: FederatedBootstrapResponse;
 }
 
 export class FederatedAuthClient {

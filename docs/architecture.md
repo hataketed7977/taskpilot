@@ -528,14 +528,19 @@ threshold is an architectural policy change, not a local test workaround.
   transport models, and compatibility policies. The initial Desktop API exposes
   runtime-generated OpenAPI and Swagger UI; a committed versioned artifact is
   not required until a later Change establishes that contract lifecycle.
-- Desktop Main initially owns narrow hand-written transport types checked
-  against runtime OpenAPI contract fixtures. The first contract covers in-app
-  GitHub authentication and opaque-session lifecycle; generated TypeScript
-  transport types may be introduced later only with an explicit source-of-truth
-  and drift policy.
-- Core API `access` currently owns User, External Identity, legal acceptance,
-  and session authentication. Workspace membership authorization and Project
-  contracts remain Target and require their own runnable slice.
+- Desktop Main owns narrow hand-written transport types checked against
+  runtime OpenAPI contract fixtures. The current contract covers in-app GitHub
+  authentication, opaque-session lifecycle, PERSONAL Workspace discovery, and
+  the complete current Project lifecycle; generated TypeScript transport types
+  may be introduced later only with an explicit source-of-truth and drift policy.
+- Core API `access` owns User, External Identity, legal acceptance, and session
+  authentication; `workspace` owns Workspace and Workspace Membership; `project` owns
+  Project and Project Membership. Their PostgreSQL baseline, first-registration
+  provisioning, narrow capability contracts, and current Workspace/Project HTTP
+  behavior are Current.
+- The narrow `onboarding` capability is the approved first-registration
+  coordinator: it may depend on Access, Workspace, and Project, owns no tables or endpoints,
+  and commits all PostgreSQL records before Access issues a Redis session.
 - The public API exposes HTTP only; TaskPilot does not publish a public SDK.
 - The future CLI consumes the public HTTP API like any external client.
 - In the MVP, the deployment edge routes the Desktop to Core API without
@@ -570,17 +575,21 @@ replay revocation, and logout.
 the loopback receiver and all poll, completion, continuation, access, and
 refresh secrets, and stores long-lived refresh material only through OS
 credential facilities. Renderer receives only presentable state and a safe
-`CurrentUserView`; it never receives those secrets. Automated tests cover this
-boundary with browser, loopback, Provider, and credential doubles; real GitHub
-OAuth, packaged native credential behavior, and release-platform certification
-remain unverified. No embedded WebView, repository permission, Gateway identity
-assertion, or production deployment behavior is implied.
+`CurrentUserView`; it never receives those secrets. Main/Preload/Renderer and
+integrated system tests cover this boundary with browser, loopback, Provider,
+session-failure, PostgreSQL, Redis, and credential doubles or containers. A
+packaged macOS arm64 smoke also verifies the current native credential lifecycle;
+real GitHub OAuth, Windows native behavior, signing/installers, and release-platform
+certification remain separate evidence. No embedded WebView, repository
+permission, Gateway identity assertion, or production deployment behavior is
+implied.
 
 The deployment edge does not normalize or assert identity. Core API remains
-authoritative for current authentication and future Workspace/Project business
-authorization. The current authenticated journey ends at the account view;
-Workspace onboarding and Project discovery remain Target. A future Gateway may
-apply route-specific credential
+authoritative for current authentication and Workspace/Project business
+authorization. The current authenticated journey enters the User's PERSONAL
+Workspace and selects the registration bootstrap Project, a valid recent Project,
+the first accessible ACTIVE Project, or the Project creation empty state. A
+future Gateway may apply route-specific credential
 validation or normalize internal context only as defense in depth; credential
 formats remain route-specific, and Core API still independently authenticates
 and authorizes. Desktop credentials never enter Renderer or Agent Runtime.

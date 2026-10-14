@@ -12,9 +12,13 @@ const EXACT_PATHS = new Set([
   '/desktop/v1/auth/session/logout', '/desktop/v1/me',
 ]);
 const FEDERATED_ATTEMPT_PATH = /^\/desktop\/v1\/auth\/federated\/attempts\/[0-9a-f-]{36}\/(?:poll|cancel)$/i;
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const PROJECT_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects$`, 'i');
+const PROJECT_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})$`, 'i');
+const PROJECT_ACTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/(archive|restore|permanent-deletion)$`, 'i');
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
-export interface TransportRequest { method: 'GET' | 'POST'; path: string; body?: unknown; accessToken?: string; idempotencyKey?: string; timeoutMs?: number; outcomeUnknownOnNetworkFailure?: boolean }
+export interface TransportRequest { method: 'GET' | 'POST' | 'PATCH'; path: string; body?: unknown; accessToken?: string; idempotencyKey?: string; timeoutMs?: number; outcomeUnknownOnNetworkFailure?: boolean }
 export interface HttpTransport { request<T>(request: TransportRequest): Promise<T> }
 export class TransportError extends Error { constructor(public readonly detail: DesktopError, public readonly status?: number) { super(detail.code); } }
 export class OutcomeUnknownError extends Error { constructor() { super('Request outcome is unknown'); } }
@@ -29,7 +33,7 @@ export class FixedHttpTransport implements HttpTransport {
     this.origin = resolveOrigin(environment, originOverride);
   }
   async request<T>(request: TransportRequest): Promise<T> {
-    if (!isAllowlistedPath(request.path)) throw new Error('Endpoint is not allowlisted');
+    if (!isAllowlistedRequest(request)) throw new Error('Endpoint is not allowlisted');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), request.timeoutMs ?? 15_000);
     try {
@@ -77,6 +81,33 @@ function mapProblem(status: number, payload: unknown): TransportError {
 }
 
 
-function isAllowlistedPath(path: string): boolean {
-  return EXACT_PATHS.has(path) || FEDERATED_ATTEMPT_PATH.test(path);
+function isAllowlistedRequest(request: TransportRequest): boolean {
+  if (request.path.includes('#') || request.path.length > 4096) return false;
+  const [pathname, query = ''] = request.path.split('?', 2);
+  if (EXACT_PATHS.has(pathname!)) return query === '' && allowedExactMethod(pathname!, request.method);
+  if (FEDERATED_ATTEMPT_PATH.test(pathname!)) return query === '' && request.method === 'POST';
+  if (pathname === '/desktop/v1/workspaces') return query === '' && request.method === 'GET';
+  if (PROJECT_COLLECTION_PATH.test(pathname!)) {
+    return request.method === 'GET' ? validProjectQuery(query) : request.method === 'POST' && query === '';
+  }
+  if (PROJECT_ITEM_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'PATCH');
+  if (PROJECT_ACTION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
+  return false;
+}
+
+function allowedExactMethod(path: string, method: TransportRequest['method']): boolean {
+  return path === '/desktop/v1/auth/capabilities' || path === '/desktop/v1/me' ? method === 'GET' : method === 'POST';
+}
+
+function validProjectQuery(query: string): boolean {
+  if (!query) return false;
+  const search = new URLSearchParams(query);
+  const keys = [...search.keys()];
+  if (keys.some(key => !['status', 'limit', 'cursor'].includes(key)) || new Set(keys).size !== keys.length) return false;
+  const status = search.get('status');
+  const limit = Number(search.get('limit'));
+  const cursor = search.get('cursor');
+  return (status === 'ACTIVE' || status === 'ARCHIVED')
+    && /^\d+$/.test(search.get('limit') ?? '') && Number.isInteger(limit) && limit >= 1 && limit <= 100
+    && (cursor === null || (cursor.length >= 1 && cursor.length <= 2048));
 }

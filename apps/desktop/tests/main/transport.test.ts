@@ -32,10 +32,26 @@ describe('FixedHttpTransport', () => {
     await expect(transport.request({ method: 'GET', path: '/desktop/v1/workspaces/not-a-uuid/projects?limit=50' })).rejects.toThrow('Endpoint is not allowlisted');
   });
 
-  it('rejects removed Workspace, Project, and session-delivery endpoints', async () => {
+  it('permits only method-specific Workspace and Project routes with bounded list queries', async () => {
+    const fetcher = vi.fn().mockImplementation(async () => jsonResponse({ items: [], nextCursor: null }));
+    const transport = new FixedHttpTransport('local', fetcher);
+    const workspace = '11111111-1111-4111-8111-111111111111';
+    const project = '22222222-2222-4222-8222-222222222222';
+    await expect(transport.request({ method: 'GET', path: '/desktop/v1/workspaces' })).resolves.toBeDefined();
+    await expect(transport.request({ method: 'GET', path: `/desktop/v1/workspaces/${workspace}/projects?status=ACTIVE&limit=50` })).resolves.toBeDefined();
+    await expect(transport.request({ method: 'PATCH', path: `/desktop/v1/workspaces/${workspace}/projects/${project}`, body: {} })).resolves.toBeDefined();
+    for (const input of [
+      { method: 'POST' as const, path: '/desktop/v1/workspaces' },
+      { method: 'GET' as const, path: `/desktop/v1/workspaces/${workspace}/projects?status=ACTIVE&limit=500` },
+      { method: 'GET' as const, path: `/desktop/v1/workspaces/${workspace}/projects?status=ACTIVE&limit=50&url=https://evil.test` },
+      { method: 'PATCH' as const, path: `/desktop/v1/workspaces/${workspace}/projects/${project}/archive` },
+    ]) await expect(transport.request(input)).rejects.toThrow('Endpoint is not allowlisted');
+  });
+
+  it('rejects malformed Workspace, Project, and session-delivery endpoints', async () => {
     const transport = new FixedHttpTransport('local', vi.fn());
     for (const path of [
-      '/desktop/v1/workspaces',
+      '/desktop/v1/workspaces/not-a-uuid/projects?status=ACTIVE&limit=50',
       '/desktop/v1/workspaces/11111111-1111-4111-8111-111111111111/projects?limit=50',
       '/desktop/v1/auth/federated/deliveries/delivery-id/ack',
       '/desktop/v1/auth/federated/deliveries/delivery-id/abandon',

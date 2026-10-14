@@ -11,11 +11,13 @@
 ## Current Implemented Responsibility
 
 **Current:** `core-api` owns its runnable application shell and engineering
-guardrails plus one implemented `access` slice. That slice owns stable User
-identity, provider-neutral External Identity uniqueness, legal acceptance,
-GitHub OAuth attempts and registration continuations, login rate limiting,
-opaque session issue/rotation/replay revocation/logout, `CurrentUserView`, and
-the corresponding Desktop HTTP adapters. Access also owns the configured legal
+guardrails plus implemented first-registration collaboration across `access`, `workspace`,
+`onboarding`, and `project`. Access owns stable User identity, provider-neutral
+External Identity uniqueness, legal acceptance, GitHub OAuth attempts and
+registration continuations, login rate limiting, opaque session
+issue/rotation/replay revocation/logout, `CurrentUserView`, and the corresponding
+Desktop authentication HTTP adapters. Workspace owns PERSONAL Workspace and
+Workspace OWNER persistence, discovery, and authorization. Access also owns the configured legal
 locale allowlist, exact `(locale, legalBundleVersion, termsVersion,
 privacyVersion)` validation, atomic acceptance persistence, and server-generated
 `acceptedAt`; it does not own Desktop language preference or general server-side
@@ -23,15 +25,22 @@ i18n. The GitHub adapter performs only
 authorization/token/authenticated-user exchange outside database transactions
 and returns a normalized durable identity; it does not persist Provider tokens.
 
-Spring JDBC/Flyway owns PostgreSQL persistence for exactly User, External
-Identity, and Terms Acceptance. Redis owns only expiring OAuth workflow,
-rate-limit, and session technical state. Runtime OpenAPI documents only the
-implemented authentication/session/current-user endpoints outside Production.
-The deleted email/password/OTP/reset stack, SMTP/Mailpit, Workspace/Project
-behavior, Agent execution, and workflow behavior are not current
-responsibilities. Four capability boundaries remain declared for the Target
-architecture, but `project`, `automation`, and `agent` currently contain no
-runnable business capability.
+Spring JDBC/Flyway owns PostgreSQL persistence for User, External Identity,
+Terms Acceptance, Workspace/Workspace Membership, and Project/Project
+Membership. Onboarding coordinates the single first-registration PostgreSQL
+transaction through narrow Access, Workspace, and Project contracts and owns no records;
+Workspace owns PERSONAL Workspace provisioning; Project owns default-Project provisioning. Redis owns only expiring OAuth
+workflow, rate-limit, and session technical state, and Access issues a session
+only after the onboarding transaction returns committed. Workspace exposes the
+current PERSONAL Workspace list; Project exposes authorized list/detail/create/
+edit use cases and Desktop HTTP adapters with idempotent creation and optimistic
+editing. Runtime OpenAPI documents authentication/session/current-user,
+registration bootstrap, PERSONAL Workspace discovery, and the complete current
+Project operations outside Production. Project also owns current archive/restore
+and guarded physical deletion, including explicit Membership
+delete order and protected-dependency conflict mapping. TEAM behavior, the
+removed email/password/OTP/reset stack, SMTP/Mailpit, Agent execution, and
+workflow behavior are not current responsibilities.
 
 The responsibilities below are the approved **Target** allocation for future
 changes. A future item becomes Current only when its production implementation
@@ -87,7 +96,9 @@ No artifact is required solely because an event was named during analysis.
 
 | Area | Owns | Does not own |
 | --- | --- | --- |
-| Access | User and External Identity, federated login attempts and registration continuations, opaque session/actor facts, and Target Workspace membership authorization operations | Provider repository integration, Project participation, work, workflow, Agent execution |
+| Access | User and External Identity, federated login attempts and registration continuations, legal acceptance, and opaque session/actor facts | Provider repository integration, Project participation, work, workflow, Agent execution |
+| Workspace | Workspace and Workspace Membership, PERSONAL provisioning, discovery, and narrow membership authorization operations | Project participation, authentication/session lifecycle, work, workflow, Agent execution |
+| Onboarding | First-registration transaction coordination across narrow Access, Workspace, and Project provisioning contracts | Tables, HTTP endpoints, session issuance, or general cross-capability helpers |
 | Project Work | Project and membership, Work Item and type, custom values, Board configuration/query, comments | Workflow progression, provider execution |
 | Automation | Workflow and versions, Workflow Run, Step Run, transition evaluation, Approval Request, cancellation orchestration | Provider SDK invocation, Card persistence |
 | Agent Execution | Provider Connection, Agent and versions, Project Agent Binding, Agent Run, Attempt, Artifact references, execution-mode routing, remote provider adapters, local dispatch/lease, and reconciliation | Human membership, approval authority, Work Item truth |
@@ -95,7 +106,7 @@ No artifact is required solely because an event was named during analysis.
 This table guides placement without requiring separate deployables or one class
 shape per concept.
 
-## Target Application Use Cases
+## Application Use Cases
 
 ### Access and project setup
 
@@ -110,19 +121,17 @@ shape per concept.
 - Keep Provider credentials and protocol payloads inside infrastructure
   adapters; application code receives only normalized identity and stable error
   categories.
-- List an authenticated User's accessible Workspaces.
-- Create an Organization Workspace and its creator Membership atomically and
-  idempotently.
-- Preserve one Workspace/Membership model so a later Personal Workspace type can
-  reuse the same ownership and authorization path without being provisioned now.
-- In the Target Workspace/Project slice, list only Projects for which the
-  authenticated User has both an effective Workspace Membership and a matching
-  Project Membership in the requested Workspace.
-- Keep Project creation, Project Member management, and other Project mutations
-  as later use cases; controlled test fixtures may create records without
-  exposing production creation APIs.
-- Resolve an actor's allowed Project actions when those later mutations are
-  introduced.
+- Provision exactly one PERSONAL Workspace and Workspace OWNER Membership with a
+  new User, plus one ordinary default Project and Project OWNER Membership, in
+  one PostgreSQL transaction coordinated by `onboarding`.
+- Issue Redis session credentials from Access only after that transaction
+  commits; a Redis failure never leaves a partial database account.
+- List the authenticated User's PERSONAL Workspace and authorized Projects.
+- Create Projects as Workspace OWNER, atomically granting Project OWNER; edit,
+  archive, restore, and permanently delete existing Projects only with matching
+  Workspace scope and Project OWNER.
+- Keep `TEAM` as a model extension point without exposing TEAM creation,
+  invitation, membership management, API, or UI in this slice.
 
 ### Work management
 

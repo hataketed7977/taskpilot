@@ -215,7 +215,11 @@ private fun FederatedPollResult.toResponse(): FederatedPollResponse =
         }
 
         is FederatedPollResult.Authenticated -> {
-            FederatedPollResponse("AUTHENTICATED", session = SessionResponse.from(session))
+            FederatedPollResponse(
+                "AUTHENTICATED",
+                session = SessionResponse.from(session),
+                bootstrap = bootstrap?.let { FederatedBootstrapResponse(it.workspaceId, it.projectId) },
+            )
         }
 
         is FederatedPollResult.RegistrationRequired -> {
@@ -266,6 +270,12 @@ data class FederatedPollResponse(
     val status: String,
     val registration: RegistrationPreviewResponse? = null,
     val session: SessionResponse? = null,
+    val bootstrap: FederatedBootstrapResponse? = null,
+)
+
+data class FederatedBootstrapResponse(
+    val workspaceId: UUID,
+    val projectId: UUID,
 )
 
 data class RegistrationPreviewResponse(

@@ -1,23 +1,52 @@
 import { App } from '../../src/renderer/App';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
-import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
+import type { FederatedAuthFlowView, PersonalWorkspaceView, ProjectResponseKey, ProjectView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
 
 const user = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
 const waiting: FederatedAuthFlowView = {
   status: 'waiting', flowId: 'opaque-flow', expiresAt: '2030-01-01T00:00:00Z',
 };
 
+const workspace: PersonalWorkspaceView = {
+  workspaceId: '22222222-2222-4222-8222-222222222222', type: 'PERSONAL', role: 'OWNER',
+  createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z',
+};
+const project: ProjectView = {
+  projectId: '33333333-3333-4333-8333-333333333333', workspaceId: workspace.workspaceId,
+  name: '我的项目', description: '把重要工作放在这里。', status: 'ACTIVE', version: 0,
+  createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z', archivedAt: null,
+};
+const archivedProject: ProjectView = {
+  ...project, projectId: '44444444-4444-4444-8444-444444444444', name: '旧版本', status: 'ARCHIVED', archivedAt: '2026-10-14T01:00:00Z', version: 1,
+};
+const projectKey = (overrides: Partial<ProjectResponseKey> = {}): ProjectResponseKey => ({
+  sessionGeneration: 1, userId: user.userId, workspaceId: workspace.workspaceId, ...overrides,
+});
+
 function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilotDesktopApi {
-  return { auth: {
-    getCapabilities: cy.stub().resolves({ github: { enabled: true } }),
-    startGitHubSignIn: cy.stub().resolves(waiting),
-    continueGitHubSignIn: cy.stub().resolves(waiting),
-    completeGitHubRegistration: cy.stub().resolves({ status: 'authenticated', currentUser: user }),
-    cancelGitHubSignIn: cy.stub().resolves(),
-    getSessionView: cy.stub().resolves(session),
-    subscribeSessionView: cy.stub().returns(() => undefined),
-    logout: cy.stub().resolves(),
-  } };
+  return {
+    auth: {
+      getCapabilities: cy.stub().resolves({ github: { enabled: true } }),
+      startGitHubSignIn: cy.stub().resolves(waiting),
+      continueGitHubSignIn: cy.stub().resolves(waiting),
+      completeGitHubRegistration: cy.stub().resolves({ status: 'authenticated', currentUser: user }),
+      cancelGitHubSignIn: cy.stub().resolves(),
+      getSessionView: cy.stub().resolves(session),
+      subscribeSessionView: cy.stub().returns(() => undefined),
+      logout: cy.stub().resolves(),
+    },
+    workspaces: { list: cy.stub().resolves({ key: projectKey(), value: [workspace] }) },
+    projects: {
+      resolveHome: cy.stub().resolves({ key: projectKey({ projectId: project.projectId, status: 'ACTIVE' }), value: { workspace, projects: [project], currentProject: project } }),
+      list: cy.stub().resolves({ key: projectKey({ status: 'ARCHIVED' }), value: { items: [archivedProject], nextCursor: null } }),
+      open: cy.stub().resolves({ key: projectKey({ projectId: project.projectId }), value: project }),
+      create: cy.stub().resolves({ key: projectKey({ projectId: project.projectId }), value: project }),
+      edit: cy.stub().resolves({ key: projectKey({ projectId: project.projectId }), value: project }),
+      archive: cy.stub().resolves({ key: projectKey({ projectId: project.projectId }), value: { ...project, status: 'ARCHIVED' } }),
+      restore: cy.stub().resolves({ key: projectKey({ projectId: archivedProject.projectId }), value: { ...archivedProject, status: 'ACTIVE', archivedAt: null } }),
+      permanentlyDelete: cy.stub().resolves({ key: projectKey({ projectId: project.projectId }), value: undefined }),
+    },
+  };
 }
 
 
@@ -100,10 +129,11 @@ describe('Desktop first-use experience', () => {
     });
   });
 
-  it('shows the authenticated account and preserves logout', () => {
+  it('lands in the Project home and keeps logout reachable', () => {
     const api = apiFor({ status: 'authenticated', currentUser: user });
     mountApp(api);
-    cy.findByRole('heading', { name: 'Ada' }).should('be.visible');
+    cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
+    cy.findByRole('button', { name: '打开账号菜单' }).click();
     cy.findByRole('button', { name: '退出登录' }).click();
     cy.wrap(api.auth.logout).should('have.been.calledOnce');
   });
@@ -142,16 +172,69 @@ describe('Desktop first-use experience', () => {
     });
   });
 
-  it('switches the authenticated account to English without changing the user or logging out', () => {
+  it('switches the Project shell to English without changing the user or logging out', () => {
     const api = apiFor({ status: 'authenticated', currentUser: user });
     cy.viewport(1280, 800);
     mountApp(api);
-    cy.findByRole('heading', { name: 'Ada' }).should('be.visible');
+    cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
+    cy.findByRole('button', { name: '打开账号菜单' }).click();
     cy.findByRole('combobox', { name: '语言' }).select('en');
-    cy.findByRole('heading', { name: 'Ada' }).should('be.visible');
-    cy.contains('GitHub sign-in is ready').should('be.visible');
+    cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
+    cy.contains('Signed in with GitHub').should('be.visible');
     cy.findByRole('button', { name: 'Sign out' }).should('be.visible');
     cy.wrap(api.auth.logout).should('not.have.been.called');
+  });
+
+
+  it('keeps the bilingual Project shell and primary action visible at 960 by 640 with long content', () => {
+    const api = apiFor({ status: 'authenticated', currentUser: user });
+    const longProject = {
+      ...project,
+      name: 'A deliberately long project name that must wrap without hiding the primary action at minimum window width',
+      description: 'A long project description that verifies wrapping, readable hierarchy, and the absence of horizontal overflow in the quiet control desk shell.',
+    };
+    (api.projects.resolveHome as Cypress.Agent<sinon.SinonStub>).resolves({
+      key: projectKey({ projectId: longProject.projectId, status: 'ACTIVE' }), value: { workspace, projects: [longProject], currentProject: longProject },
+    });
+    cy.viewport(960, 640);
+    mountApp(api, 'en');
+    cy.findByRole('heading', { name: longProject.name }).should('be.visible');
+    cy.findByRole('button', { name: 'Project settings' }).should('be.visible');
+    cy.document().then((document) => {
+      expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth);
+    });
+  });
+
+  it('traps dialog focus, restores it on close, and associates a mutation error', () => {
+    const api = apiFor({ status: 'authenticated', currentUser: user });
+    (api.projects.create as Cypress.Agent<sinon.SinonStub>).rejects(new Error('offline'));
+    cy.viewport(960, 640);
+    mountApp(api);
+    cy.findByRole('button', { name: '新建项目' }).first().as('createTrigger').click();
+    cy.findByRole('dialog').within(() => {
+      cy.findByLabelText('项目名称').should('be.focused').type('发布准备');
+      cy.findByRole('button', { name: '关闭' }).focus().trigger('keydown', { key: 'Tab', shiftKey: true });
+      cy.findByRole('button', { name: '创建项目' }).should('be.focused');
+      cy.findByRole('button', { name: '创建项目' }).click();
+      cy.findByRole('alert').should('have.attr', 'id', 'project-create-error');
+      cy.get('form').should('have.attr', 'aria-describedby', 'project-create-error');
+      cy.findByRole('button', { name: '关闭' }).click();
+    });
+    cy.get('@createTrigger').should('be.focused');
+  });
+
+  it('requires the exact Project name in Danger Zone and exposes archived restore', () => {
+    const api = apiFor({ status: 'authenticated', currentUser: user });
+    mountApp(api);
+    cy.findByRole('button', { name: '项目设置' }).click();
+    cy.findByRole('button', { name: '永久删除项目' }).click();
+    cy.findByRole('button', { name: '永久删除' }).should('be.disabled');
+    cy.findByLabelText('输入“我的项目”以确认').type('我的项目');
+    cy.findByRole('button', { name: '永久删除' }).should('be.enabled');
+    cy.findByRole('button', { name: '关闭' }).click();
+    cy.findByRole('button', { name: /返回/ }).click();
+    cy.findByRole('button', { name: '已归档项目' }).click();
+    cy.findByRole('button', { name: '恢复“旧版本”' }).should('be.visible');
   });
 
 });

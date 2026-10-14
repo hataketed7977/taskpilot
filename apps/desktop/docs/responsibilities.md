@@ -32,7 +32,8 @@
 - Renderer owns the single GitHub action, safe waiting/registration/error views,
   the read-only first-registration User Agreement and Privacy Policy, exact known
   bundle matching, and no authentication secrets.
-- Preload owns only the fixed typed authentication capability bridge.
+- Preload owns fixed typed authentication, Workspace, and Project capability
+  bridges; it exposes no bearer, endpoint URL, `fetch`, or generic IPC.
 - Main owns `shell.openExternal`, the one-shot `127.0.0.1` receiver, valid-proof
   window restoration/show/focus, private attempt-recovery records, direct session
   credential handoff, timers, and window cleanup.
@@ -58,7 +59,8 @@
 | --- | --- |
 | `main/app` | Electron lifecycle, windows, single-instance behavior |
 | `main/ipc` | IPC sender/origin/session authorization, schema validation, rate/size limits, dispatch |
-| `main/cloud-client` | Credentialed Desktop API requests, token refresh, logout cleanup and transport errors |
+| `main/cloud-client` | Credentialed Desktop API requests, fixed Workspace/Project route allowlist, token refresh, logout cleanup and transport errors |
+| `main/projects` | Typed Workspace/Project response validation, Project-home selection, session-generation fencing, and the environment-plus-User recent-Project device preference |
 | `main/native` | Credential, dialog, notification, deep-link and platform adapters |
 | `main/runtime-client` | Fixed-path Runtime launch, JSON-RPC/JSONL stdio client, generated contracts, version/capability negotiation, health, cancellation, shutdown and child failure state |
 | `preload` | Narrow typed capabilities exposed to a sandboxed Renderer |
@@ -100,15 +102,22 @@
 
 ## Initial Interaction Areas
 
-The Current implementation slice is system-browser GitHub authentication,
+The Current implementation slice includes system-browser GitHub authentication,
 first-registration confirmation with legal-document review, crash-safe attempt
-resume, OS-credential-backed session restore/refresh/logout, and an authenticated
-account view. Main owns the fixed HTTP adapter and secret lifecycle; Preload owns
-narrow typed Auth capabilities; Renderer owns only safe presentation state.
+resume, OS-credential-backed session restore/refresh/logout, and the authenticated
+Project home. Renderer owns the fixed personal-Workspace context, ACTIVE Project
+list/switching, create/edit/archive/restore/permanent-delete interactions,
+truthful loading/error/empty states, and reachable account/language/logout
+controls. Main additionally owns fixed allowlisted Workspace/Project HTTP
+operations, typed response validation, registration-bootstrap and
+recent-Project fallback resolution, a non-authoritative recent-Project device
+preference partitioned by environment and `UserId`, and session-generation
+fencing. Preload owns narrow typed Auth, Workspace, and Project capabilities;
+every Project result carries a Main-produced response key and IPC remains
+channel-specific and validated.
 
-Workspace list/select/create, active `WorkspaceId`, Project discovery and
-mutation, Project membership, and the application work surface remain Target.
-The current slice does not start Agent Runtime.
+TEAM Workspace behavior and membership management are not exposed. The current
+slice does not start Agent Runtime.
 Later Target UI may include Board and Work Item workflows, provider-neutral
 Agent configuration, Run monitoring, approval prompts, logs, Diff review, and
 artifact access. This inventory is not an implementation claim or permission to

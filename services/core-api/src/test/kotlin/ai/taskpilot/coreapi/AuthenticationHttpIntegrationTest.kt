@@ -21,9 +21,11 @@ import org.testcontainers.containers.GenericContainer
 import org.testcontainers.postgresql.PostgreSQLContainer
 import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
-import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import kotlin.test.assertEquals
@@ -104,7 +106,14 @@ class AuthenticationHttpIntegrationTest(
             )
         assertEquals(201, authenticated.status)
         assertEquals("AUTHENTICATED", authenticated.json()["status"])
-        val session = authenticated.json().nested("session")
+        val authenticatedBody = authenticated.json()
+        val bootstrap = authenticatedBody.nested("bootstrap")
+        assertProvisionedHomepage(
+            bootstrap.requiredText("workspaceId"),
+            bootstrap.requiredText("projectId"),
+            "我的项目",
+        )
+        val session = authenticatedBody.nested("session")
         val accessToken = session.requiredText("accessToken")
         val refreshToken = session.requiredText("refreshToken")
 
@@ -127,6 +136,192 @@ class AuthenticationHttpIntegrationTest(
             request("POST", "/desktop/v1/auth/session/refresh", """{"refreshToken":"$refreshToken"}""").status,
         )
         assertEquals(401, request("GET", "/desktop/v1/me", bearer = rotated.requiredText("accessToken")).status)
+    }
+
+    @Test
+    fun `authenticated workspace and project API supports read create edit and stable failures`() {
+        val registered = registerAccount()
+
+        val workspaces = request("GET", "/desktop/v1/workspaces", bearer = registered.accessToken)
+        assertEquals(200, workspaces.status)
+        assertEquals(registered.workspaceId, workspaces.jsonList().single().requiredText("workspaceId"))
+        assertEquals("PERSONAL", workspaces.jsonList().single().requiredText("type"))
+        assertEquals("OWNER", workspaces.jsonList().single().requiredText("role"))
+
+        val listed = request("GET", "/desktop/v1/workspaces/${registered.workspaceId}/projects", bearer = registered.accessToken)
+        assertEquals(200, listed.status)
+        assertEquals(
+            registered.projectId,
+            listed
+                .json()
+                .listOfObjects("items")
+                .single()
+                .requiredText("projectId"),
+        )
+
+        val requestId = java.util.UUID.randomUUID()
+        val created =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                """{"requestId":"$requestId","name":" New project ","description":" Notes "}""",
+                registered.accessToken,
+            )
+        assertEquals(201, created.status)
+        assertEquals("New project", created.json().requiredText("name"))
+        val projectId = created.json().requiredText("projectId")
+
+        val replay =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                """{"requestId":"$requestId","name":"New project","description":"Notes"}""",
+                registered.accessToken,
+            )
+        assertEquals(201, replay.status)
+        assertEquals(projectId, replay.json().requiredText("projectId"))
+
+        val idempotencyConflict =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                """{"requestId":"$requestId","name":"Changed","description":"Notes"}""",
+                registered.accessToken,
+            )
+        assertProblem(idempotencyConflict, 409, "IDEMPOTENCY_CONFLICT")
+
+        val edited =
+            request(
+                "PATCH",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId",
+                """{"expectedVersion":0,"name":"Renamed","description":null}""",
+                registered.accessToken,
+            )
+        assertEquals(200, edited.status)
+        assertEquals("Renamed", edited.json().requiredText("name"))
+        assertEquals("1", edited.json().requiredText("version"))
+
+        val stale =
+            request(
+                "PATCH",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId",
+                """{"expectedVersion":0,"name":"Stale","description":null}""",
+                registered.accessToken,
+            )
+        assertProblem(stale, 409, "PROJECT_VERSION_CONFLICT")
+
+        val archived =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/archive",
+                """{"expectedVersion":1}""",
+                registered.accessToken,
+            )
+        assertEquals(200, archived.status)
+        assertEquals("ARCHIVED", archived.json().requiredText("status"))
+        assertEquals("2", archived.json().requiredText("version"))
+        val archiveReplay =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/archive",
+                """{"expectedVersion":1}""",
+                registered.accessToken,
+            )
+        assertEquals(archived.body, archiveReplay.body)
+        assertProblem(
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/restore",
+                """{"expectedVersion":1}""",
+                registered.accessToken,
+            ),
+            409,
+            "PROJECT_VERSION_CONFLICT",
+        )
+        val restored =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/restore",
+                """{"expectedVersion":2}""",
+                registered.accessToken,
+            )
+        assertEquals(200, restored.status)
+        assertEquals("ACTIVE", restored.json().requiredText("status"))
+        assertProblem(
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/permanent-deletion",
+                """{"expectedVersion":3,"confirmationName":"Wrong"}""",
+                registered.accessToken,
+            ),
+            409,
+            "PROJECT_NAME_CONFIRMATION_MISMATCH",
+        )
+        val deleted =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/permanent-deletion",
+                """{"expectedVersion":3,"confirmationName":"Renamed"}""",
+                registered.accessToken,
+            )
+        assertEquals(204, deleted.status)
+        assertEquals("", deleted.body)
+        assertProblem(
+            request(
+                "GET",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId",
+                bearer = registered.accessToken,
+            ),
+            404,
+            "PROJECT_NOT_FOUND",
+        )
+
+        val invalid =
+            request(
+                "POST",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                """{"requestId":"${java.util.UUID.randomUUID()}","name":" ","description":null}""",
+                registered.accessToken,
+            )
+        assertProblem(invalid, 400, "VALIDATION_FAILED")
+        assertEquals("name", invalid.json().requiredText("path"))
+
+        assertEquals(401, request("GET", "/desktop/v1/workspaces").status)
+        val unknownWorkspace = java.util.UUID.randomUUID()
+        assertProblem(
+            request(
+                "GET",
+                "/desktop/v1/workspaces/$unknownWorkspace/projects",
+                bearer = registered.accessToken,
+            ),
+            404,
+            "PROJECT_NOT_FOUND",
+        )
+        assertProblem(
+            request(
+                "GET",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects/${java.util.UUID.randomUUID()}",
+                bearer = registered.accessToken,
+            ),
+            404,
+            "PROJECT_NOT_FOUND",
+        )
+        val invalidLimit =
+            request(
+                "GET",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects?limit=0",
+                bearer = registered.accessToken,
+            )
+        assertProblem(invalidLimit, 400, "VALIDATION_FAILED")
+        assertEquals("limit", invalidLimit.json().requiredText("path"))
+        val invalidStatus =
+            request(
+                "GET",
+                "/desktop/v1/workspaces/${registered.workspaceId}/projects?status=UNKNOWN",
+                bearer = registered.accessToken,
+            )
+        assertProblem(invalidStatus, 400, "VALIDATION_FAILED")
+        assertEquals("status", invalidStatus.json().requiredText("path"))
     }
 
     @Test
@@ -172,6 +367,7 @@ class AuthenticationHttpIntegrationTest(
                 .requiredText("userId"),
         )
         assertNull(signedIn.json()["registration"])
+        assertNull(signedIn.json()["bootstrap"])
     }
 
     @Test
@@ -207,6 +403,40 @@ class AuthenticationHttpIntegrationTest(
         val limited = request("POST", "/desktop/v1/auth/federated/attempts", attemptBody("desktop-over-limit"))
         assertEquals(429, limited.status)
         assertTrue(limited.json().requiredText("code") == "AUTHENTICATION_RATE_LIMITED")
+    }
+
+    private fun assertProvisionedHomepage(
+        workspaceId: String,
+        projectId: String,
+        expectedProjectName: String,
+    ) {
+        postgres.createConnection("").use { connection ->
+            connection
+                .prepareStatement(
+                    """
+                    SELECT w.type, wm.role AS workspace_role, p.name, p.description, p.status,
+                           pm.role AS project_role
+                    FROM workspace.workspaces w
+                    JOIN workspace.workspace_memberships wm ON wm.workspace_id = w.id
+                    JOIN project.projects p ON p.workspace_id = w.id
+                    JOIN project.project_memberships pm ON pm.project_id = p.id AND pm.user_id = wm.user_id
+                    WHERE w.id = ?::uuid AND p.id = ?::uuid
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, workspaceId)
+                    statement.setString(2, projectId)
+                    statement.executeQuery().use { rows ->
+                        assertTrue(rows.next())
+                        assertEquals("PERSONAL", rows.getString("type"))
+                        assertEquals("OWNER", rows.getString("workspace_role"))
+                        assertEquals(expectedProjectName, rows.getString("name"))
+                        assertEquals("", rows.getString("description"))
+                        assertEquals("ACTIVE", rows.getString("status"))
+                        assertEquals("OWNER", rows.getString("project_role"))
+                        assertFalse(rows.next())
+                    }
+                }
+        }
     }
 
     private fun registerAndAssertLegalQuadruple(locale: String) {
@@ -275,6 +505,28 @@ class AuthenticationHttpIntegrationTest(
         }
     }
 
+    private fun registerAccount(): RegisteredAccount {
+        val completed = completeAttempt()
+        val preview = poll(completed.created, completed.proof).json().nested("registration")
+        val response = request("POST", "/desktop/v1/auth/federated/registrations", registrationBody(preview))
+        assertEquals(201, response.status)
+        val body = response.json()
+        return RegisteredAccount(
+            body.nested("session").requiredText("accessToken"),
+            body.nested("bootstrap").requiredText("workspaceId"),
+            body.nested("bootstrap").requiredText("projectId"),
+        )
+    }
+
+    private fun assertProblem(
+        response: HttpResult,
+        status: Int,
+        code: String,
+    ) {
+        assertEquals(status, response.status)
+        assertEquals(code, response.json().requiredText("code"))
+    }
+
     private fun completeAttempt(): CompletedAttempt {
         val created = createAttempt()
         val state = URI(created.requiredText("authorizationUrl")).queryParameters().getValue("state")
@@ -333,29 +585,31 @@ class AuthenticationHttpIntegrationTest(
         body: String? = null,
         bearer: String? = null,
     ): HttpResult {
-        val connection = URI("http://127.0.0.1:$port$path").toURL().openConnection() as HttpURLConnection
-        connection.requestMethod = method
-        connection.setRequestProperty("Content-Type", "application/json")
-        bearer?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
-        if (body != null) {
-            connection.doOutput = true
-            connection.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
-        }
-        val status = connection.responseCode
-        val responseBody =
-            (if (status >= 400) connection.errorStream else connection.inputStream)
-                ?.bufferedReader()
-                ?.use { it.readText() }
-                .orEmpty()
-        return HttpResult(status, responseBody)
+        val request =
+            HttpRequest
+                .newBuilder(URI("http://127.0.0.1:$port$path"))
+                .header("Content-Type", "application/json")
+                .apply { bearer?.let { header("Authorization", "Bearer $it") } }
+                .method(
+                    method,
+                    body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody(),
+                ).build()
+        val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+        return HttpResult(response.statusCode(), response.body())
     }
 
     private fun HttpResult.json(): Map<String, Any?> = objectMapper.readValue(body, object : TypeReference<Map<String, Any?>>() {})
+
+    private fun HttpResult.jsonList(): List<Map<String, Any?>> =
+        objectMapper.readValue(body, object : TypeReference<List<Map<String, Any?>>>() {})
 
     @Suppress("UNCHECKED_CAST")
     private fun Map<String, Any?>.nested(name: String) = getValue(name) as Map<String, Any?>
 
     private fun Map<String, Any?>.requiredText(name: String) = requireNotNull(get(name)).toString()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<String, Any?>.listOfObjects(name: String) = getValue(name) as List<Map<String, Any?>>
 
     private fun URI.queryParameters() =
         query.split('&').associate { part ->
@@ -364,6 +618,12 @@ class AuthenticationHttpIntegrationTest(
         }
 
     private fun encode(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8)
+
+    private data class RegisteredAccount(
+        val accessToken: String,
+        val workspaceId: String,
+        val projectId: String,
+    )
 
     private data class CompletedAttempt(
         val created: Map<String, Any?>,

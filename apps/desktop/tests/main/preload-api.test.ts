@@ -9,7 +9,7 @@ describe('createTaskPilotDesktopApi', () => {
     const unsubscribe = vi.fn();
     const subscribe = vi.fn().mockReturnValue(unsubscribe);
     const api = createTaskPilotDesktopApi(invoke, subscribe);
-    expect(Object.keys(api)).toEqual(['auth']);
+    expect(Object.keys(api)).toEqual(['auth', 'workspaces', 'projects']);
     const registration = {
       flowId, displayName: 'Ada', useSuggestedAvatar: true, legalBundleVersion: 'v1',
       termsVersion: 'terms-v1', privacyVersion: 'privacy-v1', locale: 'zh-CN',
@@ -22,6 +22,15 @@ describe('createTaskPilotDesktopApi', () => {
       [() => api.auth.cancelGitHubSignIn({ flowId }), CHANNELS.cancelGitHubSignIn, { flowId }],
       [() => api.auth.getSessionView(), CHANNELS.getSessionView],
       [() => api.auth.logout(), CHANNELS.logout],
+      [() => api.workspaces.list(), CHANNELS.listWorkspaces],
+      [() => api.projects.resolveHome(), CHANNELS.resolveProjectHome],
+      [() => api.projects.list({ workspaceId: flowId, status: 'ACTIVE' }), CHANNELS.listProjects, { workspaceId: flowId, status: 'ACTIVE' }],
+      [() => api.projects.open({ workspaceId: flowId, projectId: flowId }), CHANNELS.openProject, { workspaceId: flowId, projectId: flowId }],
+      [() => api.projects.create({ workspaceId: flowId, requestId: flowId, name: 'Alpha' }), CHANNELS.createProject, { workspaceId: flowId, requestId: flowId, name: 'Alpha' }],
+      [() => api.projects.edit({ workspaceId: flowId, projectId: flowId, expectedVersion: 1, name: 'Beta' }), CHANNELS.editProject, { workspaceId: flowId, projectId: flowId, expectedVersion: 1, name: 'Beta' }],
+      [() => api.projects.archive({ workspaceId: flowId, projectId: flowId, expectedVersion: 1 }), CHANNELS.archiveProject, { workspaceId: flowId, projectId: flowId, expectedVersion: 1 }],
+      [() => api.projects.restore({ workspaceId: flowId, projectId: flowId, expectedVersion: 1 }), CHANNELS.restoreProject, { workspaceId: flowId, projectId: flowId, expectedVersion: 1 }],
+      [() => api.projects.permanentlyDelete({ workspaceId: flowId, projectId: flowId, expectedVersion: 1, confirmationName: 'Beta' }), CHANNELS.permanentlyDeleteProject, { workspaceId: flowId, projectId: flowId, expectedVersion: 1, confirmationName: 'Beta' }],
     ];
     for (const [call, channel, input] of cases) {
       invoke.mockClear();

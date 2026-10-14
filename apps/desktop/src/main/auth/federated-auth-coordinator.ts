@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FederatedAuthFlowView, IssuedSession } from '../../shared/contracts.js';
 import type { Environment } from '../api/transport.js';
 import type { SessionCoordinator } from '../session/session-coordinator.js';
-import type { FederatedAuthClient, FederatedPollResponse } from './auth-client.js';
+import type { FederatedAuthClient, FederatedBootstrapResponse, FederatedPollResponse } from './auth-client.js';
 import type { FederatedAuthRecovery, FederatedAuthRecoveryStore } from './auth-recovery-store.js';
 import { safeAuthorizationUrl, safeCompletionUri } from './auth-recovery-store.js';
 import { LoopbackReceiver, type LoopbackHandle } from './loopback-receiver.js';
@@ -27,6 +27,7 @@ export class FederatedAuthCoordinator {
     private readonly createId: () => string = randomUUID,
     private readonly now: () => number = Date.now,
     private readonly activateDesktop: DesktopWindowActivator = () => undefined,
+    private readonly acceptBootstrap: (bootstrap: FederatedBootstrapResponse) => void = () => undefined,
   ) {}
 
   capabilities() { return this.client.capabilities(); }
@@ -218,7 +219,7 @@ export class FederatedAuthCoordinator {
       }
       case 'AUTHENTICATED': {
         if (!response.session) throw new Error('Invalid authenticated response');
-        return this.activateSession(recovery, response.session, generation);
+        return this.activateSession(recovery, response.session, generation, response.bootstrap);
       }
       case 'DENIED': return this.finish(recovery, 'denied');
       case 'CANCELLED': return this.finish(recovery, 'cancelled');
@@ -231,12 +232,14 @@ export class FederatedAuthCoordinator {
     recovery: FederatedAuthRecovery,
     issued: IssuedSession,
     generation: number,
+    bootstrap?: FederatedBootstrapResponse,
   ): Promise<FederatedAuthFlowView> {
     if (generation !== this.generation) {
       await this.session.revokeIssued(issued);
       throw superseded();
     }
     await this.session.establish(issued);
+    if (bootstrap) this.acceptBootstrap(bootstrap);
     if (generation !== this.generation) {
       await this.session.logout().catch(() => undefined);
       throw superseded();

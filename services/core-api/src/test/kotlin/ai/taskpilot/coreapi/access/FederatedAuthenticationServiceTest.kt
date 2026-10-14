@@ -40,7 +40,6 @@ import ai.taskpilot.coreapi.access.model.FederatedLoginAttempt
 import ai.taskpilot.coreapi.access.model.FederatedLoginAttemptStatus
 import ai.taskpilot.coreapi.access.model.FederatedRegistrationClaim
 import ai.taskpilot.coreapi.access.model.FederatedUserProfile
-import ai.taskpilot.coreapi.access.model.NewFederatedUser
 import ai.taskpilot.coreapi.access.model.UserId
 import ai.taskpilot.coreapi.access.model.UserStatus
 import tools.jackson.databind.json.JsonMapper
@@ -60,6 +59,7 @@ class FederatedAuthenticationServiceTest {
     private val now = Instant.parse("2026-10-10T10:00:00Z")
     private val store = StubStore()
     private val identities = StubIdentities()
+    private val accountProvisioner = StubAccountProvisioner(identities)
     private val sessions = StubSessions()
     private val provider = StubProvider()
     private val service = service()
@@ -100,14 +100,16 @@ class FederatedAuthenticationServiceTest {
             )
 
         assertEquals("Ada", authenticated.session.currentUser.displayName)
-        assertNotNull(identities.registration)
+        assertEquals(accountProvisioner.result.bootstrap(), authenticated.bootstrap)
+        assertNotNull(accountProvisioner.request)
         assertEquals(FederatedLoginAttemptStatus.COMPLETED, store.status)
     }
 
     @Test
     fun `each approved locale persists the exact legal quadruple`() {
         listOf("zh-CN", "en").forEach { locale ->
-            identities.registration = null
+            identities.user = null
+            accountProvisioner.request = null
             val pending =
                 assertIs<FederatedPollResult.RegistrationRequired>(
                     service.poll(PollFederatedAttemptCommand(prepareIdentity(), "poll", "proof")),
@@ -115,11 +117,11 @@ class FederatedAuthenticationServiceTest {
 
             service.register(registrationCommand(pending, locale))
 
-            val acceptance = assertNotNull(identities.registration).termsAcceptance
+            val acceptance = assertNotNull(accountProvisioner.request)
             assertEquals("bundle-v1", acceptance.legalBundleVersion)
             assertEquals("terms-v1", acceptance.termsVersion)
             assertEquals("privacy-v1", acceptance.privacyVersion)
-            assertEquals(locale, acceptance.locale)
+            assertEquals(locale, acceptance.legalLocale)
         }
     }
 
@@ -131,7 +133,7 @@ class FederatedAuthenticationServiceTest {
             RejectedLegalBundle("bundle-v1", "old", "privacy-v1", "zh-CN"),
             RejectedLegalBundle("bundle-v1", "terms-v1", "old", "zh-CN"),
         ).forEach { rejected ->
-            identities.registration = null
+            accountProvisioner.request = null
             val pending =
                 assertIs<FederatedPollResult.RegistrationRequired>(
                     service.poll(PollFederatedAttemptCommand(prepareIdentity(), "poll", "proof")),
@@ -150,7 +152,7 @@ class FederatedAuthenticationServiceTest {
                     ),
                 )
             }
-            assertEquals(null, identities.registration)
+            assertEquals(null, accountProvisioner.request)
         }
     }
 
@@ -268,10 +270,12 @@ class FederatedAuthenticationServiceTest {
                 service.poll(PollFederatedAttemptCommand(registrationAttempt, "poll", null)),
             ).continuationId,
         )
-        service.register(registrationCommand(pending))
-        assertIs<FederatedPollResult.Authenticated>(
-            service.poll(PollFederatedAttemptCommand(registrationAttempt, "poll", null)),
-        )
+        val registered = service.register(registrationCommand(pending))
+        val replayed =
+            assertIs<FederatedPollResult.Authenticated>(
+                service.poll(PollFederatedAttemptCommand(registrationAttempt, "poll", null)),
+            )
+        assertEquals(registered.bootstrap, replayed.bootstrap)
     }
 
     @Test
@@ -282,11 +286,32 @@ class FederatedAuthenticationServiceTest {
                 service.poll(PollFederatedAttemptCommand(attempt, "poll", "proof")),
             )
         identities.user = FederatedUserProfile(UserId(UUID.randomUUID()), "Existing", null, UserStatus.ACTIVE)
-        identities.duplicateOnRegister = true
+        accountProvisioner.duplicateOnProvision = true
 
         val authenticated = service.register(registrationCommand(pending))
 
         assertEquals("Existing", authenticated.session.currentUser.displayName)
+    }
+
+    @Test
+    fun `session issue failure after committed provisioning can retry as existing account`() {
+        val attempt = prepareIdentity()
+        val pending =
+            assertIs<FederatedPollResult.RegistrationRequired>(
+                service.poll(PollFederatedAttemptCommand(attempt, "poll", "proof")),
+            )
+        sessions.issueFailure = IllegalStateException("redis unavailable")
+
+        assertFailsWith<IllegalStateException> { service.register(registrationCommand(pending)) }
+        assertNotNull(accountProvisioner.request)
+        assertEquals(1, store.registrationReleaseCount)
+
+        sessions.issueFailure = null
+        accountProvisioner.duplicateOnProvision = true
+        val authenticated = service.register(registrationCommand(pending))
+
+        assertEquals(accountProvisioner.request!!.userId, authenticated.session.currentUser.userId.value)
+        assertEquals(FederatedLoginAttemptStatus.COMPLETED, store.status)
     }
 
     @Test
@@ -399,7 +424,14 @@ class FederatedAuthenticationServiceTest {
                     ApprovedLegalDocuments("bundle-v1", "terms-v1", "privacy-v1", listOf("zh-CN", "en")),
                 ),
             )
-        return FederatedAuthenticationService(store, identities, StubRateLimiter(), sessions, dependencies)
+        return FederatedAuthenticationService(
+            store,
+            identities,
+            accountProvisioner,
+            StubRateLimiter(),
+            sessions,
+            dependencies,
+        )
     }
 
     private fun completionUri() = URI("http://127.0.0.1:50000/taskpilot/oauth/complete/abcdefghijklmnopqrstuvwxyzABCDEF")
@@ -543,23 +575,33 @@ class FederatedAuthenticationServiceTest {
 
     private class StubIdentities : FederatedIdentityStore {
         var user: FederatedUserProfile? = null
-        var registration: NewFederatedUser? = null
-        var duplicateOnRegister = false
 
         override fun findUser(key: ExternalIdentityKey) = user
+    }
 
-        override fun register(registration: NewFederatedUser): UserId {
-            if (duplicateOnRegister) throw ExternalIdentityAlreadyExistsException()
-            this.registration = registration
-            return registration.user.userId
+    private class StubAccountProvisioner(
+        private val identities: StubIdentities,
+    ) : FederatedAccountProvisioner {
+        var request: FederatedAccountProvisioningRequest? = null
+        var duplicateOnProvision = false
+        var result = FederatedAccountProvisioningResult(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())
+
+        override fun provision(request: FederatedAccountProvisioningRequest): FederatedAccountProvisioningResult {
+            if (duplicateOnProvision) throw ExternalIdentityAlreadyExistsException()
+            this.request = request
+            identities.user = FederatedUserProfile(UserId(request.userId), request.displayName, request.avatarUrl, UserStatus.ACTIVE)
+            result = result.copy(userId = request.userId)
+            return result
         }
     }
 
     private class StubSessions : SessionUseCases {
         var logoutCount = 0
+        var issueFailure: RuntimeException? = null
 
-        override fun issue(user: SessionUser) =
-            IssuedSession(
+        override fun issue(user: SessionUser): IssuedSession {
+            issueFailure?.let { throw it }
+            return IssuedSession(
                 SessionId(UUID.randomUUID()),
                 SessionFamilyId(UUID.randomUUID()),
                 "access",
@@ -568,6 +610,7 @@ class FederatedAuthenticationServiceTest {
                 Instant.now().plusSeconds(3600),
                 CurrentUserView(user.userId, user.displayName, user.avatarUrl),
             )
+        }
 
         override fun refresh(refreshToken: String) = RefreshSessionResult.AuthenticationRequired
 

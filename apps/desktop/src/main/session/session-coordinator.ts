@@ -2,6 +2,8 @@ import type { CurrentUserView, IssuedSession, SessionView } from '../../shared/c
 import type { Environment } from '../api/transport.js';
 import type { CredentialStore, StoredCredential } from '../credentials/credential-store.js';
 
+export interface SessionContext { generation: number; user: CurrentUserView }
+
 interface SessionPort {
   refresh(refreshToken: string): Promise<IssuedSession>;
   logout(accessToken: string): Promise<void>;
@@ -30,20 +32,33 @@ export class SessionCoordinator {
   ) {}
 
   view(): SessionView { return this.state; }
+  context(): SessionContext {
+    if (!this.currentUser || !this.accessToken) throw authenticationRequired();
+    return { generation: this.generation, user: this.currentUser };
+  }
   subscribe(listener: (view: SessionView) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
   async establish(session: IssuedSession): Promise<void> {
+    const generation = ++this.generation;
     try {
-      await this.mutateCredential(() => this.credentials.saveCurrent(this.environment, this.toCredential(session)));
+      await this.mutateCredential(async () => {
+        if (generation !== this.generation) throw contextSuperseded();
+        await this.credentials.saveCurrent(this.environment, this.toCredential(session));
+      });
     } catch (error) {
+      await this.revokeIssued(session);
+      if (generation !== this.generation || isSessionContextSuperseded(error)) throw contextSuperseded();
       this.accessToken = undefined;
       this.currentUser = undefined;
-      await this.revokeIssued(session);
       this.publish({ status: 'signedOut' });
       throw new CredentialStorageError({ cause: error });
+    }
+    if (generation !== this.generation) {
+      await this.revokeIssued(session);
+      throw contextSuperseded();
     }
     this.accessToken = session.accessToken;
     this.currentUser = session.currentUser;
@@ -84,15 +99,27 @@ export class SessionCoordinator {
   }
 
   async protected<T>(operation: (accessToken: string) => Promise<T>): Promise<T> {
-    const token = this.accessToken;
-    if (!token) throw new Error('AUTHENTICATION_REQUIRED');
+    const context = this.context();
+    const token = this.accessToken!;
     try {
-      return await operation(token);
+      const value = await operation(token);
+      this.assertCurrent(context);
+      return value;
     } catch (error) {
       if ((error as { status?: number }).status !== 401) throw error;
+      this.assertCurrent(context);
       await this.refresh();
-      if (!this.accessToken) throw new Error('AUTHENTICATION_REQUIRED', { cause: error });
-      return operation(this.accessToken);
+      this.assertCurrent(context);
+      if (!this.accessToken) throw authenticationRequired(error);
+      const value = await operation(this.accessToken);
+      this.assertCurrent(context);
+      return value;
+    }
+  }
+
+  assertCurrent(context: SessionContext): void {
+    if (context.generation !== this.generation || context.user.userId !== this.currentUser?.userId || !this.accessToken) {
+      throw contextSuperseded();
     }
   }
 
@@ -119,6 +146,10 @@ export class SessionCoordinator {
       if (generation !== this.generation) {
         await this.revokeIssued(session);
         return;
+      }
+      if (!this.currentUser) {
+        this.generation += 1;
+        generation = this.generation;
       }
       const saved = await this.mutateCredential(async () => {
         if (generation !== this.generation) return false;
@@ -189,4 +220,20 @@ export class SessionCoordinator {
 
 function isAmbiguousNetworkFailure(error: unknown): boolean {
   return error instanceof TypeError || (error instanceof DOMException && error.name === 'AbortError');
+}
+
+function authenticationRequired(cause?: unknown): Error {
+  return Object.assign(new Error('Authentication required', cause === undefined ? undefined : { cause }), {
+    code: 'AUTHENTICATION_REQUIRED', category: 'authentication', recovery: 'SIGN_IN',
+  });
+}
+
+function contextSuperseded(): Error {
+  return Object.assign(new Error('Session context superseded'), {
+    code: 'SESSION_CONTEXT_SUPERSEDED', category: 'authentication', recovery: 'SIGN_IN',
+  });
+}
+
+function isSessionContextSuperseded(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'SESSION_CONTEXT_SUPERSEDED';
 }

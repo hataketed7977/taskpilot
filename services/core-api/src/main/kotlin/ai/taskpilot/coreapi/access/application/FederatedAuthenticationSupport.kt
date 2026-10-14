@@ -1,5 +1,6 @@
 package ai.taskpilot.coreapi.access.application
 
+import ai.taskpilot.coreapi.access.FederatedAccountBootstrap
 import ai.taskpilot.coreapi.access.model.AttemptId
 import ai.taskpilot.coreapi.access.model.ExternalIdentityKey
 import ai.taskpilot.coreapi.access.model.UserId
@@ -196,16 +197,20 @@ data class FederatedAuthenticatedResultPayload(
     val refreshToken: String,
     val refreshTokenExpiresAt: Instant,
     val currentUser: FederatedCurrentUserPayload,
+    val bootstrap: FederatedAccountBootstrap? = null,
 ) {
-    fun toSession() =
-        IssuedSession(
-            SessionId(sessionId),
-            SessionFamilyId(familyId),
-            accessToken,
-            accessTokenExpiresAt,
-            refreshToken,
-            refreshTokenExpiresAt,
-            currentUser.toView(),
+    fun toResult() =
+        FederatedPollResult.Authenticated(
+            IssuedSession(
+                SessionId(sessionId),
+                SessionFamilyId(familyId),
+                accessToken,
+                accessTokenExpiresAt,
+                refreshToken,
+                refreshTokenExpiresAt,
+                currentUser.toView(),
+            ),
+            bootstrap,
         )
 }
 

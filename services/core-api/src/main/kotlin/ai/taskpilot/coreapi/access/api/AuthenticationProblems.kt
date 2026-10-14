@@ -2,13 +2,16 @@ package ai.taskpilot.coreapi.access.api
 
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.ConstraintViolationException
+import org.springframework.dao.DataAccessException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.MethodArgumentNotValidException
+import org.springframework.web.bind.MissingServletRequestParameterException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import java.net.URI
 
 class AuthenticationProblemException(
@@ -48,6 +51,25 @@ class AuthenticationProblemHandler {
                 ?.field,
         )
 
+    @ExceptionHandler(
+        MethodArgumentTypeMismatchException::class,
+        MissingServletRequestParameterException::class,
+    )
+    fun invalidRequestParameter(
+        failure: Exception,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> =
+        problem(
+            HttpStatus.BAD_REQUEST,
+            "VALIDATION_FAILED",
+            request,
+            when (failure) {
+                is MethodArgumentTypeMismatchException -> failure.name
+                is MissingServletRequestParameterException -> failure.parameterName
+                else -> null
+            },
+        )
+
     @ExceptionHandler(HttpMessageNotReadableException::class, ConstraintViolationException::class)
     fun malformedRequest(
         failure: Exception,
@@ -55,6 +77,15 @@ class AuthenticationProblemHandler {
     ): ResponseEntity<ProblemDetail> {
         failure.hashCode()
         return problem(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", request)
+    }
+
+    @ExceptionHandler(DataAccessException::class)
+    fun temporarilyUnavailable(
+        failure: DataAccessException,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "TEMPORARILY_UNAVAILABLE", request)
     }
 
     @ExceptionHandler(IllegalArgumentException::class)
@@ -90,6 +121,7 @@ class AuthenticationProblemHandler {
             "AUTHENTICATION_REQUIRED" -> "Authentication is required."
             "AUTHENTICATION_RATE_LIMITED" -> "Try again later."
             "AUTHENTICATION_TEMPORARILY_UNAVAILABLE" -> "Authentication is temporarily unavailable."
+            "TEMPORARILY_UNAVAILABLE" -> "The service is temporarily unavailable."
             else -> "The request is invalid."
         }
 }

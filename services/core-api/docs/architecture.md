@@ -40,11 +40,13 @@ tenancy, lifecycle, concurrency, or recovery behavior.
 The implemented application is deliberately limited to:
 
 - one Spring Boot application rooted at `ai.taskpilot.coreapi`;
-- four declared Spring Modulith capability boundaries (`access`, `project`,
-  `automation`, and `agent`), with runnable business code only in `access`;
-- a final-development Flyway baseline containing exactly the durable
-  `access.users`, `access.external_identities`, and
-  `access.terms_acceptances` tables;
+- six declared Spring Modulith capability boundaries (`access`, `workspace`,
+  `project`, `onboarding`, `automation`, and `agent`); `onboarding` is the narrow
+  first-registration coordinator, depends only on the public Access, Workspace, and Project
+  provisioning contracts, and owns no table or HTTP endpoint;
+- a final-development Flyway baseline containing the durable Access identity,
+  Workspace/Workspace Membership, and Project/Project Membership tables in
+  their owning `access`, `workspace`, and `project` schemas;
 - Redis-backed, TTL-bounded OAuth attempts and registration continuations,
   login rate limits, and opaque access/refresh sessions; Redis failure causes
   authentication to fail closed and never becomes business truth;
@@ -54,11 +56,16 @@ The implemented application is deliberately limited to:
 - purpose-separated HMAC digests, PKCE S256, and AEAD-protected temporary values
   using independent runtime keys; incomplete or reused key configuration
   disables the federated capability;
-- no mail sender, SMTP, Mailpit, email, password, OTP, reset fallback,
-  Workspace, or Project implementation in the current runnable slice;
+- no mail sender, SMTP, Mailpit, email, password, OTP, or reset fallback;
+  first registration provisions the Access identity facts, one PERSONAL
+  Workspace with OWNER membership, and one ordinary default Project with OWNER
+  membership;
+- authenticated Workspace discovery and Project list/detail/create/edit HTTP
+  operations backed by server-side Workspace and Project OWNER authorization,
+  request-id idempotency, and optimistic version checks;
 - a fail-closed Spring Security chain that permits only explicit anonymous auth
-  endpoints and Actuator probes, authenticates `GET /desktop/v1/me` and logout
-  with opaque access credentials, and rejects every other route; and
+  endpoints and Actuator probes, authenticates Desktop account, Workspace, and
+  Project routes with opaque access credentials, and rejects every other route; and
 - executable module-graph, technical-dependency, startup, health,
   PostgreSQL/Flyway, Redis, static-analysis, executable Boot JAR, and coverage
   gates.
@@ -73,16 +80,19 @@ surface package segments are fixed as `desktopapi`, `publicapi`, and
 `managedapi`; a future Change that renames or adds a surface must update the
 owning architecture contract and fixtures together.
 
-The Current first-use surface exposes only Desktop authentication, session,
-and current-user controllers, with runtime OpenAPI and non-persistent Swagger
-authorization enabled outside Production. The generated contract contains only
-federated capability/attempt/callback/poll/cancel/registration, ACTIVE-session
-refresh/logout, and current-user routes; legacy email/password/OTP/reset and
-Workspace/Project routes are absent. Provider, durable-job, workflow,
-Agent-execution, and managed-execution persistence and behavior remain
-unimplemented. The current persistence choice is explicit Spring JDBC plus
-Flyway for durable identity facts and Redis for expiring authentication state;
-everything below that describes later capabilities remains **Target** unless
+The Current first-use HTTP surface exposes Desktop authentication, session,
+current-user, PERSONAL Workspace discovery, and complete current Project
+controllers. Runtime OpenAPI and non-persistent Swagger authorization remain
+enabled outside Production; exact-path contract tests cover these implemented
+routes, their access-bearer boundary, transport schemas, successful responses,
+shared Problem Details, and secret hygiene. Legacy
+email/password/OTP/reset, TEAM, provider, durable-job, workflow, Agent-execution,
+and managed-execution behavior remain unimplemented. The current persistence choice is explicit Spring JDBC plus
+Flyway for durable business facts and Redis for expiring authentication state.
+The Core API application composition root owns shared PostgreSQL DataSource
+auto-configuration; each business capability owns only its schema, JDBC
+implementation, and participation in explicitly coordinated transactions.
+Everything below that describes later capabilities remains **Target** unless
 explicitly marked Current.
 
 ## Federated Access Implementation Status
@@ -108,12 +118,18 @@ poll, completion, continuation, and TaskPilot credential material.
 First registration validates the exact `(locale, legalBundleVersion,
 termsVersion, privacyVersion)` quartet against a canonical, duplicate-free
 configured legal-locale allowlist and one configured version triple. Unknown,
-non-canonical, duplicate, or mismatched configuration fails closed. A valid
-registration atomically stores User, External Identity, and the complete Terms
-Acceptance quartet in PostgreSQL with server-generated `acceptedAt`; rejection
-leaves no durable registration. This is legal-document validation rather than a
-general server-side localization facility. The registration preview response exposes the required version triple and legal-locale allowlist to Desktop; the registration request contract and database schema are unchanged. Known identity login and successful registration directly
-issue an active opaque Redis session. Refresh rotates both credentials; replay
+non-canonical, duplicate, or mismatched configuration fails closed. A valid registration runs through the `onboarding` coordinator and atomically
+stores User, External Identity, the complete Terms Acceptance quartet, one
+PERSONAL Workspace, its OWNER membership, one localized ordinary default
+Project, and its OWNER membership in PostgreSQL. Access, Workspace, and Project
+perform only their owned writes inside the ambient onboarding transaction; rejection or any
+provisioning failure leaves none of the seven facts durable. This is
+legal-document validation rather than a general server-side localization
+facility. The registration preview exposes the required version triple and
+legal-locale allowlist. Only after PostgreSQL commits does Access issue an
+active opaque Redis session. A successful first registration also returns the
+non-secret `workspaceId`/`projectId` bootstrap, including from encrypted attempt
+completion replay; existing-identity login does not return that bootstrap. Refresh rotates both credentials; replay
 of an old refresh token revokes the session family, logout revokes immediately,
 and corrupt or unavailable Redis state fails closed. Existing-identity login
 updates only `lastAuthenticatedAt`, never the TaskPilot-owned display name or
@@ -124,11 +140,15 @@ but disables the capability.
 browser, hosts the loopback receiver, combines poll and completion proof, holds
 registration and TaskPilot credential secrets, and persists refresh material
 through the OS credential store before publishing authentication. Renderer
-receives only safe presentation models. Automated tests use browser, loopback,
-Provider, Redis, PostgreSQL, and credential doubles/containers; real GitHub
-OAuth and packaged/native platform behavior remain manual evidence. Deep links,
-embedded WebViews, GitHub repository integration, Workspace/Project behavior,
-Gateway authentication, and production rollout remain outside this slice.
+receives only safe presentation models. Main consumes the fixed PERSONAL
+Workspace and Project routes through narrow Preload capabilities and validates
+registration bootstrap plus recent/fallback Project selection before presenting
+Project home. Automated tests use browser, loopback, Provider, Redis, PostgreSQL,
+and credential doubles/containers; the integrated journey crosses compiled
+Main, IPC, Preload, Core API, PostgreSQL, and Redis. Real GitHub OAuth remains
+manual evidence; packaged/native evidence is platform-specific. Deep links,
+embedded WebViews, GitHub repository integration, Gateway authentication, and
+production rollout remain outside this slice.
 
 ## Runtime Role
 
@@ -194,12 +214,14 @@ gate.
 
 ## Initial Capability Areas
 
-Use the four coarse areas from the business model as the starting point:
+Use the five coarse business areas plus one narrow onboarding coordinator:
 
 | Area | Backend responsibility |
 | --- | --- |
-| `access` | User identity, login/session integration, Workspace, Workspace Membership, and narrow membership authorization facts |
+| `access` | User identity, external identity, legal acceptance, and login/session integration |
+| `workspace` | Workspace, Workspace Membership, PERSONAL provisioning, and narrow membership authorization facts |
 | `project` | Project, Project Membership, authorized Project list, Work Items and types, Boards, comments, and custom values |
+| `onboarding` | First-registration coordination only; owns no business tables or HTTP surface and calls narrow Access/Workspace/Project contracts in one PostgreSQL transaction |
 | `automation` | Workflow definitions and versions, Workflow Runs, Step Runs, approval, transition evaluation, and orchestration |
 | `agent` | Provider Connections, Agents and versions, Project Agent Bindings, Agent Runs, attempts, artifacts, execution-mode routing, durable dispatch, server-side provider adapters, and local managed-execution protocol |
 
@@ -208,7 +230,10 @@ module or split requires evidence of an independent ownership, permission,
 scale, reliability, or change boundary. A screen does not create a module.
 
 Cross-area use cases may be coordinated by an application service in the area
-that owns the user intent. The coordinator calls focused operations and commits
+that owns the user intent. First registration is the explicit exception: Access
+owns authentication continuation/session behavior and exposes a provisioning
+port; `onboarding` implements that port and coordinates Access, Workspace, and Project
+writes without any capability reading another owner's private tables. The coordinator calls focused operations and commits
 all required local database changes in one transaction. Cyclic package
 dependencies remain forbidden, but avoiding a cycle must not produce an event
 chain for work that requires an immediate answer; move shared orchestration or
@@ -317,9 +342,9 @@ class hierarchy.
   references, metadata, digests, and bounded summaries.
 - The runnable modular monolith uses one TaskPilot PostgreSQL database and one
   Flyway history. Business tables are explicitly qualified into coarse-grained
-  capability schemas: the current baseline owns only `access`, while `project` and
-  capabilities such as `automation` and `agent` create schemas only when they
-  first persist tables. `public` is reserved for Flyway metadata.
+  capability schemas: the current baseline owns `access`, `workspace`, and `project`;
+  capabilities such as `automation` and `agent` create schemas only when they first
+  persist tables. `public` is reserved for Flyway metadata.
 - SQL never relies on `search_path`; every business table reference is
   schema-qualified, including cross-schema foreign keys and joins.
 - Independent durable entities use a single `id UUID` primary key. Foreign keys
@@ -331,36 +356,43 @@ class hierarchy.
   Flyway migration and naming conventions are guarded by PostgreSQL integration
   tests rather than duplicated diagrams.
 
-## Target Workspace-Scoped Project Discovery
+## Current Workspace-Scoped Project Operations
 
-The approved first Project Work implementation is Target and deliberately read-only. It persists the
-minimum Project and Project Membership facts needed for authorized discovery and
-serves:
+The Current Desktop API exposes the authenticated User's PERSONAL Workspace and
+authorized Project list, detail, create, and edit operations. Project pages are
+ordered by `(createdAt, projectId)` and use an opaque Base64URL cursor whose
+encoding is an internal server contract; clients must not parse it. The cursor
+is bound to one Workspace and Project status. `limit` defaults to 50 and is
+restricted to 1–100. A `ProjectView` contains `projectId`, `workspaceId`,
+`name`, `description`, `status`, `version`, `createdAt`, `updatedAt`, and
+`archivedAt`; pages also return `nextCursor` only when another page exists.
 
-`GET /desktop/v1/workspaces/{workspaceId}/projects`
+Access owns User/session. Workspace owns Workspace, Workspace Membership, its
+transport, and Workspace authorization. Project owns Project, Project Membership,
+transport, and Project authorization, and consumes only the narrow Workspace
+membership contract rather than Workspace private tables. Workspace trusts the
+Access-established actor and does not query Access private tables.
+Listing and reading require aligned Workspace OWNER and Project OWNER facts.
+Creation requires Workspace OWNER, atomically grants Project OWNER, permits
+duplicate names, and is idempotent for `(User, Workspace, requestId)` when the
+normalized payload is unchanged. Editing requires Project OWNER and a matching
+`expectedVersion`. Names and descriptions are trimmed and constrained by Unicode
+code-point length.
 
-The query accepts only optional opaque `cursor` and integer `limit` parameters;
-`limit` defaults to 50 and is restricted to 1–100. A successful page contains
-`items` whose exact fields are `projectId`, `workspaceId`, and `name`, plus
-`nextCursor` only when another page exists. Cursors are opaque and bound to one
-Workspace. The repeated item `workspaceId` lets Desktop reject a mismatched or
-late page before publishing it.
-
-Access remains the owner of User/session, Workspace, and Workspace Membership.
-Project Work owns Project, Project Membership, Project list transport, and
-Project-level authorization. Project Work consumes a narrow synchronous Access
-contract that answers the trusted `UserId + WorkspaceId` membership fact; it
-must not read Access private tables. It then returns only Projects for which the
-same User has an effective Project Membership aligned to that Workspace. A
-unique `ProjectId` cannot bypass the parent scope, and malformed cross-Workspace
-relationships are rejected or excluded with a redacted integrity signal.
-
-Invalid/unknown query input maps to `400 VALIDATION_FAILED`; missing or invalid
-session to `401 AUTHENTICATION_REQUIRED`; both missing and inaccessible
-Workspaces to `404 WORKSPACE_NOT_FOUND`; and a safe read outage to
-`503 PROJECTS_TEMPORARILY_UNAVAILABLE`, optionally with `retryAfterSeconds`.
-Controlled database fixtures prepare Project rows for tests because this slice
-does not add a Project create use case or endpoint.
+Invalid input maps to path-aware `400 VALIDATION_FAILED`; invalid session to
+`401 AUTHENTICATION_REQUIRED`; missing or inaccessible Workspace/Project to the
+same non-enumerating `404 PROJECT_NOT_FOUND`; stale version or changed-payload
+request replay to stable `409` conflicts; and safe
+persistence outages to `503 TEMPORARILY_UNAVAILABLE`. Registration remains one
+ambient PostgreSQL transaction coordinated by `onboarding`; Access issues the
+Redis session only after commit. Project OWNER may archive/restore with optimistic
+versions; retries that already reached the target state return the unchanged
+view. Permanent deletion locks and revalidates the scoped Project, version, and
+exact current name, explicitly deletes Memberships before the Project, preserves
+the PERSONAL Workspace, and maps protected dependencies to
+`PROJECT_DELETE_RESTRICTED`. All current and future Project FKs default to
+`RESTRICT`; no generic cascade is approved. Runtime OpenAPI publication and Desktop Main/Preload consumption for these
+Workspace/Project operations are Current. TEAM behavior remains Target.
 
 ## Query and Read Models
 
@@ -393,12 +425,14 @@ same application use cases:
 - The server remains authoritative for permissions and allowed actions.
 
 The initial Desktop surface exposes runtime-generated OpenAPI JSON and Swagger
-UI for federated authentication, session refresh/logout, and current user, and
-verifies them with runtime contract tests. The contract fixture freezes anonymous
-versus refresh-body versus opaque-bearer security, exact loopback completion-URI
-constraints, registration/session request shapes, Problem Details, the email-free
-`CurrentUserView`, and the absence of reusable OAuth/attempt/session secret
-examples and legacy email authentication paths.
+UI for federated authentication, session refresh/logout, current user, PERSONAL
+Workspace discovery, and the complete current Project lifecycle, and verifies
+them with runtime contract tests. The contract fixture freezes anonymous versus
+refresh-body versus opaque-bearer security, exact loopback completion-URI
+constraints, registration/session and Workspace/Project request/response shapes,
+operation-specific success and failure statuses, shared Problem Details, the
+email-free `CurrentUserView`, PERSONAL-only Workspace transport, and the absence
+of reusable OAuth/attempt/session secret examples and unimplemented paths.
 Production disables both OpenAPI JSON and Swagger UI. Main adapter fixtures cover
 the consumed shape; this phase does not require a committed standalone schema,
 generated Desktop client, or breaking-change compatibility gate. Managed-

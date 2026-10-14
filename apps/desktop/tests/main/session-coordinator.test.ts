@@ -66,6 +66,18 @@ describe('SessionCoordinator', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it('assigns a new generation to an established identity and rejects responses from the previous one', async () => {
+    const coordinator = new SessionCoordinator('production', new MemoryCredentialStore(), {
+      refresh: vi.fn(), logout: vi.fn(),
+    });
+    await coordinator.establish(issued('1'));
+    const previous = coordinator.context();
+    await coordinator.establish({ ...issued('2'), currentUser: { userId: '22222222-2222-4222-8222-222222222222', displayName: 'Grace' } });
+
+    expect(coordinator.context()).toMatchObject({ user: { displayName: 'Grace' } });
+    expect(() => coordinator.assertCurrent(previous)).toThrowError(expect.objectContaining({ code: 'SESSION_CONTEXT_SUPERSEDED' }));
+  });
+
   it('invalidates the generation before logout so a late refresh cannot republish state', async () => {
     const store = new MemoryCredentialStore();
     const pending = Promise.withResolvers<ReturnType<typeof issued>>();

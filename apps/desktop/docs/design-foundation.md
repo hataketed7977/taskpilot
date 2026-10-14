@@ -12,9 +12,10 @@
   application shell, navigation, Workspace selection, Project list, create
   Project flow, Project shell, or shared Renderer visual primitives
 
-This document defines the approved visual target; it is not implemented
-behavior. Code and screenshots become Current evidence only after the Desktop
-application exists and the relevant tests and native checks pass.
+This document contains both the Current first-use visual foundation and Target
+directions for later product surfaces. A section is Current only where it is
+explicitly backed by runnable Renderer code and portable tests; packaged/native
+visual checks remain separate release evidence.
 
 ## Product Brief
 
@@ -23,20 +24,22 @@ human work and Agent execution. It should carry more operational information
 than a general productivity app while remaining calmer than an IDE or an
 observability console.
 
-The current implementation slice is deliberately auth-only:
+The Current Renderer covers authentication, legal review, session lifecycle,
+and the authenticated Project home. Main and Preload provide narrow, typed
+personal-Workspace and Project capabilities. The implemented first-use journey
+is:
 
 ```text
 secure Desktop shell
-→ GitHub authentication in the system browser
-→ first registration and legal-document review when needed
-→ session restore, refresh, and logout
-→ authenticated account view
+→ GitHub authentication and first registration when needed
+→ resolve the one personal Workspace and current Project
+→ Project home with create, edit, archive, restore, and permanent deletion
+→ account, language, and logout remain reachable
 ```
 
-Workspace/Project surfaces, Agent Runtime, local directory binding, execution
-controls, terminals, Diff, and Agent activity remain Target. The visual
-foundation stays extensible without showing disabled promises for those later
-capabilities.
+`TEAM`, members, Board, Agent execution, local directory binding, terminals,
+Diff, and activity metrics remain Target. The shell stays extensible without
+showing disabled promises or fabricated data for those later capabilities.
 
 ### Audience and primary job
 
@@ -114,20 +117,19 @@ generated-design signals:
 ## Visual Signature: the Context Spine
 
 The context spine is the one intentionally distinctive device. It is a slim,
-continuous vertical rule inside the navigation surface that connects the active
-Workspace and selected destination. The first slice uses a real `Projects`
-destination; later Project-scoped navigation may add one nested level without
-changing the grammar. Short horizontal branches terminate at the active label.
+continuous vertical rule inside the navigation surface that connects the fixed
+personal Workspace and its ACTIVE Projects. Short horizontal branches terminate
+at Project labels; the selected branch is the current Project.
 
 It is not a progress meter, a decorative timeline, or a place for arbitrary
 badges. It communicates only hierarchy and current scope:
 
 ```text
-  Acme Workspace
+  Personal space
         │
-        ├── Projects               ← current destination
-        ├── Members
-        └── Settings
+        ├── My project             ← current Project
+        ├── Launch notes
+        └── New project            ← action, not another hierarchy level
 ```
 
 Rules:
@@ -137,9 +139,8 @@ Rules:
 - Always pair color with position, weight, and an accessible current-page state.
 - Do not extend the spine through unrelated content or repeat it inside every
   panel.
-- In the first slice, the spine ends at the real Workspace-level `Projects`
-  destination. It may indicate the list surface but must not imply that a
-  Project is selected or that Project-scoped navigation already exists.
+- The spine contains only ACTIVE Projects. New Project and Archived Projects
+  are adjacent actions, not branches that imply business resources.
 - In compact navigation, preserve the hierarchy through an explicit breadcrumb
   and accessible labels; do not compress the spine into unexplained dots.
 
@@ -199,19 +200,14 @@ elevation, native-chrome, and screenshot review before it is claimed.
 
 ## Typography
 
-The Current authentication and account surfaces bundle **Inter Variable** for
-Latin text and numbers, with the platform sans-serif stack providing Chinese
-fallback. This is the approved typography for the runnable first-use slice; it
-must be checked with both Chinese and English content on each release platform.
-It does not silently decide the later application shell's complete CJK or
-machine-readable font stack.
-
-When the Workspace/Project shell is implemented, select and bundle its Latin,
-Simplified Chinese, and machine-readable families from real dense-screen
-fixtures. Machine-readable values may use a monospace family, but ordinary
-labels and decorative metadata must not. Any replacement or expansion of the
-Current stack requires side-by-side Chinese and English screenshots rather than
-an arbitrary host-font fallback.
+The Current authentication and Project-home surfaces bundle **Inter Variable**
+for Latin text and numbers, with the platform sans-serif stack providing Chinese
+fallback. Portable Renderer/Cypress fixtures cover both Chinese and English;
+each release platform still requires a native visual check. The current Project
+home has no machine-readable data region that warrants a monospace family.
+Any later replacement, dedicated CJK family, or machine-readable stack requires
+real dense-screen fixtures and side-by-side Chinese and English screenshots
+rather than an arbitrary host-font change.
 
 | Style | Size / line height | Weight | Use |
 | --- | --- | --- | --- |
@@ -264,8 +260,8 @@ Guidance:
 The application uses three persistent layers:
 
 1. a platform-aware title region (`40–44px`) with a dedicated draggable area;
-2. a `224px` context navigation pane containing the Workspace switcher and
-   context spine; and
+2. a `224px` context navigation pane containing the personal Workspace label,
+   Project context spine, and account controls; and
 3. a flexible work surface with a local header and content region.
 
 At widths below `1080px`, navigation may reduce to `192px` and optional detail
@@ -279,29 +275,62 @@ Interactive controls never overlap a drag region. The visual shell may share
 layout code, but title-bar measurements and window-control accommodations are
 platform adapters, not CSS guesses spread across pages.
 
-### Application shell and Project list
+### Application shell and Project home
 
 ```text
-┌─ native title region ──────────────────────────────────────────────────────┐
-│  TaskPilot                                                    account      │
+┌─ title region ─────────────────────────────────────────────────────────────┐
+│ TaskPilot                                                                  │
 ├──────────────────────┬─────────────────────────────────────────────────────┤
-│ Acme Workspace    ▾  │ Workspace / Projects                              │
-│     │                ├─────────────────────────────────────────────────────┤
-│     ├─ Projects  ●   │ Projects                             Refresh       │
-│     ├─ Members       │                                                     │
-│     └─ Settings      │ Atlas migration                          ›          │
-│                      │ Release automation                       ›          │
-│                      │ Support operations                       ›          │
-│ Help                 │                                                     │
+│ Personal space       │ My project                         Project settings │
+│     │                │ A short description when one exists.               │
+│     ├─ My project ●  ├─────────────────────────────────────────────────────┤
+│     ├─ Launch notes  │                                                     │
+│     └─ + New project │ Project home                                       │
+│                      │                                                     │
+│ Archived projects    │ This is the stable project context.                │
+│                      │ Board and Agent content is not invented here.       │
+│ Ada · Account        │                                                     │
 └──────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
-The first-slice shell is list-led rather than a metric dashboard. It loads the
-active Workspace's real Project page through the typed Desktop capability and
-shows only `name` as user-facing row content in this slice. A row may be focused
-or selected for interaction semantics, but activation must not navigate to a
-Project detail surface until that later contract exists. There is no Create
-Project action, disabled creation promise, or inferred `canCreateProject`.
+The shell is list-led rather than a dashboard. The fixed personal Workspace is
+shown as context, not as a switcher or creatable object. ACTIVE Projects form
+the only context-spine branches; the current Project combines position, weight,
+and `aria-current`, not color alone. The main pane shows the real Project name
+and optional description, followed by a quiet start surface with no fake
+metrics, Board, Agent, TEAM, invitation, or member placeholders.
+
+At `960 × 640`, the navigation remains visible at `208px`; long names wrap to
+two lines without covering the new-Project action. Below that supported width,
+the navigation may become a dismissible overlay while the header retains the
+current Project name. Account, language, and logout live together at the bottom
+of the navigation so they remain reachable without competing with Project
+actions.
+
+### Project operation layers
+
+- **Create Project:** a focused dialog with name and optional description. It
+  creates one request id for the user intent and retains that id across an
+  uncertain retry. Success selects the returned Project and restores focus to
+  the new Project branch.
+- **Project settings:** a reversible main-pane view for name and description.
+  Save carries the currently displayed version. Archive is a separate warning
+  action; success selects the next ACTIVE Project or the truthful empty state.
+- **Archived Projects:** a main-pane list, reached from the navigation, with a
+  Restore action per row. Restoration returns the Project to the ACTIVE list
+  without silently changing the current Project.
+- **Danger Zone:** permanent deletion is available only from settings. A modal
+  repeats the current Project and personal-space context, requires the exact
+  current name, and submits that name plus the displayed version. Success
+  removes the Project and selects another ACTIVE Project or the empty state.
+- **Account menu:** shows the real avatar/name, locale selector, and logout. It
+  contains no profile-storage explanations or future provider inventory.
+
+Dialogs move focus to the first meaningful field, trap keyboard focus, close on
+Escape only when no mutation is pending, and return focus to their trigger.
+Mutation buttons retain width while pending. Conflict or field errors stay in
+the owning layer and preserve input; session expiry clears the protected shell
+and returns to sign-in through the authoritative session state.
 
 ## First-Slice Wireframes
 
@@ -380,7 +409,7 @@ The same bounded content area replaces itself for every stable auth state:
 | expired | Clear the old flow view and offer a new GitHub attempt. |
 | disabled or other safe authentication rejection | Use a non-enumerating “unable to sign in” state and offer a new attempt or support path; do not disclose internal User status. |
 | reauthentication required | Return to the signed-out GitHub entry after secret/session cleanup. |
-| authenticated handoff | Announce completion briefly while the authoritative session subscription moves the app into the account view. |
+| authenticated handoff | Announce completion briefly while the authoritative session subscription moves the app into the authenticated Project home. |
 
 Polling and reconnect timers stop on cancellation, authentication, unmount, or
 flow replacement. The Current Auth and Account surfaces provide the same compact
@@ -394,85 +423,58 @@ no decorative transition. Portable Renderer/Cypress checks cover these
 contracts; packaged Electron, native credential storage, final platform visual
 review, macOS, and Windows remain separate release evidence.
 
-### Workspace selection
+### Project-home states
+
+**Loading** preserves the full shell: Workspace label, several neutral Project
+row skeletons, and a main-pane title skeleton. It does not briefly show the old
+account page or an empty Project list.
+
+**No ACTIVE Projects** keeps the personal Workspace and account controls visible
+and presents one primary `Create Project` action. Archived Projects remains
+reachable so an archived Project can be restored instead of creating another.
+
+**Retryable load error** replaces only the protected Project content with a
+specific error and `Retry`; it never converts a transport failure into an empty
+state. A `SIGN_IN` recovery or authoritative signed-out event leaves no Project
+name or description visible.
+
+**Stale completion** is discarded when any Main response key differs from the
+accepted session generation or User. Project-scoped responses additionally
+must match the requested Workspace and Project. A discarded completion does not
+show success, error, rows, or form closure in the replacement session.
+
+**Long content** wraps names and descriptions rather than resizing the shell.
+The current Project name is always available in full in the main heading; a
+navigation branch may clamp after two lines with its full name in the accessible
+label and native title.
+
+### Project-home wireframes
 
 ```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Choose a Workspace                                      Account menu       │
-├────────────────────────────────────────────────────────────────────────────┤
-│ Find a Workspace…                                                        2 │
-│────────────────────────────────────────────────────────────────────────────│
-│ ● Acme Workspace                 Organization               Last opened     │
-│   基础设施团队                    Organization                               │
-│                                                         [Create Workspace] │
-└────────────────────────────────────────────────────────────────────────────┘
+Empty ACTIVE list                    Archived Projects
+┌───────────────────────────────┐    ┌──────────────────────────────────────┐
+│ Personal space               │    │ Archived Projects            Back   │
+│ No active projects           │    │──────────────────────────────────────│
+│ Create a project to begin.   │    │ Launch notes       Archived   Restore│
+│ [ Create Project ]           │    │ Old prototype      Archived   Restore│
+└───────────────────────────────┘    └──────────────────────────────────────┘
+
+Project settings                     Permanent deletion
+┌───────────────────────────────┐    ┌──────────────────────────────────────┐
+│ Project settings       Back   │    │ Permanently delete “My project”?    │
+│ Name        [My project     ] │    │ Personal space · cannot be undone   │
+│ Description [              ] │    │ Type My project to confirm          │
+│                [Save]         │    │ [My project                       ] │
+│───────────────────────────────│    │                 [Cancel] [Delete]    │
+│ Archive project      [Archive]│    └──────────────────────────────────────┘
+│ Danger Zone          [Delete] │
+└───────────────────────────────┘
 ```
 
-Use one selectable list rather than a card gallery. Preserve keyboard arrow
-navigation, visible focus, explicit selected state, and Enter to continue. On
-startup, one accessible Workspace may be entered automatically; with multiple
-Workspaces, restore the most recent `WorkspaceId` only after the server confirms
-access, otherwise show the selector. Never restore across account or environment
-boundaries. The first slice lists and creates only Organization Workspaces; it
-does not expose a type picker.
-
-### Create Organization Workspace
-
-```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Create Workspace                                                           │
-│ Name                                                                       │
-│ [ Acme Engineering                                      ]                  │
-│                                                                            │
-│ Organization Workspace                                                     │
-│ The first slice does not offer a Workspace type choice.                    │
-│                                                                            │
-│                                             [Cancel] [Create Workspace]     │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-Show this focused form only when `canCreateWorkspace` is true. When it is
-false, omit the submit path or explain the stable
-`createWorkspaceReasonCode`; never infer permission from role or Workspace
-type. Preserve the name and the same creation request identifier while a network
-result is unknown. Generate a new identifier only for a genuinely new user
-intent. On confirmed success, establish the returned `WorkspaceId` as active
-and load its Project list.
-
-### Project list states
-
-Loading preserves the list geometry beneath the local header. A successful empty
-response shows a quiet, truthful state:
-
-```text
-Projects                                                   Refresh
-──────────────────────────────────────────────────────────────────
-No Projects are available to you in this Workspace.
-Switch Workspace
-```
-
-The empty state offers `Refresh` and `Switch Workspace`; it does not show Create
-Project. A network or `PROJECTS_TEMPORARILY_UNAVAILABLE` result replaces the
-list with a retryable error rather than pretending `items: []`. A
-`WORKSPACE_NOT_FOUND` result clears the active Workspace and returns to the
-Workspace recovery flow. Pagination appends or replaces rows without shifting
-the shell header, and its progress/error state stays local to the list.
-
-If the Workspace changes while a page is pending, neither rows, empty state,
-errors, nor cursor from the old Workspace may flash in the new scope. If any
-returned item identifies a different Workspace, the whole page is rejected and
-the UI shows a safe retryable contract error; partial rows are never rendered.
-
-## Later Project Mutations — Explicit Non-Goal
-
-Project creation, detail/edit/delete, Project Member management, and
-Project-scoped navigation are not authorized by the first-slice wireframes and
-must not appear as hard-coded controls or disabled promises. A later end-to-end
-Change must define their HTTP and Main/Preload contracts, authorization,
-capabilities, error semantics, interaction states, and tests before extending
-the context spine below an individual Project. That Change may reuse the
-list-led composition and side-inspector grammar from this foundation; this
-document intentionally does not freeze a Project form ahead of those contracts.
+Creation and edit forms contain no business-rule essay. Short helper or error
+text appears only when it enables the next action. Archiving and restoring use
+their exact verbs. Permanent deletion uses the danger color and never reuses the
+teal primary treatment.
 
 ## Interaction and State Grammar
 
@@ -492,20 +494,20 @@ document intentionally does not freeze a Project form ahead of those contracts.
 An empty state explains what is absent and offers one valid next action:
 
 ```text
-No Workspaces yet
-Create an organization Workspace to start collaborating.
-[Create Workspace]
+No active projects
+Create a Project to begin.
+[Create Project]
 ```
 
-Do not add an illustration by default. Permission-limited emptiness is not the
-same as a truly empty collection and must not offer an unauthorized action.
+Do not add an illustration by default. Archived Projects remain a separate,
+reachable recovery path; an API error is never rendered as this empty state.
 
 ### Error
 
 - Put field errors beside their field and summary failures beside the affected
   pane. Reserve a blocking dialog for an action that cannot safely continue.
-- State what failed and what remains safe: “Workspaces couldn't be refreshed.
-  No Workspace changes were made.”
+- State what failed and what remains safe: “Projects couldn't be refreshed.
+  No Project changes were made.”
 - Offer a concrete recovery such as `Retry`, `Sign in again`, or `Copy details`.
 - Do not use “Something went wrong” when a normalized category is available.
 - Never expose credentials, raw provider errors, stack traces, or local paths.

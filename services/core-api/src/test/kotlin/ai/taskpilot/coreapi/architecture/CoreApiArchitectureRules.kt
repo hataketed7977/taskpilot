@@ -8,7 +8,7 @@ import com.tngtech.archunit.lang.SimpleConditionEvent
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes
 
 internal object CoreApiArchitectureRules {
-    private val capabilities = setOf("access", "project", "automation", "agent")
+    private val capabilities = setOf("access", "workspace", "project", "onboarding", "automation", "agent")
     private val apiSurfaceSegments =
         mapOf(
             "desktop" to setOf("desktopapi"),

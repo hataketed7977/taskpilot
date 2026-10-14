@@ -33,13 +33,16 @@ signing/notarization or signed-installer behavior, native credential integration
 and final visual smoke are recorded separately on macOS arm64 and Windows x64
 before claiming that platform is release-ready.
 
-The portable local system test may cross compiled Main/Preload/IPC into a real
-loopback Core API and PostgreSQL while GitHub is deliberately unconfigured. It
-proves health, capability-disabled behavior, and absence of retired email routes
-without a browser or Provider call. Real GitHub OAuth and native credential
-persistence require separate manual/current-platform evidence. The previous
-capture-mail packaged journey was removed with the email-auth capability; no
-packaged or native result is implied by the portable gate.
+The portable local system test crosses compiled Main, IPC, and Preload into a
+real loopback Core API backed by PostgreSQL and Redis. Test-only Provider,
+browser, credential, and session-failure doubles exercise first registration
+into the default Project, recent/fallback selection after login, last-Project
+empty state, post-commit session failure recovery, cancellation/restart, absence
+of retired email routes, and zero Agent Runtime dependency without adding a
+production test endpoint. Real GitHub OAuth and native credential persistence
+remain separate manual/current-platform evidence. The previous capture-mail
+packaged journey was removed with the email-auth capability; the portable system
+journey alone implies no packaged or native result.
 
 ## Test Layers
 
@@ -47,8 +50,8 @@ packaged or native result is implied by the portable gate.
 | --- | --- |
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
-| Main/Preload contract | Channel allowlist, schema validation, serialization, authorization and capability exposure |
-| Main integration | Fixed federated client, loopback method/path/body/size rules, attempt crash recovery, system-browser URL allowlist, direct session handoff, refresh rotation, credential adapter, authenticated cloud client, and generation fencing with owned test doubles |
+| Main/Preload contract | Channel allowlist, schema validation, serialization, sender/origin/top-frame/window-generation authorization, keyed Workspace/Project responses, and fixed capability exposure |
+| Main integration | Fixed federated and Workspace/Project clients, HTTP method/path/query allowlists, typed response validation, bootstrap/recent/fallback selection, environment-plus-User preference isolation and failure degradation, loopback method/path/body/size rules, attempt crash recovery, system-browser URL allowlist, direct session handoff, refresh rotation, credential adapter, authenticated cloud client, and generation fencing with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
 
@@ -82,15 +85,23 @@ packaged or native result is implied by the portable gate.
   Main cloud-client session state, and Renderer-visible protected state; the
   previous account cannot remain usable.
 
-The Current auth-only suite covers GitHub capability discovery,
+The Current Main/Preload suite covers GitHub capability discovery,
 receiver-before-attempt/browser ordering, exact loopback validation and restart
 rebinding, valid-proof-only Desktop activation, Main-only registration
 continuation, direct session handoff, credential-write failure cleanup, refresh
 rotation, logout, legal-document navigation and draft retention, cancellation
-without an extra restart step, authenticated account presentation, and generation
-fencing. It proves Renderer has no token/network capability and that the slice
-does not start Agent Runtime. Workspace/Project and Agent-execution scenarios
-remain later changes.
+without an extra restart step, authenticated Project-home presentation, and
+session generation fencing. It also covers the Workspace/Project HTTP allowlist and
+typed contracts, registration bootstrap, environment-plus-User recent-Project
+partitioning, valid and stale preference fallback, corrupt/read/write-failed
+preference degradation, terminal `401` cleanup, channel-specific IPC validation,
+and late-result rejection after logout or account replacement. Renderer tests
+also cover initial/default/recent/fallback Project selection, create/edit,
+archive/restore/permanent-delete and post-delete selection, retryable errors,
+empty state, bilingual copy, logout, and stale keyed-result rejection. These
+tests prove Renderer receives no token, URL, generic network or generic IPC
+capability and that the slice does not start Agent Runtime. Agent-execution
+scenarios remain later changes.
 
 ## Agent Presentation Boundary
 
@@ -120,8 +131,12 @@ cover exact `zh-CN`/`en` quartets, UTC date formatting, no cross-locale legal
 fallback, and consent invalidation without losing non-legal registration input.
 Cypress exercises login, waiting, error, registration, focus retention,
 keyboard-scrollable legal content, and account switching at `960 × 640`, plus
-the existing `480 × 640` overflow and reduced-motion regression. Long English
-copy must wrap without horizontal loss or hiding primary actions.
+the existing `480 × 640` auth overflow regression. It also covers the bilingual
+Project shell at `960 × 640`, long Project names/descriptions, no horizontal
+overflow, visible primary actions, dialog focus trap and focus restoration,
+mutation-error association, exact-name permanent deletion, archived restoration,
+and reduced-motion styling. Long English copy wraps without horizontal loss or
+hiding primary actions.
 
 ## Packaged and Native Matrix
 

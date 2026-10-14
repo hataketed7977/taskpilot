@@ -40,6 +40,11 @@ private fun Map<String, Any?>.schema(name: String): Map<String, Any?> = required
 
 private fun Map<String, Any?>.schemaProperties(name: String): Set<String> = schema(name).requiredMap("properties").keys
 
+private fun Map<String, Any?>.schemaProperty(
+    schemaName: String,
+    propertyName: String,
+): Map<String, Any?> = schema(schemaName).requiredMap("properties").requiredMap(propertyName)
+
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OpenApiIntegrationTest(
@@ -56,7 +61,7 @@ class OpenApiIntegrationTest(
     }
 
     @Test
-    fun `runtime OpenAPI covers the auth-only Desktop contract`() {
+    fun `runtime OpenAPI covers the current Desktop contract`() {
         val response = get("/v3/api-docs")
         assertEquals(200, response.status)
         val document = objectMapper.readValue(response.body, object : TypeReference<Map<String, Any?>>() {})
@@ -79,6 +84,9 @@ class OpenApiIntegrationTest(
             assertEquals(contract.statuses, operation.requiredMap("responses").keys, path)
             assertEquals(contract.requestSchema, operation.requestSchema(), path)
             assertEquals(contract.responseSchema, operation.successSchema(), path)
+            contract.statuses.filterNot { it.startsWith('2') }.forEach { status ->
+                assertEquals("TaskPilotProblemDetails", operation.problemSchema(status), "$method $path $status")
+            }
         }
 
         verifySchemas(document)
@@ -146,14 +154,44 @@ class OpenApiIntegrationTest(
             ),
             document.schemaProperties("RegistrationPreviewResponse"),
         )
-        assertEquals(setOf("status", "registration", "session"), document.schemaProperties("FederatedPollResponse"))
+        assertEquals(setOf("status", "registration", "session", "bootstrap"), document.schemaProperties("FederatedPollResponse"))
         assertEquals(
             setOf("accessToken", "accessTokenExpiresAt", "refreshToken", "refreshTokenExpiresAt", "currentUser"),
             document.schemaProperties("SessionResponse"),
         )
+        assertEquals(setOf("workspaceId", "projectId"), document.schemaProperties("FederatedBootstrapResponse"))
         assertEquals(setOf("refreshToken"), document.schemaProperties("RefreshRequest"))
         assertEquals(setOf("userId", "displayName", "avatarUrl"), document.schemaProperties("CurrentUserResponse"))
         assertFalse(document.schemaProperties("CurrentUserResponse").contains("email"))
+        assertEquals(
+            setOf("workspaceId", "type", "role", "createdAt", "updatedAt"),
+            document.schemaProperties("PersonalWorkspaceResponse"),
+        )
+        assertEquals(setOf("items", "nextCursor"), document.schemaProperties("ProjectPage"))
+        assertEquals(
+            setOf(
+                "projectId",
+                "workspaceId",
+                "name",
+                "description",
+                "status",
+                "version",
+                "createdAt",
+                "updatedAt",
+                "archivedAt",
+            ),
+            document.schemaProperties("ProjectView"),
+        )
+        assertEquals(setOf("requestId", "name", "description"), document.schemaProperties("CreateProjectRequest"))
+        assertEquals(setOf("expectedVersion", "name", "description"), document.schemaProperties("EditProjectRequest"))
+        assertEquals(setOf("expectedVersion"), document.schemaProperties("ProjectStatusRequest"))
+        assertEquals(
+            setOf("expectedVersion", "confirmationName"),
+            document.schemaProperties("DeleteProjectRequest"),
+        )
+        assertEquals(listOf("ACTIVE", "ARCHIVED"), document.schemaProperty("ProjectView", "status")["enum"])
+        assertEquals(listOf("PERSONAL"), document.schemaProperty("PersonalWorkspaceResponse", "type")["enum"])
+        assertEquals(listOf("OWNER"), document.schemaProperty("PersonalWorkspaceResponse", "role")["enum"])
     }
 
     private fun verifyDescriptions(paths: Map<String, Any?>) {
@@ -173,6 +211,28 @@ class OpenApiIntegrationTest(
         assertTrue(registration.contains("immediately active opaque session"))
         val refresh = paths.requiredMap("/desktop/v1/auth/session/refresh").requiredMap("post")["description"] as String
         assertTrue(refresh.contains("rotates both tokens"))
+        val create = paths.requiredMap("/desktop/v1/workspaces/{workspaceId}/projects").requiredMap("post")["description"] as String
+        assertTrue(create.contains("Workspace OWNER"))
+        assertTrue(create.contains("requestId"))
+        assertTrue(create.contains("duplicate", ignoreCase = true))
+        val list = paths.requiredMap("/desktop/v1/workspaces/{workspaceId}/projects").requiredMap("get")["description"] as String
+        assertTrue(list.contains("ACTIVE or ARCHIVED"))
+        assertTrue(list.contains("cursor"))
+        val edit =
+            paths
+                .requiredMap(
+                    "/desktop/v1/workspaces/{workspaceId}/projects/{projectId}",
+                ).requiredMap("patch")["description"] as String
+        assertTrue(edit.contains("Project OWNER"))
+        assertTrue(edit.contains("expectedVersion"))
+        val deletion =
+            paths
+                .requiredMap(
+                    "/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/permanent-deletion",
+                ).requiredMap("post")["description"] as String
+        assertTrue(deletion.contains("irreversib", ignoreCase = true))
+        assertTrue(deletion.contains("confirmationName"))
+        assertTrue(deletion.contains("protected dependenc", ignoreCase = true))
     }
 
     private fun verifySharedComponents(document: Map<String, Any?>) {
@@ -200,8 +260,14 @@ class OpenApiIntegrationTest(
         legacyPaths.forEach { assertFalse(paths.containsKey(it), it) }
         paths.keys.forEach { path ->
             assertFalse(path.contains("deliveries"), path)
-            assertFalse(path.contains("workspaces"), path)
-            assertFalse(path.contains("projects"), path)
+            assertFalse(path.contains("recoveries"), path)
+            assertFalse(path.contains("members"), path)
+            assertFalse(path.contains("memberships"), path)
+            assertFalse(path.contains("teams"), path)
+            assertFalse(path.contains("boards"), path)
+            assertFalse(path.contains("work-items"), path)
+            assertFalse(path.contains("workflows"), path)
+            assertFalse(path.contains("agents"), path)
         }
     }
 
@@ -241,12 +307,22 @@ class OpenApiIntegrationTest(
         return ((json["schema"] as? Map<*, *>)?.get("\$ref") as? String)?.substringAfterLast('/')
     }
 
+    private fun Map<String, Any?>.problemSchema(status: String): String? {
+        val response = requiredMap("responses").requiredMap(status)
+        val problem = response.requiredMap("content").requiredMap("application/problem+json")
+        return (problem.requiredMap("schema")["\$ref"] as? String)?.substringAfterLast('/')
+    }
+
     private fun Map<String, Any?>.successSchema(): String? {
         val responses = requiredMap("responses")
         val success = responses.entries.firstOrNull { it.key.startsWith('2') }?.value as? Map<*, *> ?: return null
         val content = success["content"] as? Map<*, *> ?: return null
         val json = content["application/json"] as? Map<*, *> ?: return null
-        return ((json["schema"] as? Map<*, *>)?.get("\$ref") as? String)?.substringAfterLast('/')
+        val schema = json["schema"] as? Map<*, *> ?: return null
+        val direct = (schema["\$ref"] as? String)?.substringAfterLast('/')
+        if (direct != null) return direct
+        val itemRef = ((schema["items"] as? Map<*, *>)?.get("\$ref") as? String)?.substringAfterLast('/')
+        return itemRef?.let { "$it[]" }
     }
 
     private fun get(path: String): HttpResult {
@@ -317,6 +393,47 @@ class OpenApiIntegrationTest(
                     OperationContract(null, null, setOf("204", "401"), "access-bearer"),
                 ("/desktop/v1/me" to "get") to
                     OperationContract(null, "CurrentUserResponse", setOf("200", "401"), "access-bearer"),
+                ("/desktop/v1/workspaces" to "get") to
+                    OperationContract(null, "PersonalWorkspaceResponse[]", setOf("200", "401", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects" to "get") to
+                    OperationContract(null, "ProjectPage", setOf("200", "400", "401", "404", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects" to "post") to
+                    OperationContract(
+                        "CreateProjectRequest",
+                        "ProjectView",
+                        setOf("201", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}" to "get") to
+                    OperationContract(null, "ProjectView", setOf("200", "400", "401", "404", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}" to "patch") to
+                    OperationContract(
+                        "EditProjectRequest",
+                        "ProjectView",
+                        setOf("200", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/archive" to "post") to
+                    OperationContract(
+                        "ProjectStatusRequest",
+                        "ProjectView",
+                        setOf("200", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/restore" to "post") to
+                    OperationContract(
+                        "ProjectStatusRequest",
+                        "ProjectView",
+                        setOf("200", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/permanent-deletion" to "post") to
+                    OperationContract(
+                        "DeleteProjectRequest",
+                        null,
+                        setOf("204", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
             )
         private val legacyPaths =
             setOf(

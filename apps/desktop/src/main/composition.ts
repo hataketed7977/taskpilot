@@ -5,6 +5,9 @@ import { FederatedAuthCoordinator, type DesktopWindowActivator, type ExternalBro
 import type { FederatedAuthRecoveryStore } from './auth/auth-recovery-store.js';
 import { LoopbackReceiver } from './auth/loopback-receiver.js';
 import type { CredentialStore } from './credentials/credential-store.js';
+import { WorkspaceProjectClient } from './projects/project-client.js';
+import { ProjectHomeCoordinator } from './projects/project-home-coordinator.js';
+import { MemoryRecentProjectStore, type RecentProjectStore } from './projects/recent-project-store.js';
 import { SessionCoordinator } from './session/session-coordinator.js';
 
 export interface DesktopCompositionOptions {
@@ -12,6 +15,7 @@ export interface DesktopCompositionOptions {
   transport: HttpTransport;
   credentials: CredentialStore;
   authRecovery: FederatedAuthRecoveryStore;
+  recentProjects?: RecentProjectStore;
   deviceInstallationId: string;
   browser: ExternalBrowser;
   activateDesktop?: DesktopWindowActivator;
@@ -19,9 +23,10 @@ export interface DesktopCompositionOptions {
   createOperationId?: () => string;
 }
 export interface DesktopComposition {
-  capabilities: Pick<TaskPilotDesktopApi, 'auth'>;
+  capabilities: TaskPilotDesktopApi;
   session: SessionCoordinator;
   federatedAuth: FederatedAuthCoordinator;
+  projectHome: ProjectHomeCoordinator;
 }
 
 export function createDesktopComposition(options: DesktopCompositionOptions): DesktopComposition {
@@ -33,6 +38,12 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
       method: 'POST', path: '/desktop/v1/auth/session/logout', accessToken,
     }),
   });
+  const projectHome = new ProjectHomeCoordinator(
+    options.environment,
+    session,
+    new WorkspaceProjectClient(options.transport),
+    options.recentProjects ?? new MemoryRecentProjectStore(),
+  );
   const federatedAuth = new FederatedAuthCoordinator(
     options.environment,
     options.deviceInstallationId,
@@ -44,6 +55,7 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
     options.createOperationId,
     Date.now,
     options.activateDesktop,
+    bootstrap => projectHome.acceptBootstrap(bootstrap),
   );
   const auth: TaskPilotDesktopApi['auth'] = {
     getCapabilities: () => federatedAuth.capabilities(),
@@ -55,5 +67,18 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
     subscribeSessionView: listener => session.subscribe(listener),
     logout: () => session.logout(),
   };
-  return { capabilities: { auth }, session, federatedAuth };
+  const workspaces: TaskPilotDesktopApi['workspaces'] = {
+    list: () => projectHome.listWorkspaces(),
+  };
+  const projects: TaskPilotDesktopApi['projects'] = {
+    resolveHome: () => projectHome.resolveHome(),
+    list: input => projectHome.list(input),
+    open: input => projectHome.open(input),
+    create: input => projectHome.create(input),
+    edit: input => projectHome.edit(input),
+    archive: input => projectHome.archive(input),
+    restore: input => projectHome.restore(input),
+    permanentlyDelete: input => projectHome.permanentlyDelete(input),
+  };
+  return { capabilities: { auth, workspaces, projects }, session, federatedAuth, projectHome };
 }

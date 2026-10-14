@@ -17,6 +17,11 @@ import type { SessionView, TaskPilotDesktopApi } from '../../src/shared/contract
 function signedOutApi(): TaskPilotDesktopApi {
   const signedOut: SessionView = { status: 'signedOut' };
   return {
+    workspaces: { list: vi.fn() },
+    projects: {
+      resolveHome: vi.fn().mockImplementation(() => new Promise(() => undefined)),
+      list: vi.fn(), open: vi.fn(), create: vi.fn(), edit: vi.fn(), archive: vi.fn(), restore: vi.fn(), permanentlyDelete: vi.fn(),
+    },
     auth: {
       getCapabilities: vi.fn().mockResolvedValue({ github: { enabled: true } }),
       startGitHubSignIn: vi.fn().mockResolvedValue({

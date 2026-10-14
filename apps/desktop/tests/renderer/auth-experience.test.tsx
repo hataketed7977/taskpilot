@@ -7,6 +7,17 @@ import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
 import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
 
 const currentUser = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
+
+const workspace = {
+  workspaceId: '22222222-2222-4222-8222-222222222222', type: 'PERSONAL' as const, role: 'OWNER' as const,
+  createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z',
+};
+const project = {
+  projectId: '33333333-3333-4333-8333-333333333333', workspaceId: workspace.workspaceId,
+  name: '我的项目', description: '', status: 'ACTIVE' as const, version: 0,
+  createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z', archivedAt: null,
+};
+const projectKey = { sessionGeneration: 1, userId: currentUser.userId, workspaceId: workspace.workspaceId, projectId: project.projectId, status: 'ACTIVE' as const };
 const waiting: FederatedAuthFlowView = { status: 'waiting', flowId: 'opaque-flow', expiresAt: '2030-01-01T00:00:00Z' };
 type RegistrationRequiredView = Extract<FederatedAuthFlowView, { status: 'registrationRequired' }>;
 const registrationRequired = (overrides: Partial<RegistrationRequiredView> = {}): RegistrationRequiredView => ({
@@ -33,6 +44,11 @@ function deferred<T>() {
 function signedOutApi(): TaskPilotDesktopApi {
   const signedOut: SessionView = { status: 'signedOut' };
   return {
+    workspaces: { list: vi.fn().mockResolvedValue({ key: projectKey, value: [workspace] }) },
+    projects: {
+      resolveHome: vi.fn().mockResolvedValue({ key: projectKey, value: { workspace, projects: [project], currentProject: project } }),
+      list: vi.fn(), open: vi.fn(), create: vi.fn(), edit: vi.fn(), archive: vi.fn(), restore: vi.fn(), permanentlyDelete: vi.fn(),
+    },
     auth: {
       getCapabilities: vi.fn().mockResolvedValue({ github: { enabled: true } }),
       startGitHubSignIn: vi.fn().mockResolvedValue(waiting),
@@ -101,7 +117,8 @@ describe('GitHub authentication UX', () => {
     renderApp(api);
 
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
-    expect(await screen.findByRole('heading', { name: 'Ada' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '我的项目' })).toBeInTheDocument();
+    await operator.click(screen.getByRole('button', { name: '打开账号菜单' }));
     expect(screen.getByRole('button', { name: '退出登录' })).toBeEnabled();
   });
 
@@ -119,11 +136,13 @@ describe('GitHub authentication UX', () => {
     const operator = userEvent.setup();
     renderApp(api);
 
-    await operator.click(await screen.findByRole('button', { name: '退出登录' }));
+    await screen.findByRole('heading', { name: '我的项目' });
+    await operator.click(screen.getByRole('button', { name: '打开账号菜单' }));
+    await operator.click(screen.getByRole('button', { name: '退出登录' }));
 
     expect(api.auth.logout).toHaveBeenCalledOnce();
     expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Ada' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '我的项目' })).not.toBeInTheDocument();
   });
 
   it('polls the same opaque flow, announces completion waiting, and stops after denial', async () => {
@@ -178,7 +197,7 @@ describe('GitHub authentication UX', () => {
       flowId: 'opaque-flow', displayName: 'Ada', useSuggestedAvatar: true, legalBundleVersion: '2026-09-01', termsVersion: 'terms-2026-09-01', privacyVersion: 'privacy-2026-09-01', locale: 'zh-CN',
     });
     completed.resolve({ status: 'authenticated', currentUser });
-    expect(await screen.findByRole('heading', { name: 'Ada' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '我的项目' })).toBeInTheDocument();
   });
 
   it('keeps first registration concise while preserving the optional GitHub avatar choice', async () => {

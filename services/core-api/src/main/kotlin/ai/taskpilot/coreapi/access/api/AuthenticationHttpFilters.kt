@@ -1,5 +1,6 @@
 package ai.taskpilot.coreapi.access.api
 
+import ai.taskpilot.coreapi.access.DesktopActor
 import ai.taskpilot.coreapi.access.application.CurrentUserResult
 import ai.taskpilot.coreapi.access.application.SessionUseCases
 import jakarta.servlet.FilterChain
@@ -22,7 +23,9 @@ import java.util.UUID
 data class DesktopPrincipal(
     val accessToken: String,
     val user: CurrentUserResponse,
-)
+) : DesktopActor {
+    override val userId = user.userId
+}
 
 class DesktopBearerAuthenticationFilter(
     private val sessions: SessionUseCases,

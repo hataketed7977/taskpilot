@@ -49,3 +49,97 @@ CREATE TABLE access.terms_acceptances (
 );
 
 CREATE INDEX ix_terms_acceptances__user_id ON access.terms_acceptances (user_id);
+
+CREATE SCHEMA workspace;
+
+CREATE TABLE workspace.workspaces (
+    id UUID,
+    type VARCHAR(32) NOT NULL,
+    personal_owner_user_id UUID,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT pk_workspaces PRIMARY KEY (id),
+    CONSTRAINT fk_workspaces__personal_owner_users FOREIGN KEY (personal_owner_user_id)
+        REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT ck_workspaces__type_supported CHECK (type IN ('PERSONAL', 'TEAM')),
+    CONSTRAINT ck_workspaces__personal_owner_consistent CHECK (
+        (type = 'PERSONAL' AND personal_owner_user_id IS NOT NULL)
+        OR (type = 'TEAM' AND personal_owner_user_id IS NULL)
+    )
+);
+
+CREATE UNIQUE INDEX ux_workspaces__personal_owner
+    ON workspace.workspaces (personal_owner_user_id)
+    WHERE type = 'PERSONAL';
+
+CREATE TABLE workspace.workspace_memberships (
+    id UUID,
+    workspace_id UUID NOT NULL,
+    user_id UUID NOT NULL,
+    role VARCHAR(32) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT pk_workspace_memberships PRIMARY KEY (id),
+    CONSTRAINT fk_workspace_memberships__workspaces FOREIGN KEY (workspace_id)
+        REFERENCES workspace.workspaces(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_workspace_memberships__users FOREIGN KEY (user_id)
+        REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_workspace_memberships__workspace_user UNIQUE (workspace_id, user_id),
+    CONSTRAINT ck_workspace_memberships__role_supported CHECK (role = 'OWNER')
+);
+
+CREATE INDEX ix_workspace_memberships__user_workspace
+    ON workspace.workspace_memberships (user_id, workspace_id);
+
+CREATE SCHEMA project;
+
+CREATE TABLE project.projects (
+    id UUID,
+    workspace_id UUID NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    description VARCHAR(2000) NOT NULL DEFAULT '',
+    status VARCHAR(32) NOT NULL,
+    version BIGINT NOT NULL,
+    created_by_user_id UUID NOT NULL,
+    create_request_id UUID NOT NULL,
+    create_request_fingerprint VARCHAR(128) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    archived_at TIMESTAMPTZ,
+    CONSTRAINT pk_projects PRIMARY KEY (id),
+    CONSTRAINT fk_projects__workspaces FOREIGN KEY (workspace_id)
+        REFERENCES workspace.workspaces(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_projects__created_by_users FOREIGN KEY (created_by_user_id)
+        REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_projects__workspace_actor_request
+        UNIQUE (workspace_id, created_by_user_id, create_request_id),
+    CONSTRAINT ck_projects__name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT ck_projects__description_length CHECK (char_length(description) <= 2000),
+    CONSTRAINT ck_projects__status_supported CHECK (status IN ('ACTIVE', 'ARCHIVED')),
+    CONSTRAINT ck_projects__version_non_negative CHECK (version >= 0),
+    CONSTRAINT ck_projects__request_fingerprint_not_blank CHECK (btrim(create_request_fingerprint) <> ''),
+    CONSTRAINT ck_projects__archive_state_consistent CHECK (
+        (status = 'ACTIVE' AND archived_at IS NULL)
+        OR (status = 'ARCHIVED' AND archived_at IS NOT NULL)
+    )
+);
+
+CREATE INDEX ix_projects__workspace_status_created_id
+    ON project.projects (workspace_id, status, created_at, id);
+
+CREATE TABLE project.project_memberships (
+    id UUID,
+    project_id UUID NOT NULL,
+    user_id UUID NOT NULL,
+    role VARCHAR(32) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT pk_project_memberships PRIMARY KEY (id),
+    CONSTRAINT fk_project_memberships__projects FOREIGN KEY (project_id)
+        REFERENCES project.projects(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_project_memberships__users FOREIGN KEY (user_id)
+        REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_project_memberships__project_user UNIQUE (project_id, user_id),
+    CONSTRAINT ck_project_memberships__role_supported CHECK (role = 'OWNER')
+);
+
+CREATE INDEX ix_project_memberships__user_project
+    ON project.project_memberships (user_id, project_id);

@@ -16,6 +16,7 @@ import org.springdoc.core.customizers.OperationCustomizer
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.method.HandlerMethod
 
@@ -40,6 +41,12 @@ private data class ResponseContract(
     val successStatus: String,
     val responseSchema: String?,
     val problemStatuses: List<String>,
+)
+
+private data class OperationKey(
+    val controller: String,
+    val path: String,
+    val method: String,
 )
 
 private object DesktopOpenApiContracts {
@@ -85,52 +92,85 @@ private object DesktopOpenApiContracts {
             emptyList()
         }
 
-    fun responses(handler: HandlerMethod): ApiResponses {
-        val key = handler.beanType.simpleName to handler.relativePath()
-        return responseContracts[key]?.let(DesktopOpenApiResponses::from) ?: ApiResponses()
-    }
+    fun responses(handler: HandlerMethod): ApiResponses =
+        responseContracts[handler.operationKey()]?.let(DesktopOpenApiResponses::from) ?: ApiResponses()
 
-    fun description(handler: HandlerMethod): String? {
-        val key = handler.beanType.simpleName to handler.relativePath()
-        return operationDescriptions[key]
+    fun description(handler: HandlerMethod): String? =
+        operationDescriptions[handler.operationKey()]
             ?: when (authenticationKind(handler)) {
                 ACCESS_BEARER_KIND -> ACTIVE_ACCESS_DESCRIPTION
                 "refresh-credential-body" -> ACTIVE_REFRESH_DESCRIPTION
                 else -> null
             }
-    }
 
     private val responseContracts =
         mapOf(
-            ("FederatedAuthenticationController" to "/capabilities") to
+            operation("FederatedAuthenticationController", "/capabilities", "GET") to
                 responseContract("200", "AuthenticationCapabilitiesResponse"),
-            ("FederatedAuthenticationController" to "/federated/attempts") to
+            operation("FederatedAuthenticationController", "/federated/attempts", "POST") to
                 responseContract("201", "FederatedAttemptResponse", "400", "429", "503"),
-            ("FederatedAuthenticationController" to "/federated/github/callback") to
+            operation("FederatedAuthenticationController", "/federated/github/callback", "GET") to
                 responseContract("200", null, "400", "409", "503"),
-            ("FederatedAuthenticationController" to "/federated/attempts/{attemptId}/poll") to
+            operation("FederatedAuthenticationController", "/federated/attempts/{attemptId}/poll", "POST") to
                 responseContract("200", "FederatedPollResponse", "400", "409", "410", "503"),
-            ("FederatedAuthenticationController" to "/federated/attempts/{attemptId}/cancel") to
+            operation("FederatedAuthenticationController", "/federated/attempts/{attemptId}/cancel", "POST") to
                 responseContract("204", null, "400", "409", "503"),
-            ("FederatedAuthenticationController" to "/federated/registrations") to
+            operation("FederatedAuthenticationController", "/federated/registrations", "POST") to
                 responseContract("201", "FederatedPollResponse", "400", "409", "503"),
-            ("AuthenticationController" to "/auth/session/refresh") to
+            operation("AuthenticationController", "/auth/session/refresh", "POST") to
                 responseContract("200", "SessionResponse", "400", "401", "503"),
-            ("AuthenticationController" to "/auth/session/logout") to
+            operation("AuthenticationController", "/auth/session/logout", "POST") to
                 responseContract("204", null, "401"),
-            ("AuthenticationController" to "/me") to
+            operation("AuthenticationController", "/me", "GET") to
                 responseContract("200", "CurrentUserResponse", "401"),
+            operation("WorkspaceController", "", "GET") to
+                responseContract("200", "PersonalWorkspaceResponse[]", "401", "503"),
+            operation("ProjectController", "", "GET") to
+                responseContract("200", "ProjectPage", "400", "401", "404", "503"),
+            operation("ProjectController", "", "POST") to
+                responseContract("201", "ProjectView", "400", "401", "404", "409", "503"),
+            operation("ProjectController", "/{projectId}", "GET") to
+                responseContract("200", "ProjectView", "400", "401", "404", "503"),
+            operation("ProjectController", "/{projectId}", "PATCH") to
+                responseContract("200", "ProjectView", "400", "401", "404", "409", "503"),
+            operation("ProjectController", "/{projectId}/archive", "POST") to
+                responseContract("200", "ProjectView", "400", "401", "404", "409", "503"),
+            operation("ProjectController", "/{projectId}/restore", "POST") to
+                responseContract("200", "ProjectView", "400", "401", "404", "409", "503"),
+            operation("ProjectController", "/{projectId}/permanent-deletion", "POST") to
+                responseContract("204", null, "400", "401", "404", "409", "503"),
         )
 
     private val operationDescriptions =
         mapOf(
-            ("FederatedAuthenticationController" to "/federated/attempts/{attemptId}/poll") to
+            operation("FederatedAuthenticationController", "/federated/attempts/{attemptId}/poll", "POST") to
                 "Desktop Main supplies its poll secret in the body. The browser completion proof is optional " +
                 "while reading a pending status and is required before identity resolution. A known External " +
                 "Identity returns an active opaque session; a new identity returns a private registration continuation.",
-            ("FederatedAuthenticationController" to "/federated/registrations") to
+            operation("FederatedAuthenticationController", "/federated/registrations", "POST") to
                 "Desktop Main privately owns and submits the registration continuation; Renderer must not receive it. " +
                 "Successful registration returns an immediately active opaque session.",
+            operation("WorkspaceController", "", "GET") to
+                "Lists the authenticated User's accessible Workspaces. The current implementation returns the single " +
+                "PERSONAL Workspace and its OWNER role.",
+            operation("ProjectController", "", "GET") to
+                "Lists ACTIVE or ARCHIVED Projects in the path-scoped Workspace using deterministic ordering, a bounded " +
+                "limit, and an opaque cursor. Requires Workspace OWNER access.",
+            operation("ProjectController", "", "POST") to
+                "Creates a Project in the path-scoped Workspace. Requires Workspace OWNER access. requestId is idempotent " +
+                "for the authenticated User and Workspace; duplicate Project names are allowed.",
+            operation("ProjectController", "/{projectId}", "GET") to
+                "Reads a Project only within the path-scoped Workspace and requires Project OWNER access.",
+            operation("ProjectController", "/{projectId}", "PATCH") to
+                "Edits the path-scoped Project as its Project OWNER. expectedVersion provides optimistic concurrency control.",
+            operation("ProjectController", "/{projectId}/archive", "POST") to
+                "Archives the path-scoped Project as its Project OWNER using expectedVersion.",
+            operation("ProjectController", "/{projectId}/restore", "POST") to
+                "Restores the path-scoped Project as its Project OWNER using expectedVersion.",
+            operation("ProjectController", "/{projectId}/permanent-deletion", "POST") to
+                "Permanently and irreversibly deletes the path-scoped Project as its Project OWNER. confirmationName must " +
+                "exactly match the current name, expectedVersion rejects concurrent changes, and protected dependencies " +
+                "reject deletion.",
         )
 
     private fun responseContract(
@@ -139,10 +179,22 @@ private object DesktopOpenApiContracts {
         vararg problemStatuses: String,
     ): ResponseContract = ResponseContract(successStatus, responseSchema, problemStatuses.toList())
 
-    private fun HandlerMethod.relativePath(): String =
-        method.getAnnotation(PostMapping::class.java)?.value?.firstOrNull()
-            ?: method.getAnnotation(GetMapping::class.java)?.value?.firstOrNull()
-            ?: ""
+    private fun operation(
+        controller: String,
+        path: String,
+        method: String,
+    ): OperationKey = OperationKey(controller, path, method)
+
+    private fun HandlerMethod.operationKey(): OperationKey {
+        val (path, httpMethod) =
+            method.getAnnotation(GetMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "GET" }
+                ?: method.getAnnotation(PostMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "POST" }
+                ?: method.getAnnotation(PatchMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "PATCH" }
+                ?: ("" to "")
+        return operation(beanType.simpleName, path, httpMethod)
+    }
+
+    private fun HandlerMethod.relativePath(): String = operationKey().path
 
     private const val ACTIVE_ACCESS_DESCRIPTION =
         "Requires an access bearer credential from an active opaque session."
@@ -200,11 +252,17 @@ private object DesktopOpenApiResponses {
         }
     }
 
-    private fun jsonContent(schema: String): Content =
-        Content().addMediaType(
-            "application/json",
-            MediaType().schema(Schema<Any>().`$ref`("#/components/schemas/$schema")),
-        )
+    private fun jsonContent(schema: String): Content {
+        val responseSchema =
+            if (schema.endsWith("[]")) {
+                io.swagger.v3.oas.models.media
+                    .ArraySchema()
+                    .items(Schema<Any>().`$ref`("#/components/schemas/${schema.removeSuffix("[]")}"))
+            } else {
+                Schema<Any>().`$ref`("#/components/schemas/$schema")
+            }
+        return Content().addMediaType("application/json", MediaType().schema(responseSchema))
+    }
 
     private fun problemContent(): Content =
         Content().addMediaType(

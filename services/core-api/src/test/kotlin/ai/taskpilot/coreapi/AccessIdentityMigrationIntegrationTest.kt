@@ -40,6 +40,7 @@ class AccessIdentityMigrationIntegrationTest {
         assertEquals(1, flyway.migrate().migrationsExecuted)
 
         DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+            assertEquals(EXPECTED_BUSINESS_SCHEMAS, businessSchemaNames(connection))
             assertEquals(EXPECTED_BUSINESS_TABLES, businessTableNames(connection))
             assertEquals(setOf("flyway_schema_history"), publicTableNames(connection))
             assertEquals(EXPECTED_PRIMARY_KEYS, primaryKeys(connection))
@@ -50,13 +51,25 @@ class AccessIdentityMigrationIntegrationTest {
         }
     }
 
+    private fun businessSchemaNames(connection: Connection): Set<String> =
+        queryNames(
+            connection,
+            """
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name NOT IN ('public', 'information_schema')
+              AND schema_name NOT LIKE 'pg_%'
+            """.trimIndent(),
+            "schema_name",
+        )
+
     private fun businessTableNames(connection: Connection): Set<String> =
         queryNames(
             connection,
             """
             SELECT table_schema || '.' || table_name AS qualified_name
             FROM information_schema.tables
-            WHERE table_schema IN ('access', 'project') AND table_type = 'BASE TABLE'
+            WHERE table_schema IN ('access', 'workspace', 'project') AND table_type = 'BASE TABLE'
             """.trimIndent(),
             "qualified_name",
         )
@@ -98,7 +111,7 @@ class AccessIdentityMigrationIntegrationTest {
                   ON attribute.attrelid = relation.oid
                  AND attribute.attnum = key_column.attribute_number
                 WHERE constraint_definition.contype = 'p'
-                  AND namespace.nspname IN ('access', 'project')
+                  AND namespace.nspname IN ('access', 'workspace', 'project')
                 GROUP BY namespace.nspname, relation.relname
                 """.trimIndent(),
             ).use { statement ->
@@ -116,7 +129,7 @@ class AccessIdentityMigrationIntegrationTest {
                 """
                 SELECT table_schema || '.' || table_name AS qualified_name
                 FROM information_schema.columns
-                WHERE table_schema IN ('access', 'project')
+                WHERE table_schema IN ('access', 'workspace', 'project')
                   AND column_name = 'id'
                   AND data_type = 'uuid'
                 """.trimIndent(),
@@ -138,7 +151,7 @@ class AccessIdentityMigrationIntegrationTest {
             JOIN pg_namespace target_namespace ON target_namespace.oid = target_relation.relnamespace
             WHERE constraint_definition.contype = 'f'
               AND source_namespace.nspname <> target_namespace.nspname
-              AND source_namespace.nspname IN ('access', 'project')
+              AND source_namespace.nspname IN ('access', 'workspace', 'project')
             """.trimIndent(),
             "relationship",
         )
@@ -154,12 +167,12 @@ class AccessIdentityMigrationIntegrationTest {
                     FROM pg_constraint constraint_definition
                     JOIN pg_class relation ON relation.oid = constraint_definition.conrelid
                     JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-                    WHERE namespace.nspname IN ('access', 'project')
+                    WHERE namespace.nspname IN ('access', 'workspace', 'project')
                       AND conname !~ '^(pk|fk|uq|ck)_[a-z0-9_]+$'
                     UNION ALL
                     SELECT indexname AS object_name
                     FROM pg_indexes
-                    WHERE schemaname IN ('access', 'project')
+                    WHERE schemaname IN ('access', 'workspace', 'project')
                       AND indexname !~ '^(pk|fk|uq|ck|ix|ux)_[a-z0-9_]+$'
                 ) database_objects
                 WHERE octet_length(object_name) > 63
@@ -185,15 +198,27 @@ class AccessIdentityMigrationIntegrationTest {
         }
 
     companion object {
+        private val EXPECTED_BUSINESS_SCHEMAS = setOf("access", "workspace", "project")
         private val EXPECTED_BUSINESS_TABLES =
             setOf(
                 "access.users",
                 "access.external_identities",
                 "access.terms_acceptances",
+                "workspace.workspaces",
+                "workspace.workspace_memberships",
+                "project.projects",
+                "project.project_memberships",
             )
         private val ENTITY_TABLES = EXPECTED_BUSINESS_TABLES
         private val EXPECTED_PRIMARY_KEYS = ENTITY_TABLES.associateWith { "id" }
-        private val EXPECTED_CROSS_SCHEMA_FOREIGN_KEYS = emptySet<String>()
+        private val EXPECTED_CROSS_SCHEMA_FOREIGN_KEYS =
+            setOf(
+                "workspace.workspaces->access.users",
+                "workspace.workspace_memberships->access.users",
+                "project.projects->workspace.workspaces",
+                "project.projects->access.users",
+                "project.project_memberships->access.users",
+            )
         private val REMOVED_TABLES =
             setOf(
                 "email_identities",
@@ -207,11 +232,7 @@ class AccessIdentityMigrationIntegrationTest {
                 "user_sessions",
                 "session_deliveries",
                 "refresh_recoveries",
-                "workspaces",
-                "workspace_memberships",
                 "workspace_creation_requests",
-                "projects",
-                "project_memberships",
             )
     }
 }

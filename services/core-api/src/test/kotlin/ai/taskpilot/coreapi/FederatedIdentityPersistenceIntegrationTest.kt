@@ -4,12 +4,7 @@ import ai.taskpilot.coreapi.access.application.ExternalIdentityAlreadyExistsExce
 import ai.taskpilot.coreapi.access.model.ExternalIdentity
 import ai.taskpilot.coreapi.access.model.ExternalIdentityId
 import ai.taskpilot.coreapi.access.model.ExternalIdentityKey
-import ai.taskpilot.coreapi.access.model.NewFederatedUser
-import ai.taskpilot.coreapi.access.model.TermsAcceptance
-import ai.taskpilot.coreapi.access.model.TermsAcceptanceId
-import ai.taskpilot.coreapi.access.model.UserAccount
 import ai.taskpilot.coreapi.access.model.UserId
-import ai.taskpilot.coreapi.access.model.UserStatus
 import ai.taskpilot.coreapi.access.persistence.JdbcFederatedIdentityStore
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.AfterAll
@@ -22,10 +17,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource
 import org.testcontainers.postgresql.PostgreSQLContainer
 import java.net.URI
 import java.time.Instant
+import java.time.ZoneOffset
 import java.util.UUID
-import java.util.concurrent.Callable
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import javax.sql.DataSource
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -66,8 +59,8 @@ class FederatedIdentityPersistenceIntegrationTest {
 
     @Test
     fun `identity triple is globally unique while one user may own multiple external identities`() {
-        val first = registration(subject = "42", displayName = "Mona")
-        val userId = store.register(first)
+        val userId = insertUser("Mona")
+        val first = identity(userId, subject = "42")
         val second =
             identity(
                 userId = userId,
@@ -76,9 +69,10 @@ class FederatedIdentityPersistenceIntegrationTest {
                 subject = "abc",
             )
 
+        store.link(first)
         store.link(second)
 
-        assertEquals(userId, store.findUserId(first.externalIdentity.key))
+        assertEquals(userId, store.findUserId(first.key))
         assertEquals(userId, store.findUserId(second.key))
         assertEquals(
             2,
@@ -88,20 +82,25 @@ class FederatedIdentityPersistenceIntegrationTest {
                 userId.value,
             ),
         )
+        val otherUserId = insertUser("Other")
         assertFailsWith<ExternalIdentityAlreadyExistsException> {
-            store.link(identity(UserId(UUID.randomUUID()), subject = "42"))
+            store.link(identity(otherUserId, subject = "42"))
         }
     }
 
     @Test
     fun `profile resemblance never merges distinct durable provider subjects`() {
-        val first = registration(subject = "42", displayName = "Same Name")
-        val second = registration(subject = "43", displayName = "Same Name")
+        val firstUser = insertUser("Same Name")
+        val secondUser = insertUser("Same Name")
+        val first = identity(firstUser, subject = "42")
+        val second = identity(secondUser, subject = "43")
 
-        val firstUser = store.register(first)
-        val secondUser = store.register(second)
+        store.link(first)
+        store.link(second)
 
         assertNotEquals(firstUser, secondUser)
+        assertEquals(firstUser, store.findUserId(first.key))
+        assertEquals(secondUser, store.findUserId(second.key))
         assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM access.users", Int::class.java))
         assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM access.external_identities", Int::class.java))
         assertTrue(
@@ -114,52 +113,16 @@ class FederatedIdentityPersistenceIntegrationTest {
         )
     }
 
-    @Test
-    fun `concurrent first registration creates at most one user and no orphan records`() {
-        val start = java.util.concurrent.CountDownLatch(1)
-        val pool = Executors.newFixedThreadPool(2)
-        try {
-            val attempts =
-                (1..2).map { index ->
-                    pool.submit(
-                        Callable {
-                            start.await(5, TimeUnit.SECONDS)
-                            runCatching { store.register(registration(subject = "99", displayName = "User $index")) }
-                        },
-                    )
-                }
-            start.countDown()
-            val results = attempts.map { it.get(10, TimeUnit.SECONDS) }
-
-            assertEquals(1, results.count { it.isSuccess })
-            assertEquals(1, results.count { it.exceptionOrNull() is ExternalIdentityAlreadyExistsException })
-            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM access.users", Int::class.java))
-            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM access.external_identities", Int::class.java))
-            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM access.terms_acceptances", Int::class.java))
-        } finally {
-            pool.shutdownNow()
-        }
-    }
-
-    private fun registration(
-        subject: String,
-        displayName: String,
-    ): NewFederatedUser {
+    private fun insertUser(displayName: String): UserId {
         val userId = UserId(UUID.randomUUID())
-        val now = Instant.parse("2026-10-06T00:00:00Z")
-        return NewFederatedUser(
-            UserAccount(userId, displayName, UserStatus.ACTIVE, now, null),
-            identity(userId, subject = subject, now = now),
-            TermsAcceptance(
-                TermsAcceptanceId(UUID.randomUUID()),
-                userId,
-                "2026-10",
-                "terms-2026-10",
-                "privacy-2026-10",
-                "zh-CN",
-                now,
-            ),
+        jdbc.update(
+            "INSERT INTO access.users (id, display_name, avatar_url, status, created_at) " +
+                "VALUES (?, ?, NULL, 'ACTIVE', ?)",
+            userId.value,
+            displayName,
+            Instant.parse("2026-10-06T00:00:00Z").atOffset(ZoneOffset.UTC),
         )
+        return userId
     }
 
     private fun identity(

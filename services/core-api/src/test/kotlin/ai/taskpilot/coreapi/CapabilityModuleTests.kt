@@ -9,9 +9,19 @@ class AccessModuleTest {
     @Test fun `access module starts standalone`() = Unit
 }
 
+@ApplicationModuleTest(module = "workspace", mode = STANDALONE, verifyAutomatically = true)
+class WorkspaceModuleTest {
+    @Test fun `workspace module starts with its declared dependencies`() = Unit
+}
+
 @ApplicationModuleTest(module = "project", mode = STANDALONE, verifyAutomatically = true)
 class ProjectModuleTest {
     @Test fun `project module starts standalone`() = Unit
+}
+
+@ApplicationModuleTest(module = "onboarding", mode = STANDALONE, verifyAutomatically = true)
+class OnboardingModuleTest {
+    @Test fun `onboarding module starts with its declared dependencies`() = Unit
 }
 
 @ApplicationModuleTest(module = "automation", mode = STANDALONE, verifyAutomatically = true)

@@ -9,8 +9,6 @@ import ai.taskpilot.coreapi.access.model.FederatedLoginAttempt
 import ai.taskpilot.coreapi.access.model.FederatedLoginAttemptStatus
 import ai.taskpilot.coreapi.access.model.FederatedRegistrationClaim
 import ai.taskpilot.coreapi.access.model.FederatedUserProfile
-import ai.taskpilot.coreapi.access.model.NewFederatedUser
-import ai.taskpilot.coreapi.access.model.UserId
 import java.time.Duration
 import java.time.Instant
 
@@ -87,10 +85,8 @@ interface FederatedLoginStore {
 
 class ExternalIdentityAlreadyExistsException : RuntimeException("External identity already exists")
 
-interface FederatedIdentityStore {
+fun interface FederatedIdentityStore {
     fun findUser(key: ExternalIdentityKey): FederatedUserProfile?
-
-    fun register(registration: NewFederatedUser): UserId
 }
 
 interface FederatedAttemptRateLimiter {

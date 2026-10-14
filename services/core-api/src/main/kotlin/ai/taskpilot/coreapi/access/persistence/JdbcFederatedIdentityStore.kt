@@ -1,64 +1,93 @@
 package ai.taskpilot.coreapi.access.persistence
 
+import ai.taskpilot.coreapi.access.AccessAccountProvisioning
+import ai.taskpilot.coreapi.access.FederatedAccountProvisioningRequest
 import ai.taskpilot.coreapi.access.application.ExternalIdentityAlreadyExistsException
 import ai.taskpilot.coreapi.access.application.FederatedIdentityStore
 import ai.taskpilot.coreapi.access.model.ExternalIdentity
 import ai.taskpilot.coreapi.access.model.ExternalIdentityKey
 import ai.taskpilot.coreapi.access.model.FederatedUserProfile
-import ai.taskpilot.coreapi.access.model.NewFederatedUser
 import ai.taskpilot.coreapi.access.model.UserId
 import ai.taskpilot.coreapi.access.model.UserStatus
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.datasource.DataSourceTransactionManager
-import org.springframework.transaction.support.TransactionTemplate
 import java.sql.SQLException
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
 import javax.sql.DataSource
 
+@Suppress("TooManyFunctions") // Narrow JDBC adapter helpers keep each provisioning insert auditable.
 class JdbcFederatedIdentityStore(
     dataSource: DataSource,
-) : FederatedIdentityStore {
+) : FederatedIdentityStore,
+    AccessAccountProvisioning {
     private val jdbc = JdbcTemplate(dataSource)
-    private val transaction = TransactionTemplate(DataSourceTransactionManager(dataSource))
 
-    override fun register(registration: NewFederatedUser): UserId =
+    override fun provisionAccount(request: FederatedAccountProvisioningRequest) {
         translateIdentityConflict {
-            requireNotNull(
-                transaction.execute {
-                    val user = registration.user
-                    jdbc.update(
-                        """
-                        INSERT INTO access.users (id, display_name, avatar_url, status, created_at)
-                        VALUES (?, ?, ?, ?, ?)
-                        """.trimIndent(),
-                        user.userId.value,
-                        user.displayName,
-                        user.avatarUrl?.toASCIIString(),
-                        user.status.name,
-                        user.createdAt.atOffset(ZoneOffset.UTC),
-                    )
-                    insertIdentity(registration.externalIdentity)
-                    val acceptance = registration.termsAcceptance
-                    jdbc.update(
-                        """
-                        INSERT INTO access.terms_acceptances (
-                            id, user_id, legal_bundle_version, terms_version, privacy_version, locale, accepted_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """.trimIndent(),
-                        acceptance.termsAcceptanceId.value,
-                        acceptance.userId.value,
-                        acceptance.legalBundleVersion,
-                        acceptance.termsVersion,
-                        acceptance.privacyVersion,
-                        acceptance.locale,
-                        acceptance.acceptedAt.atOffset(ZoneOffset.UTC),
-                    )
-                    user.userId
-                },
-            )
+            val timestamp = request.now.atOffset(ZoneOffset.UTC)
+            insertUser(request, timestamp)
+            insertIdentity(request, timestamp)
+            insertTermsAcceptance(request, timestamp)
         }
+    }
+
+    private fun insertUser(
+        account: FederatedAccountProvisioningRequest,
+        timestamp: OffsetDateTime,
+    ) {
+        jdbc.update(
+            """
+            INSERT INTO access.users (id, display_name, avatar_url, status, created_at)
+            VALUES (?, ?, ?, 'ACTIVE', ?)
+            """.trimIndent(),
+            account.userId,
+            account.displayName,
+            account.avatarUrl?.toASCIIString(),
+            timestamp,
+        )
+    }
+
+    private fun insertIdentity(
+        account: FederatedAccountProvisioningRequest,
+        timestamp: OffsetDateTime,
+    ) {
+        jdbc.update(
+            """
+            INSERT INTO access.external_identities (
+                id, user_id, provider, authority, subject, linked_at, last_authenticated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            UUID.randomUUID(),
+            account.userId,
+            account.provider,
+            account.authority.toASCIIString(),
+            account.subject,
+            timestamp,
+            timestamp,
+        )
+    }
+
+    private fun insertTermsAcceptance(
+        account: FederatedAccountProvisioningRequest,
+        timestamp: OffsetDateTime,
+    ) {
+        jdbc.update(
+            """
+            INSERT INTO access.terms_acceptances (
+                id, user_id, legal_bundle_version, terms_version, privacy_version, locale, accepted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            UUID.randomUUID(),
+            account.userId,
+            account.legalBundleVersion,
+            account.termsVersion,
+            account.privacyVersion,
+            account.legalLocale,
+            timestamp,
+        )
+    }
 
     fun link(identity: ExternalIdentity) {
         translateIdentityConflict { insertIdentity(identity) }

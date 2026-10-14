@@ -113,7 +113,9 @@ kover {
                 classes(
                     "ai.taskpilot.coreapi.CoreApiArchitectureRoot",
                     "ai.taskpilot.coreapi.access.AccessModule",
+                    "ai.taskpilot.coreapi.workspace.WorkspaceModule",
                     "ai.taskpilot.coreapi.project.ProjectModule",
+                    "ai.taskpilot.coreapi.onboarding.OnboardingModule",
                     "ai.taskpilot.coreapi.automation.AutomationModule",
                     "ai.taskpilot.coreapi.agent.AgentModule",
                 )
@@ -153,12 +155,19 @@ tasks.withType<Test>().configureEach {
 tasks.test {
     dependsOn(architectureFixturesClasses)
     inputs.files(architectureFixtures.output.classesDirs).withPropertyName("architectureFixturesClasses")
+    val desktopSystemEnabled = System.getProperty("taskpilot.desktop.system") == "true"
+    if (!desktopSystemEnabled) {
+        filter.excludeTestsMatching("*DesktopSystemJourneyTest")
+    }
     doFirst {
         systemProperty(
             "taskpilot.architectureFixtures.classesDir",
             architectureFixtures.output.classesDirs.files
                 .joinToString(File.pathSeparator) { it.absolutePath },
         )
+        if (desktopSystemEnabled) {
+            systemProperty("taskpilot.desktop.system", "true")
+        }
     }
 }
 

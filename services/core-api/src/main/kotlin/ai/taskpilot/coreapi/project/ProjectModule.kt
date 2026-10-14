@@ -5,5 +5,5 @@ import org.springframework.modulith.PackageInfo
 
 /** Public marker for the project capability boundary. */
 @PackageInfo
-@ApplicationModule(displayName = "Project", allowedDependencies = [])
+@ApplicationModule(displayName = "Project", allowedDependencies = ["access", "workspace"])
 class ProjectModule

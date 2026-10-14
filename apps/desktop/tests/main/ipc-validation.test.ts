@@ -6,7 +6,7 @@ function setup(auth: Record<string, unknown>) {
   const handlers = new Map<string, (event: typeof trusted, input?: unknown) => unknown>();
   registerDesktopHandlers(
     { handle: (channel, handler) => handlers.set(channel, handler as never), removeHandler: vi.fn() },
-    { auth } as never,
+    { auth, workspaces: { list: vi.fn() }, projects: { resolveHome: vi.fn(), list: vi.fn(), open: vi.fn(), create: vi.fn(), edit: vi.fn(), archive: vi.fn(), restore: vi.fn(), permanentlyDelete: vi.fn() } } as never,
     { webContentsId: 7, generation: 1 },
   );
   return handlers;
@@ -29,15 +29,25 @@ describe('validated Desktop IPC inputs', () => {
       cancelGitHubSignIn: vi.fn(), getSessionView: vi.fn(), logout: vi.fn(),
     };
     const handlers = setup(methods);
-    expect([...handlers.keys()].sort()).toEqual([
-      CHANNELS.getAuthCapabilities, CHANNELS.startGitHubSignIn, CHANNELS.continueGitHubSignIn,
-      CHANNELS.completeGitHubRegistration, CHANNELS.cancelGitHubSignIn,
-      CHANNELS.getSessionView, CHANNELS.logout,
-    ].sort());
+    expect([...handlers.keys()].sort()).toEqual(Object.values(CHANNELS).filter(channel => channel !== CHANNELS.sessionChanged).sort());
     await expect(handlers.get(CHANNELS.getAuthCapabilities)!(trusted)).resolves.toEqual({
       ok: true, value: { github: { enabled: true } },
     });
     expect(methods.getCapabilities).toHaveBeenCalledOnce();
+  });
+
+  it('rejects malformed Project inputs before invoking the owner', async () => {
+    const create = vi.fn();
+    const handlers = new Map<string, (event: typeof trusted, input?: unknown) => unknown>();
+    registerDesktopHandlers(
+      { handle: (channel, handler) => handlers.set(channel, handler as never), removeHandler: vi.fn() },
+      { auth: {}, workspaces: { list: vi.fn() }, projects: { create } } as never,
+      { webContentsId: 7, generation: 1 },
+    );
+    await expect(handlers.get(CHANNELS.createProject)!(trusted, {
+      workspaceId: 'bad', requestId: 'bad', name: 'x'.repeat(201), extra: true,
+    })).resolves.toMatchObject({ ok: false, error: { code: 'IPC_INPUT_INVALID', category: 'validation' } });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('accepts only UUID flow identifiers and strict objects', async () => {

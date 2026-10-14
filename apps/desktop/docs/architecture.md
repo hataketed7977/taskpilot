@@ -91,8 +91,7 @@ apps/desktop/
 │   │   ├── auth/
 │   │   ├── credentials/
 │   │   ├── projects/
-│   │   ├── session/
-│   │   └── workspaces/
+│   │   └── session/
 │   ├── preload/
 │   ├── renderer/
 │   └── shared/
@@ -282,15 +281,31 @@ CLI/Desktop clients, a resident scheduler, or an independently managed Runtime.
 **Current:** the runnable Desktop slice contains the secure Electron
 Main/Preload/sandboxed-Renderer shell; system-browser GitHub login; first
 registration with in-app legal-document review; OS-credential-backed session
-restore, refresh, and logout; and an authenticated account view. It excludes
-Agent Runtime startup.
+restore, refresh, and logout; and an authenticated Project home. Renderer shows
+the fixed personal Workspace context, ACTIVE Project navigation, truthful
+loading/error/empty states, create/edit/archive/restore/permanent-delete
+interactions, account/language controls, and logout. Main also owns
+a fixed-method-and-path Workspace/Project client, validates typed responses at
+the trust boundary, performs refresh and terminal credential cleanup, and fences
+asynchronous completion by session generation. Its Project-home coordinator
+validates registration bootstrap and the device's recent-Project preference
+against Core API before selecting a Project, falls back to the first ACTIVE
+Project or an empty state, and treats corrupt or unavailable preference storage
+as non-blocking. The preference is JSON stored under Desktop user data and keyed
+by cloud environment plus `UserId`; it is not business truth. Agent Runtime is
+not started.
 
-**Target:** Workspace listing/creation/selection, active `WorkspaceId`, Project
-discovery, and the full application shell remain later end-to-end slices. The
-current Desktop API contract therefore contains only authentication, session,
-and current-user capabilities. Project mutation, Agent configuration,
-`REMOTE_MANAGED` UI, `LOCAL_DESKTOP` execution, shell/PTY, and local workspace
-binding remain later changes.
+Preload currently exposes fixed typed `workspaces` and `projects` capabilities
+in addition to authentication. IPC validates channel-specific schemas, sender,
+top frame, Renderer origin, payload size, and window/session generation. Results
+carry a Main-produced response key so Renderer rejects superseded session,
+User, Workspace, or Project results. No bearer, endpoint URL, `fetch`, generic HTTP, or
+generic IPC primitive reaches Renderer.
+
+**Target:** Team Workspace behavior, Project membership UI, Board and Work
+Item surfaces, Agent configuration, `REMOTE_MANAGED` UI,
+`LOCAL_DESKTOP` execution, shell/PTY, and local workspace binding remain later
+changes.
 
 ## API Contract Integration
 
@@ -299,9 +314,10 @@ binding remain later changes.
   runtime OpenAPI contract tests and Main adapter fixtures detect shape drift.
   No generated Desktop client or breaking-compatibility gate is required until
   a later Change establishes a versioned contract lifecycle.
-- Transport types do not become business models automatically. The current
-  handwritten types cover only authentication, session, and current user;
-  Workspace/Project transport types wait for those runnable slices.
+- Transport types do not become business models automatically. Current
+  handwritten contracts cover authentication, session, current User, personal
+  Workspace and Project operations. Main validates cloud responses before
+  returning least-privilege keyed values through fixed Preload capabilities.
 - API adapters normalize transport errors into a stable client error model.
 - Mutable requests carry the version or idempotency identifier required by the
   cloud contract.

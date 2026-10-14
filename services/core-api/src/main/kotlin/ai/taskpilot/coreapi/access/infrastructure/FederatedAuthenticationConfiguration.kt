@@ -131,11 +131,13 @@ class FederatedAuthenticationRuntimeConfiguration {
     )
 
     @Bean
+    @Suppress("LongParameterList") // Explicit composition-root wiring for authentication dependencies.
     fun federatedAuthenticationService(
         store: FederatedLoginStore,
         identities: ai.taskpilot.coreapi.access.application.FederatedIdentityStore,
+        accountProvisioner: ai.taskpilot.coreapi.access.FederatedAccountProvisioner,
         rateLimits: FederatedAttemptRateLimiter,
         sessions: ai.taskpilot.coreapi.access.application.SessionUseCases,
         dependencies: FederatedAuthenticationDependencies,
-    ) = FederatedAuthenticationService(store, identities, rateLimits, sessions, dependencies)
+    ) = FederatedAuthenticationService(store, identities, accountProvisioner, rateLimits, sessions, dependencies)
 }

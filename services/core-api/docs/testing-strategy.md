@@ -10,30 +10,36 @@
 
 ## Current Executable Foundation
 
-The Current Core API suite covers the runnable auth-only slice:
+The Current Core API suite covers authentication and atomic first-registration
+provisioning:
 
 - unit tests for purpose-separated HMAC/token digests, PKCE, AEAD binding,
   fail-closed configuration, Provider mapping, session policy, and Problem
   Details;
-- PostgreSQL/Testcontainers tests for the three-table Flyway baseline,
-  External Identity uniqueness without email merging, atomic first
-  registration, and concurrent registration;
+- PostgreSQL/Testcontainers tests for the Access, Workspace, and Project Flyway baseline,
+  External Identity uniqueness without email merging, the seven atomic
+  first-registration facts, per-step rollback, and concurrent registration;
 - Redis/Testcontainers tests for attempt/state/proof/continuation single use,
   cancellation/expiry, rate limiting, active session issue, token rotation,
   old-refresh replay revocation, immediate logout, and corrupt-state fail-closed
   behavior;
 - Spring HTTP integration tests for capability, loopback URI validation,
-  callback/state/PKCE handling, registration, known-identity login, refresh,
-  logout, current user, non-enumerating errors, and secret redaction;
-- runtime OpenAPI tests for exactly the implemented auth/session/current-user
-  routes and Production-default document disablement; and
+  callback/state/PKCE handling, registration bootstrap and replay,
+  known-identity login without bootstrap, refresh, logout, current user,
+  non-enumerating errors, and secret redaction;
+- runtime OpenAPI tests for exactly the implemented auth/session/current-user,
+  PERSONAL Workspace, and Project lifecycle routes, their access-bearer boundary,
+  schemas, statuses, shared Problem Details, secret hygiene, and
+  Production-default document disablement; and
 - module, architecture, compile, formatting, Detekt, executable JAR, and Kover
   gates through `:services:core-api:qualityCheck`.
 
 The Provider boundary uses local fakes and never calls GitHub in automated
-checks. Workspace/Project, Agent Runtime, Gateway, real GitHub, production
-rollout, and cross-platform Desktop native behavior are not implied by this
-suite.
+checks. The suite proves registration provisioning and Workspace/Project
+application, HTTP, persistence, concurrency, lifecycle, deletion, and runtime
+OpenAPI behavior, but not Desktop Project presentation. Agent Runtime, Gateway, real
+GitHub, production rollout, and cross-platform Desktop native behavior are not
+implied by this suite.
 
 ## Principles
 
@@ -87,46 +93,47 @@ contract. Do not mock the state transition or use case under test.
   and assert that `TermsAcceptance` persists all four identity fields together.
 - Unknown locale, wrong version, duplicate locale, non-canonical locale, and
   empty/invalid allowlist cases fail closed and leave no durable registration.
-- PostgreSQL integration tests prove User, External Identity, and acceptance are
-  atomic and preserve server-generated `acceptedAt`; API/OpenAPI and migration
-  tests freeze the existing DTO and schema shapes.
+- PostgreSQL integration tests prove User, External Identity, acceptance,
+  PERSONAL Workspace, Workspace OWNER, ordinary localized default Project, and
+  Project OWNER are one atomic transaction and preserve server-generated
+  `acceptedAt`; injected failure after every step rolls all facts back.
+- Concurrent confirmation of the same External Identity produces one complete
+  account. If Redis session issue fails after PostgreSQL commit, retry resolves
+  the existing ACTIVE account without duplicating provisioning.
+- HTTP tests prove first registration returns only the non-secret
+  `workspaceId`/`projectId` bootstrap, encrypted completion replay preserves it,
+  and existing-identity login omits it.
 - The tests do not claim server-side message localization: locale is interpreted
   only as part of the legal-text quartet.
 
-### Target Workspace and access
+### Current provisioning and Workspace/Project access
 
-- Organization Workspace creation and creator Membership commit atomically;
-  retries with the same idempotency key return the same Workspace and conflicting
-  reuse is rejected.
-- The initial flow never auto-provisions a Personal Workspace; future Personal
-  support must reuse the same Workspace Membership and authorization model.
-- Workspace membership and Project membership are distinct.
-- Cross-Workspace reads and writes fail even with a valid identifier.
-- Removing or disabling membership affects subsequent authorization without
-  rewriting unrelated business history.
-- An Agent cannot satisfy human membership or approval requirements.
-
-### Target initial Project discovery
-
-- The read-only Project list first requires an effective Workspace Membership,
-  then returns only Projects with an effective Project Membership for the same
-  User and Workspace.
-- A globally unique `ProjectId` cannot bypass the path Workspace scope. Missing
-  and inaccessible Workspaces produce the same `404 WORKSPACE_NOT_FOUND`
-  contract so existence is not enumerable.
-- PostgreSQL tests cover Project/Project Membership constraints and controlled
-  malformed cross-Workspace fixtures; the query excludes invalid rows and emits
-  only redacted integrity evidence.
-- API/OpenAPI tests freeze the path, optional opaque cursor, default/ranged
-  limit, exact `{ projectId, workspaceId, name }` item shape, conditional
-  `nextCursor`, and stable `400/401/404/503` errors.
-- Cursor tests prove a value cannot be interpreted by the client or reused in a
-  different Workspace. Main consumer fixtures reject a page when any item has a
-  mismatched `workspaceId`.
-- Empty authorized results are successful real data, not a frontend placeholder.
-  Production routes, use cases, schemas, and OpenAPI contain no Project create
-  operation or `canCreateProject`; Project rows are prepared through controlled
-  test fixtures.
+- First registration creates exactly one PERSONAL Workspace, Workspace OWNER,
+  ordinary localized Project, and Project OWNER in the identity transaction.
+  TEAM behavior and user-created Workspace APIs remain Target.
+- For an authenticated actor established by Access, Workspace listing returns only that actor's PERSONAL Workspace. Every
+  Project operation reauthorizes Workspace scope; list/detail/edit additionally
+  require Project OWNER, and inaccessible identifiers do not reveal existence.
+- Project list tests cover ACTIVE/ARCHIVED filtering, `(createdAt, projectId)`
+  ordering, pagination, malformed and cross-scope cursors, and empty results.
+  The cursor is opaque to clients even though its current encoding is testable
+  server-side; clients receive no parsing contract.
+- Create tests cover Unicode code-point boundaries, trimming, duplicate names,
+  atomic Project OWNER creation, request-id replay/conflict, and concurrent
+  replay. Edit tests cover OWNER authorization, normalization, and stale or
+  invalid expected versions.
+- HTTP tests freeze the trusted Spring Security principal, complete ProjectView
+  shape, `201` create and `200` read/edit responses, path-aware `400`, `401`,
+  non-enumerating `404`, stable `409`, and sanitized `503` Problem Details.
+- Archive/restore tests cover actual transitions, optimistic conflict, target-state
+  retry without another write, list isolation, and authorization. Physical-delete
+  tests cover exact-name/version checks, ACTIVE/ARCHIVED and last-Project deletion,
+  retained Workspace, explicit Membership cleanup, protected FK rollback, and no
+  implicit cascade. Migration tests enumerate every business FK as `RESTRICT`.
+- Module/architecture checks prove that Project consumes the public Workspace
+  authorization contract rather than private Workspace persistence, and that
+  Workspace persistence does not query Access private tables. Runtime OpenAPI
+  and Desktop Main consumer-contract coverage are Current.
 
 ### Work Items and custom fields
 
@@ -192,7 +199,7 @@ Also prove:
 
 - Run migrations from an empty supported PostgreSQL version and assert the
   baseline as a database catalog contract: business tables live only in their
-  approved capability schemas, `public` contains only Flyway metadata, entity
+  approved `access`, `workspace`, and `project` capability schemas, `public` contains only Flyway metadata, entity
   primary keys are `id UUID`, operational-key exceptions are allowlisted, and
   constraint/index names use the approved prefixes within PostgreSQL's
   identifier limit.
@@ -202,6 +209,9 @@ Also prove:
   or rollback strategy.
 - Verify foreign keys, tenant-scoped uniqueness, checks, version columns, JSONB
   validation assumptions, and job/lease indexes.
+- Verify the Modulith graph and source-level SQL ownership: Workspace persistence
+  does not query Access private tables, and Project authorization consumes only the
+  public Workspace contract.
 - Test real query plans for measured high-risk Board and job-claim queries when
   data volume warrants it.
 - Verify rollback/forward-fix policy without claiming online safety from a fresh
@@ -218,11 +228,12 @@ Also prove:
 - Stable error codes cover authorization, validation, conflict, stale version,
   unsupported definition, and idempotency conflict.
 - Public breaking changes fail compatibility checks once a baseline exists.
-- In the current Desktop phase, runtime OpenAPI contract tests for
-  authentication, session, and current-user routes, together with Desktop Main
-  adapter fixtures, detect consumed-shape drift; no generated Desktop client or
-  breaking-compatibility gate is required until a later Change establishes a
-  versioned contract lifecycle. Workspace and Project contracts remain Target.
+- Runtime OpenAPI contract tests cover authentication, session, current-user,
+  PERSONAL Workspace, and complete current Project routes, including exact paths,
+  security, schemas, operation statuses, shared errors, and secret hygiene.
+  Desktop Main consumer fixtures cover the hand-written adapters, and the system
+  journey crosses compiled Main/IPC/Preload into Core API, PostgreSQL, and Redis;
+  no generated client or compatibility baseline exists yet.
 - Allowed actions aid presentation but never bypass a negative command check.
 
 ## Durable Job and Agent Execution Cases

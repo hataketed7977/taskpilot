@@ -19,6 +19,7 @@ import ai.taskpilot.coreapi.access.model.UserId
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequestWrapper
 import org.junit.jupiter.api.Test
+import org.springframework.dao.DataAccessResourceFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
@@ -108,6 +109,10 @@ class AuthenticationApiBranchTest {
                 ?.properties
                 ?.get("code"),
         )
+        val unavailable = handler.temporarilyUnavailable(DataAccessResourceFailureException("database secret"), request)
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, unavailable.statusCode)
+        assertEquals("TEMPORARILY_UNAVAILABLE", unavailable.body?.properties?.get("code"))
+        assertEquals("The service is temporarily unavailable.", unavailable.body?.detail)
     }
 
     @Test

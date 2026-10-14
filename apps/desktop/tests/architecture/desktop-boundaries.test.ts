@@ -67,7 +67,11 @@ describe('Desktop process boundary', () => {
     expect(surface).toContain('subscribeSessionView');
     expect(surface).toContain('startGitHubSignIn');
     expect(surface).toContain('completeGitHubRegistration');
-    expect(surface).not.toMatch(/listWorkspaces|listProjects/);
+    expect(surface).toContain('workspaces:');
+    expect(surface).toContain('projects:');
+    expect(surface).toContain('resolveHome');
+    expect(surface).toContain('permanentlyDelete');
+    expect(surface).not.toMatch(/generic|requestUrl|httpRequest|getAccessToken|getRefreshToken/);
     expect(surface).not.toMatch(/from ['"]electron['"]|accessToken|refreshToken|\bfetch\s*\(/);
   });
 

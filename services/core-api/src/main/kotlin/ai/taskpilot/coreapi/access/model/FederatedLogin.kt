@@ -39,17 +39,6 @@ data class ExternalIdentity(
     val lastAuthenticatedAt: Instant,
 )
 
-data class NewFederatedUser(
-    val user: UserAccount,
-    val externalIdentity: ExternalIdentity,
-    val termsAcceptance: TermsAcceptance,
-) {
-    init {
-        require(externalIdentity.userId == user.userId)
-        require(termsAcceptance.userId == user.userId)
-    }
-}
-
 enum class FederatedLoginAttemptStatus {
     PENDING,
     CALLBACK_PROCESSING,

@@ -29,6 +29,46 @@ export type DesktopError = {
 };
 export type DesktopResult<T> = { ok: true; value: T } | { ok: false; error: DesktopError };
 
+export interface PersonalWorkspaceView {
+  workspaceId: string;
+  type: 'PERSONAL';
+  role: 'OWNER';
+  createdAt: string;
+  updatedAt: string;
+}
+export type ProjectStatus = 'ACTIVE' | 'ARCHIVED';
+export interface ProjectView {
+  projectId: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+}
+export interface ProjectPage { items: ProjectView[]; nextCursor: string | null }
+export interface ProjectResponseKey {
+  sessionGeneration: number;
+  userId: string;
+  workspaceId?: string;
+  projectId?: string;
+  status?: ProjectStatus;
+}
+export interface KeyedResponse<T> { key: ProjectResponseKey; value: T }
+export interface ProjectHomeView {
+  workspace: PersonalWorkspaceView;
+  projects: ProjectView[];
+  currentProject?: ProjectView;
+}
+export interface ProjectLocationInput { workspaceId: string; projectId: string }
+export interface ProjectListInput { workspaceId: string; status: ProjectStatus; limit?: number; cursor?: string }
+export interface CreateProjectInput { workspaceId: string; requestId: string; name: string; description?: string }
+export interface EditProjectInput extends ProjectLocationInput { expectedVersion: number; name: string; description?: string }
+export interface ProjectStatusInput extends ProjectLocationInput { expectedVersion: number }
+export interface DeleteProjectInput extends ProjectStatusInput { confirmationName: string }
+
 export interface AuthCapabilities {
   getCapabilities(): Promise<{ github: GitHubCapabilityView }>;
   startGitHubSignIn(): Promise<FederatedAuthFlowView>;
@@ -39,4 +79,21 @@ export interface AuthCapabilities {
   subscribeSessionView(listener: (view: SessionView) => void): () => void;
   logout(): Promise<void>;
 }
-export interface TaskPilotDesktopApi { auth: AuthCapabilities }
+export interface WorkspaceCapabilities {
+  list(): Promise<KeyedResponse<PersonalWorkspaceView[]>>;
+}
+export interface ProjectCapabilities {
+  resolveHome(): Promise<KeyedResponse<ProjectHomeView>>;
+  list(input: ProjectListInput): Promise<KeyedResponse<ProjectPage>>;
+  open(input: ProjectLocationInput): Promise<KeyedResponse<ProjectView>>;
+  create(input: CreateProjectInput): Promise<KeyedResponse<ProjectView>>;
+  edit(input: EditProjectInput): Promise<KeyedResponse<ProjectView>>;
+  archive(input: ProjectStatusInput): Promise<KeyedResponse<ProjectView>>;
+  restore(input: ProjectStatusInput): Promise<KeyedResponse<ProjectView>>;
+  permanentlyDelete(input: DeleteProjectInput): Promise<KeyedResponse<void>>;
+}
+export interface TaskPilotDesktopApi {
+  auth: AuthCapabilities;
+  workspaces: WorkspaceCapabilities;
+  projects: ProjectCapabilities;
+}

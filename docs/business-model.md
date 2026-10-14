@@ -40,7 +40,7 @@ rules in this document while choosing the smallest maintainable code structure.
 The target business scope includes:
 
 - Login and user identity.
-- Personal and organization workspaces.
+- Personal and future team workspaces.
 - Workspace and project membership.
 - Projects, configurable boards, work items, comments, and custom fields.
 - Reusable, versioned workflow definitions expressed by a declarative DSL.
@@ -56,7 +56,7 @@ The following are approved target constraints for the first implementation:
 
 | Topic | Decision |
 | --- | --- |
-| Workspace entry | The first implementation is Organization-first: users select or explicitly create an `ORGANIZATION` Workspace; `PERSONAL` remains a later compatible type; Projects always belong to a Workspace |
+| Workspace entry | Registration provisions exactly one `PERSONAL` Workspace and one ordinary default Project for each User; `TEAM` is the reserved future collaborative type; Projects always use the same Workspace-owned model |
 | Work truth | `WorkItem` is the canonical work record; a Card is a Board projection, not a separate business object |
 | Board terminology | Todo/Doing/Done are Columns; a Swimlane is a configurable horizontal grouping |
 | Workflow concurrency | A WorkItem has at most one active WorkflowRun; previous runs remain history |
@@ -79,7 +79,7 @@ documentation.
 | User | A person who can authenticate and act in TaskPilot; `UserId` is the only identity referenced by business records |
 | External Identity | A provider-scoped durable login identity associated with exactly one User; its identity key is `(provider, authority, subject)` |
 | Federated Login Attempt | A short-lived authentication process record; it is not a User and grants no business authorization |
-| Workspace | The ownership, membership, and data-isolation boundary; either personal or organizational |
+| Workspace | The ownership, membership, and data-isolation boundary; either `PERSONAL` or the reserved future `TEAM` type |
 | Workspace Member | A User's membership and role within a Workspace, regardless of Workspace type |
 | Project | A Workspace-owned collaboration scope containing people, work, boards, and enabled automation |
 | Project Member | A User who can participate in a Project with a project-level role |
@@ -377,6 +377,7 @@ Important logical uniqueness constraints are:
 - one External Identity per `(provider, authority, subject)` across TaskPilot;
 - no uniqueness rule on `(userId, provider, authority)`, so a future explicitly designed binding flow is not precluded;
 - GitHub login uses its durable numeric user ID as `subject`; login, display name, email, avatar, and provider token are not identity keys and never trigger automatic account merging;
+- at most one PERSONAL Workspace per owning `UserId`;
 - one Workspace Membership per `(WorkspaceId, UserId)`;
 - one Project Membership per `(ProjectId, UserId)`;
 - one version number per stable Workflow, Agent, or Work Item Type;
@@ -421,9 +422,13 @@ stateDiagram-v2
     REGISTRATION_PROCESSING --> COMPLETED: registration committed and session issued
 ```
 
-The first registration transaction creates exactly one User, its first
-External Identity, and acceptance of the current legal-document bundle. In the
-multilingual catalog, `(locale, legalBundleVersion, termsVersion,
+**Current:** the first registration PostgreSQL transaction creates exactly one
+User, its first External Identity, acceptance of the current legal-document
+bundle, one PERSONAL Workspace, its Workspace OWNER Membership, one ordinary
+default Project, and its Project OWNER Membership. Redis session issuance occurs
+only after that complete database transaction commits. Integration tests cover
+full rollback, concurrent identity confirmation, and post-commit session failure.
+In the multilingual catalog, `(locale, legalBundleVersion, termsVersion,
 privacyVersion)` is the immutable identity of the exact User Agreement and
 Privacy Policy texts the user read; none of the three version fields identifies
 that text independently of `locale`. `TermsAcceptance` stores the complete
@@ -454,8 +459,9 @@ module for every object:
 
 | Business area | Main concepts | Responsibility |
 | --- | --- | --- |
-| Access | User, login, Workspace, Workspace Member | Authentication context, ownership boundary, and membership |
-| Project Work | Project, Project Member, Work Item, Work Item Type, Board, Comment | Human collaboration and the canonical work record |
+| Access | User, External Identity, Terms Acceptance, Session | Authentication context, external identity, legal acceptance, and session lifecycle |
+| Workspace | Workspace, Workspace Membership | Collaboration boundary, Workspace type, ownership, and Workspace-scoped authorization |
+| Project Work | Project, Project Membership, Work Item, Work Item Type, Board, Comment | Project ownership, human collaboration, and the canonical work record |
 | Automation | Workflow, Project Workflow Binding, Workflow Run, Step Run, Approval Request | Process definition, Project use, state progression, and human gates |
 | Agents | Provider Connection, Agent, Agent Version, Project Agent Binding, Agent Run, Attempt, Artifact | Agent configuration, executor selection, provider integration, execution control, and outputs |
 
@@ -467,29 +473,45 @@ change patterns make a smaller boundary materially useful.
 
 ### Workspace
 
-A Workspace has a type:
+A Workspace has one of two types:
 
-- `ORGANIZATION`: the first implementation's only creatable type. It uses
-  explicit Workspace membership and supports organization-level administration.
-- `PERSONAL`: a later compatible type for one User. The first implementation
-  does not automatically provision it, expose a creation choice for it, or give
-  it a separate User-owned Project path.
+- `PERSONAL`: the first implementation's only enabled type. Registration creates
+  exactly one for each User and grants that User one `OWNER` Workspace
+  Membership. Users cannot separately create, delete, transfer, or add members
+  to their PERSONAL Workspace.
+- `TEAM`: a reserved extension point for future collaborative spaces. This type
+  does not imply current creation, invitation, membership-management, API, or UI
+  behavior; those rules require a later approved feature.
 
 Both types use the same stable `WorkspaceId`, Workspace Membership model,
-capability contract, and ownership path for lower-level resources. Enabling
-`PERSONAL` later must not introduce a second authorization chain. Every
-Project, reusable Workflow, Work Item Type, Agent, and Provider Connection
-belongs to exactly one Workspace. Cross-Workspace references are invalid.
+capability contract, and ownership path for lower-level resources. A PERSONAL
+Workspace is uniquely identified by its owning `UserId`; every User has at most
+one. Every Project, reusable Workflow, Work Item Type, Agent, and Provider
+Connection belongs to exactly one Workspace. Cross-Workspace references are
+invalid.
 
 ### Project
 
-A Project belongs to one Workspace. Project membership may be a subset of the
-Workspace membership and owns project-level roles. A User can discover a Project
-in the initial read-only Project list only when both the User's Workspace
-Membership and the User's matching Project Membership are valid in that same
-Workspace. A globally unique `ProjectId` never bypasses the parent Workspace
-scope. The initial list capability does not imply Project creation, membership
-management, or other Project mutations.
+A Project belongs to exactly one Workspace, and the same Project model is used
+under PERSONAL and future TEAM Workspaces. Project membership may be a subset of
+Workspace membership and owns project-level roles. The first implementation
+supports `OWNER`: creation requires Workspace OWNER and atomically grants the
+creator Project OWNER; subsequent Project operations require both Workspace
+scope and Project OWNER. A globally unique `ProjectId` never bypasses the parent
+Workspace scope.
+
+Registration creates one localized, ordinary default Project in the PERSONAL
+Workspace. It has no special flag, may be renamed, archived, restored, or
+permanently deleted, and is not recreated automatically. Project names are not
+identity and duplicates within a Workspace are valid. Deleting the last Project preserves the PERSONAL Workspace and presents an empty
+state. `ACTIVE` and `ARCHIVED` are reversible states guarded by optimistic
+versions; a retry after the target state was already reached is idempotent.
+Permanent deletion is an irreversible, synchronous physical delete that requires
+Project OWNER, Workspace scope, the current version, and an exact current-name
+confirmation. It explicitly removes Project Memberships and then the Project.
+Unknown or future child records default to foreign-key `RESTRICT`; each owning
+capability must approve its own deletion policy before those records may be
+removed.
 
 An Agent is not a User or a Project Member: enabling an Agent grants execution
 capability, not human access or approval authority.

@@ -8,6 +8,7 @@ import type {
 } from '../shared/contracts';
 import { useLocale } from './i18n/locale-state';
 import { formatLegalEffectiveDate, legalDocument, resolveLegalBundle, type LegalBundle, type LegalDocumentKind } from './legal/legal-bundle';
+import { ProjectHome } from './project-home';
 import { displayNameInitials } from './profile';
 
 type CodedError = Error & { code?: string; path?: string; retryAfterSeconds?: number; recovery?: string };
@@ -52,7 +53,7 @@ export function App({ api }: { api: TaskPilotDesktopApi }) {
   if (session.status === 'signedOut') {
     return <AuthExperience auth={api.auth} onAuthenticated={(currentUser) => setSession({ status: 'authenticated', currentUser })} />;
   }
-  return <AccountHome auth={api.auth} session={session} />;
+  return <ProjectHome api={api} session={session} />;
 }
 
 function AuthExperience({ auth, onAuthenticated }: {
@@ -553,33 +554,5 @@ function Field({ name, label, type = 'text', value, onChange, autoComplete, auto
       <input ref={inputRef} required name={name} type={type} value={value} autoComplete={autoComplete} autoFocus={autoFocus}
         aria-invalid={errorId ? true : undefined} aria-describedby={errorId} onChange={(event) => onChange(event.target.value)} />
     </label>
-  );
-}
-
-
-function AccountHome({ auth, session }: {
-  auth: AuthCapabilities;
-  session: Extract<SessionView, { status: 'authenticated' }>;
-}) {
-  const { t } = useTranslation();
-  const [loggingOut, setLoggingOut] = useState(false);
-  const user = session.currentUser;
-  const initials = displayNameInitials(user.displayName);
-  return (
-    <main id="main-content" className="center">
-      <section className="notice account-home" aria-labelledby="account-title">
-        <LanguageSelector inline />
-        {user.avatarUrl
-          ? <img className="account-avatar" src={user.avatarUrl} alt="" width="72" height="72" referrerPolicy="no-referrer" />
-          : <span className="account-avatar avatar-fallback" aria-hidden="true">{initials}</span>}
-        <p className="eyebrow">{t('account.eyebrow')}</p>
-        <h1 id="account-title" className="user-content">{user.displayName}</h1>
-        <p>{t('account.detail')}</p>
-        <button type="button" className="secondary" disabled={loggingOut} onClick={() => {
-          setLoggingOut(true);
-          void auth.logout().finally(() => setLoggingOut(false));
-        }}>{loggingOut ? t('account.loggingOut') : t('account.logout')}</button>
-      </section>
-    </main>
   );
 }

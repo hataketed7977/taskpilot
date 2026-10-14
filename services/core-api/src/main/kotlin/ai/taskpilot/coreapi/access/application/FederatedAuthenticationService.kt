@@ -1,17 +1,14 @@
 package ai.taskpilot.coreapi.access.application
 
+import ai.taskpilot.coreapi.access.FederatedAccountBootstrap
+import ai.taskpilot.coreapi.access.FederatedAccountProvisioner
+import ai.taskpilot.coreapi.access.FederatedAccountProvisioningRequest
 import ai.taskpilot.coreapi.access.model.AttemptId
 import ai.taskpilot.coreapi.access.model.ContinuationId
-import ai.taskpilot.coreapi.access.model.ExternalIdentity
-import ai.taskpilot.coreapi.access.model.ExternalIdentityId
 import ai.taskpilot.coreapi.access.model.FederatedCallbackClaim
 import ai.taskpilot.coreapi.access.model.FederatedLoginAttempt
 import ai.taskpilot.coreapi.access.model.FederatedLoginAttemptStatus
 import ai.taskpilot.coreapi.access.model.FederatedUserProfile
-import ai.taskpilot.coreapi.access.model.NewFederatedUser
-import ai.taskpilot.coreapi.access.model.TermsAcceptance
-import ai.taskpilot.coreapi.access.model.TermsAcceptanceId
-import ai.taskpilot.coreapi.access.model.UserAccount
 import ai.taskpilot.coreapi.access.model.UserId
 import ai.taskpilot.coreapi.access.model.UserStatus
 import java.net.URI
@@ -24,6 +21,7 @@ import java.util.UUID
 class FederatedAuthenticationService(
     private val store: FederatedLoginStore,
     private val identities: FederatedIdentityStore,
+    private val accountProvisioner: FederatedAccountProvisioner,
     private val rateLimits: FederatedAttemptRateLimiter,
     private val sessions: SessionUseCases,
     private val dependencies: FederatedAuthenticationDependencies,
@@ -201,25 +199,28 @@ class FederatedAuthenticationService(
             val displayName =
                 command.displayName.trim().takeIf(String::isNotBlank) ?: throw IllegalArgumentException("displayName")
             val avatarUrl = if (command.useSuggestedAvatar) identity.suggestedAvatarUrl else null
-            val userId = UserId(UUID.randomUUID())
-            val registration =
-                NewFederatedUser(
-                    UserAccount(userId, displayName, UserStatus.ACTIVE, now, avatarUrl),
-                    ExternalIdentity(ExternalIdentityId(UUID.randomUUID()), userId, identity.key(), now, now),
-                    TermsAcceptance(
-                        TermsAcceptanceId(UUID.randomUUID()),
-                        userId,
-                        command.legalBundleVersion,
-                        command.termsVersion,
-                        command.privacyVersion,
-                        command.locale,
-                        now,
-                    ),
-                )
+            val proposedUserId = UUID.randomUUID()
+            var bootstrap: FederatedAccountBootstrap? = null
             val user =
                 try {
-                    identities.register(registration)
-                    SessionUser(userId, displayName, avatarUrl)
+                    val provisioned =
+                        accountProvisioner.provision(
+                            FederatedAccountProvisioningRequest(
+                                userId = proposedUserId,
+                                displayName = displayName,
+                                avatarUrl = avatarUrl,
+                                provider = identity.provider,
+                                authority = identity.authority,
+                                subject = identity.subject,
+                                legalBundleVersion = command.legalBundleVersion,
+                                termsVersion = command.termsVersion,
+                                privacyVersion = command.privacyVersion,
+                                legalLocale = command.locale,
+                                now = now,
+                            ),
+                        )
+                    bootstrap = provisioned.bootstrap()
+                    SessionUser(UserId(provisioned.userId), displayName, avatarUrl)
                 } catch (_: ExternalIdentityAlreadyExistsException) {
                     val existing =
                         identities.findUser(identity.key())?.takeIf { it.status == UserStatus.ACTIVE }
@@ -228,7 +229,7 @@ class FederatedAuthenticationService(
                 }
             val session = sessions.issue(user)
             issuedSession = session
-            val encrypted = dependencies.codec.encryptAuthenticatedResult(claim.attemptId, session.toPayload())
+            val encrypted = dependencies.codec.encryptAuthenticatedResult(claim.attemptId, session.toPayload(bootstrap))
             if (!store.complete(
                     claim.attemptId,
                     encrypted,
@@ -238,7 +239,7 @@ class FederatedAuthenticationService(
                 throw FederatedContextInvalid()
             }
             finalized = true
-            return FederatedPollResult.Authenticated(session)
+            return FederatedPollResult.Authenticated(session, bootstrap)
         } finally {
             if (!finalized) {
                 issuedSession?.let { runCatching { sessions.logout(it.accessToken) } }
@@ -328,7 +329,7 @@ class FederatedAuthenticationService(
         encrypted: ByteArray?,
     ): FederatedPollResult =
         encrypted?.let {
-            FederatedPollResult.Authenticated(dependencies.codec.readAuthenticatedResult(attemptId, it).toSession())
+            dependencies.codec.readAuthenticatedResult(attemptId, it).toResult()
         }
             ?: FederatedPollResult.Completed
 
@@ -348,7 +349,7 @@ class FederatedAuthenticationService(
 
     private fun FederatedUserProfile.toSessionUser() = SessionUser(userId, displayName, avatarUrl)
 
-    private fun IssuedSession.toPayload() =
+    private fun IssuedSession.toPayload(bootstrap: FederatedAccountBootstrap? = null) =
         FederatedAuthenticatedResultPayload(
             sessionId.value,
             familyId.value,
@@ -357,6 +358,7 @@ class FederatedAuthenticationService(
             refreshToken,
             refreshTokenExpiresAt,
             FederatedCurrentUserPayload(currentUser.userId.value, currentUser.displayName, currentUser.avatarUrl),
+            bootstrap,
         )
 
     private fun requireEnabled() {
@@ -430,6 +432,7 @@ sealed interface FederatedPollResult {
 
     data class Authenticated(
         val session: IssuedSession,
+        val bootstrap: FederatedAccountBootstrap? = null,
     ) : FederatedPollResult
 
     data class RegistrationRequired(
