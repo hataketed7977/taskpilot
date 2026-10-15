@@ -2,20 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   classifyLocalPostgresVolume,
+  classifyLocalRedisVolume,
   isRecoverableLocalDatabaseIncompatibility,
   postgresVolumeName,
+  redisVolumeName,
+  recoveryVolumeNames,
   startupUsedExpectedLocalDatabase,
   withOneDatabaseRecovery,
 } from './database-recovery.mjs';
 
 const project = 'taskpilot-checkout-1234';
 
-function ownedVolume(overrides = {}) {
+function ownedVolume(logicalName, overrides = {}) {
   return {
-    Name: postgresVolumeName(project),
+    Name: `${project}_${logicalName}`,
     Labels: {
       'com.docker.compose.project': project,
-      'com.docker.compose.volume': 'taskpilot-postgres-data',
+      'com.docker.compose.volume': logicalName,
     },
     ...overrides,
   };
@@ -33,15 +36,22 @@ test('database recovery recognizes schema-history incompatibility, not arbitrary
   assert.equal(isRecoverableLocalDatabaseIncompatibility('A migration job was mentioned in an unrelated log line'), false);
 });
 
-test('database recovery accepts only the exact Compose-owned local PostgreSQL volume', () => {
+test('database recovery accepts only the exact paired Compose-owned local volumes', () => {
   assert.equal(postgresVolumeName(project), 'taskpilot-checkout-1234_taskpilot-postgres-data');
-  assert.equal(classifyLocalPostgresVolume(ownedVolume(), project), 'owned-disposable-local');
-  assert.equal(classifyLocalPostgresVolume(ownedVolume({ Name: 'another-volume' }), project), 'unowned');
-  assert.equal(classifyLocalPostgresVolume(ownedVolume({ Labels: {
+  assert.equal(redisVolumeName(project), 'taskpilot-checkout-1234_taskpilot-redis-data');
+  assert.deepEqual(recoveryVolumeNames(project), [
+    'taskpilot-checkout-1234_taskpilot-postgres-data',
+    'taskpilot-checkout-1234_taskpilot-redis-data',
+  ]);
+  assert.equal(classifyLocalPostgresVolume(ownedVolume('taskpilot-postgres-data'), project), 'owned-disposable-local');
+  assert.equal(classifyLocalRedisVolume(ownedVolume('taskpilot-redis-data'), project), 'owned-disposable-local');
+  assert.equal(classifyLocalRedisVolume(ownedVolume('taskpilot-postgres-data'), project), 'unowned');
+  assert.equal(classifyLocalPostgresVolume(ownedVolume('taskpilot-postgres-data', { Name: 'another-volume' }), project), 'unowned');
+  assert.equal(classifyLocalPostgresVolume(ownedVolume('taskpilot-postgres-data', { Labels: {
     'com.docker.compose.project': 'another-project',
     'com.docker.compose.volume': 'taskpilot-postgres-data',
   } }), project), 'unowned');
-  assert.equal(classifyLocalPostgresVolume(ownedVolume({ Labels: {
+  assert.equal(classifyLocalPostgresVolume(ownedVolume('taskpilot-postgres-data', { Labels: {
     'com.docker.compose.project': project,
     'com.docker.compose.volume': 'another-volume',
   } }), project), 'unowned');

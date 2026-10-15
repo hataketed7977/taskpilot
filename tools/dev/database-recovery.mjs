@@ -1,4 +1,5 @@
 export const postgresVolumeLogicalName = 'taskpilot-postgres-data';
+export const redisVolumeLogicalName = 'taskpilot-redis-data';
 
 const incompatibleSchemaPatterns = [
   /org\.flywaydb\.core\.api\.exception\.FlywayValidateException:/i,
@@ -13,7 +14,19 @@ export function isRecoverableLocalDatabaseIncompatibility(log) {
 }
 
 export function postgresVolumeName(composeProject) {
-  return `${composeProject}_${postgresVolumeLogicalName}`;
+  return composeVolumeName(composeProject, postgresVolumeLogicalName);
+}
+
+export function redisVolumeName(composeProject) {
+  return composeVolumeName(composeProject, redisVolumeLogicalName);
+}
+
+export function recoveryVolumeNames(composeProject) {
+  return [postgresVolumeName(composeProject), redisVolumeName(composeProject)];
+}
+
+function composeVolumeName(composeProject, logicalName) {
+  return `${composeProject}_${logicalName}`;
 }
 
 function labelsFrom(inspect) {
@@ -22,10 +35,18 @@ function labelsFrom(inspect) {
 }
 
 export function classifyLocalPostgresVolume(inspect, composeProject) {
-  if (!inspect || inspect.Name !== postgresVolumeName(composeProject)) return 'unowned';
+  return classifyLocalComposeVolume(inspect, composeProject, postgresVolumeLogicalName);
+}
+
+export function classifyLocalRedisVolume(inspect, composeProject) {
+  return classifyLocalComposeVolume(inspect, composeProject, redisVolumeLogicalName);
+}
+
+function classifyLocalComposeVolume(inspect, composeProject, logicalName) {
+  if (!inspect || inspect.Name !== composeVolumeName(composeProject, logicalName)) return 'unowned';
   const labels = labelsFrom(inspect);
   return labels['com.docker.compose.project'] === composeProject
-    && labels['com.docker.compose.volume'] === postgresVolumeLogicalName
+    && labels['com.docker.compose.volume'] === logicalName
     ? 'owned-disposable-local'
     : 'unowned';
 }

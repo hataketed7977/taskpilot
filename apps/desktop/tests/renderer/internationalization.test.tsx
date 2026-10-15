@@ -51,6 +51,28 @@ describe('Desktop internationalization core', () => {
     expect(i18n.t('registration.avatarInitials', { initials: '<A&' })).toBe('Avatar initials: <A&');
   });
 
+  it('updates a mounted provider when development replaces its message resources', async () => {
+    function Probe() {
+      const { t } = useTranslation();
+      return <span>{t('project.loadErrorSignOut')}</span>;
+    }
+
+    const missing = {
+      en: { translation: {} },
+      'zh-CN': { translation: {} },
+    };
+    const updated = {
+      en: { translation: { project: { loadErrorSignOut: 'Sign out and return' } } },
+      'zh-CN': { translation: { project: { loadErrorSignOut: '退出并返回登录' } } },
+    };
+    const view = render(<LocaleProvider initialLanguages={['zh-CN']} resources={missing}><Probe /></LocaleProvider>);
+    expect(screen.getByText('project.loadErrorSignOut')).toBeInTheDocument();
+
+    view.rerender(<LocaleProvider initialLanguages={['zh-CN']} resources={updated}><Probe /></LocaleProvider>);
+
+    expect(await screen.findByText('退出并返回登录')).toBeInTheDocument();
+  });
+
   it('survives storage read and write failures', () => {
     const storage = {
       getItem: vi.fn(() => { throw new DOMException('blocked'); }),

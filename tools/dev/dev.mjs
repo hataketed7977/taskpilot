@@ -19,8 +19,9 @@ import {
 import { classifyComposeProject, parseComposePs } from './compose-manager.mjs';
 import {
   classifyLocalPostgresVolume,
+  classifyLocalRedisVolume,
   isRecoverableLocalDatabaseIncompatibility,
-  postgresVolumeName,
+  recoveryVolumeNames,
   startupUsedExpectedLocalDatabase,
   withOneDatabaseRecovery,
 } from './database-recovery.mjs';
@@ -277,8 +278,7 @@ async function ensureCoreApiAttempt(environment, config, lifecycle = {}) {
   }
 }
 
-function inspectPostgresVolume(composeProject, environment) {
-  const volume = postgresVolumeName(composeProject);
+function inspectComposeVolume(volume, environment) {
   const result = run('docker', ['volume', 'inspect', volume], { env: environment, allowFailure: true });
   if (result.status !== 0) return null;
   try {
@@ -300,19 +300,21 @@ async function rebuildOwnedLocalDatabase(error, environment, config) {
   if (started?.started) await stopOwnedChild('coreApi', started.process);
 
   const project = assertComposeOwnership(environment);
-  if (project.status !== 'owned' || !project.services.has('postgres')) {
-    throw new Error('Refusing automatic database recovery because the running PostgreSQL Compose project is not proven to belong to this checkout.');
+  if (project.status !== 'owned' || !project.services.has('postgres') || !project.services.has('redis')) {
+    throw new Error('Refusing automatic database recovery because the running PostgreSQL and Redis Compose project is not proven to belong to this checkout.');
   }
-  const volume = postgresVolumeName(config.composeProject);
-  const inspected = inspectPostgresVolume(config.composeProject, environment);
-  if (classifyLocalPostgresVolume(inspected, config.composeProject) !== 'owned-disposable-local') {
-    throw new Error(`Refusing automatic database recovery because ownership of Docker volume ${volume} could not be proven.`);
+  const [postgresVolume, redisVolume] = recoveryVolumeNames(config.composeProject);
+  const postgresInspect = inspectComposeVolume(postgresVolume, environment);
+  const redisInspect = inspectComposeVolume(redisVolume, environment);
+  if (classifyLocalPostgresVolume(postgresInspect, config.composeProject) !== 'owned-disposable-local'
+    || classifyLocalRedisVolume(redisInspect, config.composeProject) !== 'owned-disposable-local') {
+    throw new Error(`Refusing automatic database recovery because ownership of Docker volumes ${postgresVolume} and ${redisVolume} could not be proven.`);
   }
 
   console.warn('Detected an incompatible schema history in the checkout-owned disposable local database.');
-  console.warn(`Rebuilding ${volume} once; no external or unowned database will be modified.`);
+  console.warn(`Rebuilding ${postgresVolume} and clearing ${redisVolume} once so session state cannot outlive its users; no external or unowned data will be modified.`);
   run('docker', composeArgs('down', '--remove-orphans'), { env: environment, stdio: 'inherit' });
-  run('docker', ['volume', 'rm', volume], { env: environment, stdio: 'inherit' });
+  run('docker', ['volume', 'rm', postgresVolume, redisVolume], { env: environment, stdio: 'inherit' });
   await startInfrastructure(config, environment);
 }
 

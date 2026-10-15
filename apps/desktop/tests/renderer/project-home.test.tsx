@@ -202,6 +202,23 @@ describe('personal Workspace Project home', () => {
     expect(await screen.findByRole('heading', { name: '我的项目' })).toBeInTheDocument();
   });
 
+  it('keeps retry and sign-out recovery available when Project loading continues to fail', async () => {
+    const { api, emitSession } = authenticatedApi();
+    vi.mocked(api.projects.resolveHome).mockRejectedValue({
+      code: 'PROJECTS_TEMPORARILY_UNAVAILABLE', category: 'temporary', recovery: 'RETRY',
+    });
+    vi.mocked(api.auth.logout).mockImplementation(async () => emitSession({ status: 'signedOut' }));
+    const operator = userEvent.setup();
+    renderApp(api);
+
+    expect(await screen.findByRole('button', { name: '退出并返回登录' })).toBeEnabled();
+    await operator.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByRole('button', { name: '退出并返回登录' })).toBeEnabled();
+    await operator.click(screen.getByRole('button', { name: '退出并返回登录' }));
+    expect(api.auth.logout).toHaveBeenCalledOnce();
+    expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
+  });
+
   it('drops a response from another session generation and clears protected content on sign-out', async () => {
     const stale = deferred<KeyedResponse<ProjectView>>();
     const { api, emitSession } = authenticatedApi({ open: vi.fn().mockReturnValue(stale.promise) });

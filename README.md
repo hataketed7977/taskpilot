@@ -192,8 +192,9 @@ Each checkout gets a deterministic Compose project, separate disposable local
 PostgreSQL and Redis volumes, and distinct loopback ports. When Core API startup proves a
 Flyway schema-history incompatibility against that exact loopback database,
 `pnpm dev` and `pnpm dev:api` verify both the checkout-owned Compose project and
-the standard Compose volume labels, stop the failed Core API, rebuild only that
-local volume, and retry once. Startup also removes orphan containers belonging
+the standard Compose volume labels, stop the failed Core API, rebuild the local
+PostgreSQL volume, clear the paired Redis volume so sessions cannot outlive the
+users they reference, and retry once. Startup also removes orphan containers belonging
 to the same Compose project.
 
 Automatic recovery does not run for connection failures, ordinary migration SQL

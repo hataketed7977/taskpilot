@@ -24,6 +24,7 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteProject, setDeleteProject] = useState<ProjectView>();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [errorSignOutPending, setErrorSignOutPending] = useState(false);
   const requestGeneration = useRef(0);
   const selectionGeneration = useRef(0);
   const archivedGeneration = useRef(0);
@@ -101,7 +102,13 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
           <p className="workspace-kicker">{t('project.personalSpace')}</p>
           <h1 id="project-load-error">{t('project.loadErrorTitle')}</h1>
           <p>{t('project.loadErrorDetail')}</p>
-          <button type="button" className="project-button project-button--primary" onClick={() => void loadHome()}>{t('common.retry')}</button>
+          <div className="project-load-state__actions">
+            <button type="button" className="project-button project-button--primary" onClick={() => void loadHome()}>{t('common.retry')}</button>
+            <button type="button" className="project-button" disabled={errorSignOutPending} onClick={() => {
+              setErrorSignOutPending(true);
+              void api.auth.logout().finally(() => setErrorSignOutPending(false));
+            }}>{errorSignOutPending ? t('account.loggingOut') : t('project.loadErrorSignOut')}</button>
+          </div>
         </section>
       </main>
     );

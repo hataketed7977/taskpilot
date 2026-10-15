@@ -14,6 +14,7 @@ export function createRendererI18n(locale: SupportedLocale, resources: Resource 
     interpolation: { escapeValue: false },
     initAsync: false,
     returnNull: false,
+    react: { bindI18nStore: 'added removed' },
   });
   return instance;
 }

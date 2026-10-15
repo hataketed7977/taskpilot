@@ -45,7 +45,7 @@ export const messageResources = {
     project: {
       navigation: 'Project navigation', personalSpace: 'Personal space', workspaceOwner: 'Your workspace', projects: 'Projects', projectList: 'Active projects',
       createAction: 'New project', archivedAction: 'Archived projects', openAccountMenu: 'Open account menu', accountMenu: 'Account menu', signedIn: 'Signed in with GitHub',
-      loading: 'Loading your projects…', loadErrorTitle: 'Projects are temporarily unavailable', loadErrorDetail: 'Your account is still available. Retry to load your projects.',
+      loading: 'Loading your projects…', loadErrorTitle: 'Projects are temporarily unavailable', loadErrorDetail: 'Retry, or sign out to start again.', loadErrorSignOut: 'Sign out and return',
       settingsAction: 'Project settings', readyTitle: 'Project ready', readyDetail: 'Your project context is ready. Start shaping the work when you are ready.',
       emptyTitle: 'No projects yet', emptyDetail: 'Create a project to begin.', back: 'Back', settingsTitle: 'Project settings',
       name: 'Project name', description: 'Project description (optional)', nameTooLong: 'Project name must be 200 characters or fewer.', descriptionTooLong: 'Project description must be 2,000 characters or fewer.', save: 'Save changes', saving: 'Saving…', mutationError: 'The Project could not be changed. Review the latest state and try again.',
@@ -82,7 +82,7 @@ export const messageResources = {
     project: {
       navigation: '项目导航', personalSpace: '个人空间', workspaceOwner: '你的空间', projects: '项目', projectList: '活跃项目',
       createAction: '新建项目', archivedAction: '已归档项目', openAccountMenu: '打开账号菜单', accountMenu: '账号菜单', signedIn: '已通过 GitHub 登录',
-      loading: '正在加载项目…', loadErrorTitle: '暂时无法加载项目', loadErrorDetail: '账号状态仍然有效，请重试加载项目。',
+      loading: '正在加载项目…', loadErrorTitle: '暂时无法加载项目', loadErrorDetail: '请重试；如果问题持续，可以退出后重新登录。', loadErrorSignOut: '退出并返回登录',
       settingsAction: '项目设置', readyTitle: '项目已就绪', readyDetail: '当前项目上下文已经准备好，可以开始组织接下来的工作。',
       emptyTitle: '还没有项目', emptyDetail: '新建一个项目即可开始。', back: '返回', settingsTitle: '项目设置',
       name: '项目名称', description: '项目描述（可选）', nameTooLong: '项目名称最多 200 个字符。', descriptionTooLong: '项目描述最多 2000 个字符。', save: '保存更改', saving: '正在保存…', mutationError: '未能修改项目。请确认最新状态后重试。',
