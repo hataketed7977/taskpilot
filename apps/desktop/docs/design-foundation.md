@@ -66,18 +66,18 @@ showing disabled promises or fabricated data for those later capabilities.
 
 ## Explored Directions
 
-### A. Quiet control desk — recommended
+### A. Quiet project desk — recommended
 
-A restrained, list-led workspace uses a persistent **context spine** to connect
-Workspace selection and local page position, with room for later Project
-navigation. Cool mineral
-surfaces, near-black green ink, and one deep teal action color create a durable
-working environment. Dense records use rules and alignment rather than cards.
+A restrained, list-led workspace uses compact **Project slots** for navigation.
+Workspace identity stays fixed above the list, while a single folder glyph marks
+the Project collection and each Project remains a quiet text row. Cool mineral
+surfaces, near-black green ink, and one deep teal action color create a durable working
+environment. Dense records use rules and alignment rather than cards.
 
 Why it fits:
 
-- The context spine visualizes TaskPilot's real ownership hierarchy rather than
-  decorating the shell.
+- Project slots make navigation immediately recognizable without turning the
+  sidebar into a timeline, tree, or decorative process diagram.
 - List and split-pane compositions scale from a handful of Projects to hundreds.
 - A calm base leaves room for future execution warnings, approvals, and Diff
   without turning the entire product into an alert console.
@@ -114,35 +114,41 @@ generated-design signals:
 | Animated page entrances and universal hover movement | Motion only explains a user-triggered change, progress, or layer transition |
 | Provider- or Agent-first home screen | Workspace and Project remain primary; later Agent capabilities enter through normalized, capability-driven views |
 
-## Visual Signature: the Context Spine
+## Visual Signature: Project Slots
 
-The context spine is the one intentionally distinctive device. It is a slim,
-continuous vertical rule inside the navigation surface that connects the fixed
-personal Workspace and its ACTIVE Projects. Short horizontal branches terminate
-at Project labels; the selected branch is the current Project.
+Project slots are the intentionally distinctive navigation device. A single
+folder glyph marks the Project collection and aligns with the adjacent Archived
+Projects action; individual ACTIVE Projects remain text rows. The selected slot
+uses a low-contrast mineral-teal surface, a short inset edge signal, and stronger
+text weight instead of a repeated logo, tree branch, or status dot.
 
-It is not a progress meter, a decorative timeline, or a place for arbitrary
-badges. It communicates only hierarchy and current scope:
+The collection glyph communicates familiar navigation structure without
+pretending that Board content, progress, or Agent activity is already visible
+in the sidebar:
 
 ```text
   Personal space
-        │
-        ├── My project             ← current Project
-        ├── Launch notes
-        └── New project            ← action, not another hierarchy level
+
+  ▱ Projects
+    My project                    ← current Project
+    Launch notes
+
+  + New project                  ← action, not a Project slot
 ```
 
 Rules:
 
-- Use the action color on only the active branch and current-scope marker;
-  inactive structure uses the border color.
-- Always pair color with position, weight, and an accessible current-page state.
-- Do not extend the spine through unrelated content or repeat it inside every
-  panel.
-- The spine contains only ACTIVE Projects. New Project and Archived Projects
-  are adjacent actions, not branches that imply business resources.
-- In compact navigation, preserve the hierarchy through an explicit breadcrumb
-  and accessible labels; do not compress the spine into unexplained dots.
+- Use one folder glyph on the Project collection label, aligned with the
+  Archived Projects icon. Do not repeat it on every Project row.
+- Pair the selected color with a quiet surface, short inset edge signal, text
+  weight, and an accessible current-page state; never rely on teal alone.
+- Do not use tree lines, nodes, glow, or gradients in Project navigation. The
+  fixed Workspace header and explicit Project section label already express the
+  hierarchy.
+- New Project and Archived Projects are adjacent actions, not Project slots
+  that imply business resources.
+- In compact navigation, preserve scope through the current Project name and
+  accessible labels; never compress Project destinations into unexplained dots.
 
 ## Color System
 
@@ -154,7 +160,7 @@ Rules:
 | `paper-0` | `#FCFDFC` | Primary working surface and fields |
 | `ink-950` | `#18211F` | Primary text and high-emphasis icons |
 | `slate-650` | `#5D6A66` | Secondary text and inactive controls |
-| `slate-250` | `#CCD6D2` | Non-interactive dividers and context spine |
+| `slate-250` | `#CCD6D2` | Structural dividers and quiet control borders |
 | `teal-700` | `#006B5D` | Primary action, active scope, and committed selection |
 
 The palette is intentionally neutral rather than monochrome: green undertones
@@ -174,7 +180,7 @@ Components consume semantic aliases rather than the palette names directly:
 | `color-control-border` | `#7E8F89` | Interactive field and control boundaries; at least 3:1 against supported light surfaces |
 | `color-action` | `teal-700` | Primary action and active-scope emphasis |
 | `color-action-text` | `paper-0` | Text and icons on the solid primary action |
-| `color-selection` | `teal-700` | Selected branch, current-page marker, and active control edge |
+| `color-selection` | `teal-700` | Selected edge, current-page marker, and active control emphasis |
 
 ### Semantic tokens
 
@@ -261,7 +267,7 @@ The application uses three persistent layers:
 
 1. a platform-aware title region (`40–44px`) with a dedicated draggable area;
 2. a `224px` context navigation pane containing the personal Workspace label,
-   Project context spine, and account controls; and
+   Project navigation list, and account controls; and
 3. a flexible work surface with a local header and content region.
 
 At widths below `1080px`, navigation may reduce to `192px` and optional detail
@@ -282,11 +288,11 @@ platform adapters, not CSS guesses spread across pages.
 │ TaskPilot                                                                  │
 ├──────────────────────┬─────────────────────────────────────────────────────┤
 │ Personal space       │ My project                         Project settings │
-│     │                │ A short description when one exists.               │
-│     ├─ My project ●  ├─────────────────────────────────────────────────────┤
-│     ├─ Launch notes  │                                                     │
-│     └─ + New project │ Project home                                       │
-│                      │                                                     │
+│                      │ A short description when one exists.               │
+│ ▱ Projects           ├─────────────────────────────────────────────────────┤
+│   My project         │                                                     │
+│   Launch notes       │ Project home                                       │
+│ + New project        │                                                     │
 │ Archived projects    │ This is the stable project context.                │
 │                      │ Board and Agent content is not invented here.       │
 │ Ada · Account        │                                                     │
@@ -295,8 +301,8 @@ platform adapters, not CSS guesses spread across pages.
 
 The shell is list-led rather than a dashboard. The fixed personal Workspace is
 shown as context, not as a switcher or creatable object. ACTIVE Projects form
-the only context-spine branches; the current Project combines position, weight,
-and `aria-current`, not color alone. The main pane shows the real Project name
+the only Project slots; the current Project combines surface, an inset edge,
+weight, and `aria-current`, not color alone. The main pane shows the real Project name
 and optional description, followed by a quiet start surface with no fake
 metrics, Board, Agent, TEAM, invitation, or member placeholders.
 
@@ -312,7 +318,7 @@ actions.
 - **Create Project:** a focused dialog with name and optional description. It
   creates one request id for the user intent and retains that id across an
   uncertain retry. Success selects the returned Project and restores focus to
-  the new Project branch.
+  the new Project row.
 - **Project settings:** a reversible main-pane view for name and description.
   Save carries the currently displayed version. Archive is a separate warning
   action; success selects the next ACTIVE Project or the truthful empty state.
@@ -351,7 +357,7 @@ contract.
 └──────────────────────────────────┴─────────────────────────────────────────┘
 ```
 
-Authentication uses the **Quiet control desk** palette and interaction grammar,
+Authentication uses the **Quiet project desk** palette and interaction grammar,
 with a distinct signed-out composition: one restrained brand panel describes
 human-and-Agent board collaboration while one left-aligned decision panel owns
 the active authentication task. A low-contrast board field spans the lower
@@ -445,7 +451,7 @@ show success, error, rows, or form closure in the replacement session.
 
 **Long content** wraps names and descriptions rather than resizing the shell.
 The current Project name is always available in full in the main heading; a
-navigation branch may clamp after two lines with its full name in the accessible
+navigation row may clamp after two lines with its full name in the accessible
 label and native title.
 
 ### Project-home wireframes
@@ -601,8 +607,8 @@ Before calling an implemented first-slice surface complete:
 
 - [ ] The current account, Workspace, and destination are distinguishable
       without relying on color alone.
-- [ ] The context spine encodes actual hierarchy and is not repeated as
-      decoration.
+- [ ] Project slots express destination and selection without repeated icons,
+      tree lines, nodes, glow, or decorative status semantics.
 - [ ] Lists and rules are used where a generic card grid would add no meaning.
 - [ ] Chinese and English samples do not clip, collide, or create ambiguous
       truncation.

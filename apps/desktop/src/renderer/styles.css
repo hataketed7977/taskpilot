@@ -1095,7 +1095,7 @@ button:disabled {
   }
 }
 
-/* Project home — Quiet control desk */
+/* Project home — Quiet project desk */
 .project-shell {
   width: 100%;
   min-width: 0;
@@ -1200,6 +1200,24 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.project-nav-heading__label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.project-nav-heading__label svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.3;
+}
+
 .icon-action {
   width: 30px;
   min-height: 30px;
@@ -1212,64 +1230,62 @@ button:disabled {
   line-height: 1;
 }
 
-.context-spine {
-  position: relative;
-  min-height: 32px;
+.project-list {
+  min-height: 36px;
   display: grid;
   align-content: start;
-  gap: 2px;
-  padding-left: 9px;
+  gap: 3px;
+  padding: 0 2px;
   overflow: auto;
 }
 
-.context-spine::before {
-  content: "";
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: 1px;
-  background: var(--line);
+.project-nav-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  position: relative;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px 0 34px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 560;
 }
 
-.project-branch {
-  position: relative;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 34px;
-  width: 100%;
-  min-height: 34px;
+
+.project-nav-item__label {
+  min-width: 0;
   overflow: hidden;
-  border-color: transparent;
-  padding: 0 9px 0 14px;
-  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
 }
 
-.project-branch::before {
+.project-nav-item:hover:not(.is-current) {
+  background: color-mix(in srgb, var(--ink) 3%, var(--paper));
+}
+
+.project-nav-item.is-current {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--action) 6%, var(--paper));
+  font-weight: 680;
+}
+
+.project-nav-item.is-current::before {
   content: "";
   position: absolute;
-  top: 50%;
-  left: -5px;
-  width: 7px;
-  height: 7px;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  background: var(--canvas);
-  transform: translateY(-50%);
-}
-
-.project-branch.is-current {
-  color: var(--action);
-  background: color-mix(in srgb, var(--action) 8%, var(--paper));
-  font-weight: 700;
-}
-
-.project-branch.is-current::before {
-  border-color: var(--action);
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 2px;
+  border-radius: 999px;
   background: var(--action);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--action) 12%, transparent);
 }
 
 .sidebar-action {

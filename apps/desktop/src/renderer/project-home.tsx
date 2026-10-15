@@ -134,14 +134,16 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
           <div><span>{t('project.personalSpace')}</span><small>{t('project.workspaceOwner')}</small></div>
         </div>
         <div className="project-nav-heading">
-          <span>{t('project.projects')}</span>
+          <span className="project-nav-heading__label"><ProjectCollectionIcon />{t('project.projects')}</span>
           <button type="button" className="icon-action" aria-label={t('project.createAction')} title={t('project.createAction')} onClick={() => setCreateOpen(true)}>+</button>
         </div>
-        <nav className="context-spine" aria-label={t('project.projectList')}>
+        <nav className="project-list" aria-label={t('project.projectList')}>
           {home.projects.map(project => (
-            <button key={project.projectId} type="button" className={`project-branch${project.projectId === current?.projectId ? ' is-current' : ''}`}
+            <button key={project.projectId} type="button" className={`project-nav-item${project.projectId === current?.projectId ? ' is-current' : ''}`}
               aria-current={project.projectId === current?.projectId ? 'page' : undefined} title={project.name}
-              onClick={() => void selectProject(project)}>{project.name}</button>
+              onClick={() => void selectProject(project)}>
+              <span className="project-nav-item__label">{project.name}</span>
+            </button>
           ))}
         </nav>
         <button type="button" className={`sidebar-action${surface === 'archived' ? ' is-active' : ''}`} onClick={() => void showArchived()}>
@@ -335,5 +337,6 @@ function LanguageSelectorInline() { const { locale, changeLocale } = useLocale()
 function Avatar({ user, size }: { user: AuthenticatedSession['currentUser']; size: 'small' | 'large' }) { return user.avatarUrl ? <img className={`shell-avatar shell-avatar--${size}`} src={user.avatarUrl} alt="" width={size === 'small' ? 28 : 36} height={size === 'small' ? 28 : 36} referrerPolicy="no-referrer" /> : <span className={`shell-avatar shell-avatar--${size} shell-avatar--fallback`} aria-hidden="true">{displayNameInitials(user.displayName)}</span>; }
 function ProjectShellSkeleton({ user }: { user: AuthenticatedSession['currentUser'] }) { const { t } = useTranslation(); return <main id="main-content" className="project-shell project-shell--loading" aria-busy="true"><header className="project-titlebar"><span className="project-wordmark" translate="no">TaskPilot</span></header><aside className="project-sidebar"><div className="workspace-context"><span className="workspace-symbol">P</span><div><span>{t('project.personalSpace')}</span><small>{t('project.workspaceOwner')}</small></div></div><div className="skeleton skeleton--row" /><div className="skeleton skeleton--row" /><div className="skeleton skeleton--row" /><div className="account-dock"><Avatar user={user} size="small" /></div></aside><section className="project-workspace"><div className="project-page"><div className="skeleton skeleton--title" /><div className="skeleton skeleton--copy" /><p role="status" className="visually-hidden">{t('project.loading')}</p></div></section></main>; }
 function useInitialFocus(input: RefObject<HTMLElement | null>) { useEffect(() => { input.current?.focus(); }, [input]); }
+function ProjectCollectionIcon() { return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 4.75h4.1l1.3 1.5h7.1v6.25a1.5 1.5 0 0 1-1.5 1.5h-9.5a1.5 1.5 0 0 1-1.5-1.5z" /><path d="M2.25 4.75v-1.25A1.5 1.5 0 0 1 3.75 2h3.1l1.3 1.5h4.1a1.5 1.5 0 0 1 1.5 1.5v1.25" /></svg>; }
 function ArchiveIcon() { return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11v8h-11zM2 2.5h12v2H2zm4 4h4" /></svg>; }
 function SettingsIcon() { return <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M12.4 3.6l-1 1M4.6 11.4l-1 1" /></svg>; }
