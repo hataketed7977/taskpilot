@@ -27,4 +27,16 @@ class ProjectProvisioningConfiguration {
             clock,
             transactionManager,
         )
+
+    @Bean
+    fun projectWorkUseCases(
+        dataSource: DataSource,
+        @Qualifier("authenticationClock") clock: Clock,
+        transactionManager: PlatformTransactionManager,
+    ): ProjectWorkUseCases =
+        ai.taskpilot.coreapi.project.internal.ProjectWorkApplicationService(
+            dataSource,
+            clock,
+            transactionManager,
+        )
 }

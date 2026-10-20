@@ -46,8 +46,11 @@ class WorkspaceApplicationIntegrationTest {
     @BeforeEach
     fun reset() {
         jdbc.execute(
-            "TRUNCATE project.project_memberships, project.projects, workspace.workspace_memberships, " +
-                "workspace.workspaces, access.terms_acceptances, access.external_identities, access.users CASCADE",
+            """
+            TRUNCATE project.board_placements, project.board_columns, project.work_items, project.boards,
+                project.project_memberships, project.projects, workspace.workspace_memberships, workspace.workspaces,
+                access.terms_acceptances, access.external_identities, access.users CASCADE
+            """.trimIndent(),
         )
     }
 

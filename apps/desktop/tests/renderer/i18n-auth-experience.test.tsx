@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
+import { boardTestApi } from './board-test-api';
 import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
 
 const currentUser = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
@@ -22,6 +23,7 @@ const waiting: FederatedAuthFlowView = { status: 'waiting', flowId: 'opaque-flow
 
 function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilotDesktopApi {
   return {
+    boards: boardTestApi({ sessionGeneration: projectKey.sessionGeneration, userId: projectKey.userId, workspaceId: projectKey.workspaceId, projectId: projectKey.projectId }),
     workspaces: { list: vi.fn().mockResolvedValue({ key: projectKey, value: [workspace] }) },
     projects: {
       resolveHome: vi.fn().mockResolvedValue({ key: projectKey, value: { workspace, projects: [project], currentProject: project } }),
@@ -54,7 +56,9 @@ describe('localized authentication and account experience', () => {
     expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
     const selector = screen.getByRole('combobox', { name: '语言' });
     selector.focus();
-    await operator.selectOptions(selector, 'en');
+    await operator.click(selector);
+    expect(screen.getByRole('option', { name: '简体中文' })).toHaveAttribute('aria-selected', 'true');
+    await operator.click(screen.getByRole('option', { name: 'English' }));
     expect(screen.getByRole('heading', { name: 'Sign in to TaskPilot' })).toBeInTheDocument();
     expect(selector).toHaveFocus();
     expect(document.documentElement.lang).toBe('en');
@@ -68,7 +72,8 @@ describe('localized authentication and account experience', () => {
     await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
     expect(await screen.findByRole('heading', { name: '在浏览器中继续' })).toBeInTheDocument();
     const before = vi.mocked(api.auth.continueGitHubSignIn).mock.calls.length;
-    await operator.selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+    await operator.click(screen.getByRole('combobox', { name: '语言' }));
+    await operator.click(screen.getByRole('option', { name: 'English' }));
     expect(screen.getByRole('heading', { name: 'Continue in your browser' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Waiting for you to finish GitHub authorization');
     expect(api.auth.startGitHubSignIn).toHaveBeenCalledTimes(1);
@@ -90,7 +95,8 @@ describe('localized authentication and account experience', () => {
     const avatar = screen.getByRole('checkbox', { name: '使用 GitHub 头像' });
     const consent = screen.getByRole('checkbox', { name: /用户协议.*隐私政策/ });
     await operator.click(consent);
-    await operator.selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+    await operator.click(screen.getByRole('combobox', { name: '语言' }));
+    await operator.click(screen.getByRole('option', { name: 'English' }));
     expect(screen.getByLabelText('Display name')).toHaveValue('Ada Lovelace');
     expect(screen.getByRole('checkbox', { name: 'Use GitHub avatar' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Terms of Service.*Privacy Policy/ })).not.toBeChecked();
@@ -103,7 +109,8 @@ describe('localized authentication and account experience', () => {
     renderApp(api);
     expect(await screen.findByRole('heading', { name: '我的项目' })).toBeInTheDocument();
     await operator.click(screen.getByRole('button', { name: '打开账号菜单' }));
-    await operator.selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+    await operator.click(screen.getByRole('combobox', { name: '语言' }));
+    await operator.click(screen.getByRole('option', { name: 'English' }));
     expect(screen.getByRole('heading', { name: '我的项目' })).toBeInTheDocument();
     expect(screen.getByText(/Signed in with GitHub/)).toBeInTheDocument();
     expect(api.auth.getSessionView).toHaveBeenCalledTimes(1);
@@ -115,7 +122,8 @@ describe('localized authentication and account experience', () => {
     const operator = userEvent.setup();
     renderApp(api);
     expect(await screen.findByRole('heading', { name: '暂时无法连接' })).toBeInTheDocument();
-    await operator.selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+    await operator.click(screen.getByRole('combobox', { name: '语言' }));
+    await operator.click(screen.getByRole('option', { name: 'English' }));
     expect(screen.getByRole('heading', { name: 'Temporarily unable to connect' })).toBeInTheDocument();
     expect(screen.getByText('Your sign-in information remains safely stored on this device.')).toBeInTheDocument();
   });

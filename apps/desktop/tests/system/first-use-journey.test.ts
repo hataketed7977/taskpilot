@@ -7,6 +7,7 @@ import { createDesktopComposition, type DesktopComposition } from '../../src/mai
 import { MemoryCredentialStore, type CredentialStore } from '../../src/main/credentials/credential-store.js';
 import { registerDesktopHandlers } from '../../src/main/ipc.js';
 import { LoopbackReceiver } from '../../src/main/auth/loopback-receiver.js';
+import { MemoryRecentBoardStore, type RecentBoardStore } from '../../src/main/projects/recent-board-store.js';
 import { MemoryRecentProjectStore, type RecentProjectStore } from '../../src/main/projects/recent-project-store.js';
 import { createTaskPilotDesktopApi } from '../../src/preload/api.js';
 import type { FederatedAuthFlowView, TaskPilotDesktopApi } from '../../src/shared/contracts.js';
@@ -67,6 +68,7 @@ interface DesktopHarness {
 function createHarness(
   authorizationCode: string,
   recentProjects: RecentProjectStore,
+  recentBoards: RecentBoardStore,
   credentials: CredentialStore = new MemoryCredentialStore(),
 ): DesktopHarness {
   if (!baseUrl) throw new Error('TASKPILOT_SYSTEM_BASE_URL is required');
@@ -77,6 +79,7 @@ function createHarness(
     credentials,
     authRecovery: new MemoryFederatedAuthRecoveryStore(),
     recentProjects,
+    recentBoards,
     deviceInstallationId: `system-journey-${authorizationCode}`,
     browser,
     loopback: new LoopbackReceiver(),
@@ -133,9 +136,10 @@ describe('Desktop first-use system journey', () => {
     expect(await health.json()).toMatchObject({ status: 'UP' });
 
     const recentProjects = new MemoryRecentProjectStore();
-    let current = createHarness('1001', recentProjects);
+    const recentBoards = new MemoryRecentBoardStore();
+    let current = createHarness('1001', recentProjects, recentBoards);
     try {
-      expect(Object.keys(current.composition.capabilities)).toEqual(['auth', 'workspaces', 'projects']);
+      expect(Object.keys(current.composition.capabilities)).toEqual(['auth', 'workspaces', 'projects', 'boards']);
       expect(current.composition).not.toHaveProperty('runtime');
       expect(await current.api.auth.getCapabilities()).toEqual({ github: { enabled: true } });
 
@@ -146,21 +150,72 @@ describe('Desktop first-use system journey', () => {
       const workspaceId = firstHome.value.workspace.workspaceId;
       const defaultProject = firstHome.value.currentProject;
       expect(defaultProject).toMatchObject({ workspaceId, name: 'My project', description: '', status: 'ACTIVE' });
+      if (!defaultProject) throw new Error('Default Project was not selected');
+
+      const initialBoardHome = await current.api.boards.resolveHome({ workspaceId, projectId: defaultProject.projectId });
+      expect(initialBoardHome.value.boards).toHaveLength(1);
+      expect(initialBoardHome.value.currentBoard).toMatchObject({
+        name: 'Board',
+        columns: [{ name: 'To do', cards: [] }],
+      });
+
+      const secondBoard = await current.api.boards.create({
+        workspaceId,
+        projectId: defaultProject.projectId,
+        requestId: randomUUID(),
+        name: 'Release board',
+        description: 'System journey board',
+        locale: 'en',
+      });
+      const initialColumn = secondBoard.value.columns[0];
+      const withReviewColumn = await current.api.boards.createColumn({
+        workspaceId,
+        projectId: defaultProject.projectId,
+        boardId: secondBoard.value.boardId,
+        requestId: randomUUID(),
+        expectedBoardVersion: secondBoard.value.version,
+        name: 'In review',
+      });
+      const createdWorkItem = await current.api.boards.createWorkItem({
+        workspaceId,
+        projectId: defaultProject.projectId,
+        boardId: secondBoard.value.boardId,
+        columnId: initialColumn.columnId,
+        requestId: randomUUID(),
+        expectedBoardVersion: withReviewColumn.value.version,
+        title: 'Verify release',
+        description: 'Created through compiled Main, IPC and Preload',
+      });
+      const movedBoard = await current.api.boards.moveCard({
+        workspaceId,
+        projectId: defaultProject.projectId,
+        boardId: secondBoard.value.boardId,
+        workItemId: createdWorkItem.value.workItem.workItemId,
+        expectedBoardVersion: createdWorkItem.value.board.version,
+        expectedPlacementVersion: 0,
+        targetColumnId: withReviewColumn.value.columns.find(column => column.name === 'In review')!.columnId,
+      });
+      expect(movedBoard.value.columns.find(column => column.name === 'In review')?.cards).toEqual([
+        expect.objectContaining({ workItemId: createdWorkItem.value.workItem.workItemId, title: 'Verify release' }),
+      ]);
 
       const created = await current.api.projects.create({
         workspaceId,
         requestId: randomUUID(),
         name: 'Recently opened',
         description: 'System journey selection',
+        locale: 'en',
       });
       await current.api.projects.open({ workspaceId, projectId: created.value.projectId });
       await current.api.auth.logout();
       current.dispose();
 
-      current = createHarness('1001', recentProjects);
+      current = createHarness('1001', recentProjects, recentBoards);
       await signInExisting(current);
       const recentHome = await current.api.projects.resolveHome();
       expect(recentHome.value.currentProject?.projectId).toBe(created.value.projectId);
+      const restoredBoardHome = await current.api.boards.resolveHome({ workspaceId, projectId: defaultProject.projectId });
+      expect(restoredBoardHome.value.currentBoard?.boardId).toBe(secondBoard.value.boardId);
 
       const archived = await current.api.projects.archive({
         workspaceId,
@@ -170,7 +225,7 @@ describe('Desktop first-use system journey', () => {
       await current.api.auth.logout();
       current.dispose();
 
-      current = createHarness('1001', recentProjects);
+      current = createHarness('1001', recentProjects, recentBoards);
       await signInExisting(current);
       const fallbackHome = await current.api.projects.resolveHome();
       expect(fallbackHome.value.currentProject?.projectId).toBe(defaultProject?.projectId);
@@ -181,7 +236,6 @@ describe('Desktop first-use system journey', () => {
         expectedVersion: archived.value.version,
         confirmationName: archived.value.name,
       });
-      if (!defaultProject) throw new Error('Default Project was not selected');
       await current.api.projects.permanentlyDelete({
         workspaceId,
         projectId: defaultProject.projectId,
@@ -195,7 +249,7 @@ describe('Desktop first-use system journey', () => {
       await current.api.auth.logout();
       current.dispose();
 
-      current = createHarness('2002', recentProjects);
+      current = createHarness('2002', recentProjects, recentBoards);
       const failurePending = await beginAndCompleteProvider(current);
       await expect(register(current, failurePending, 'Session Failure')).rejects.toMatchObject({
         category: 'temporary',
@@ -205,7 +259,7 @@ describe('Desktop first-use system journey', () => {
       await current.api.auth.cancelGitHubSignIn({ flowId: failurePending.flowId });
       current.dispose();
 
-      current = createHarness('2002', recentProjects);
+      current = createHarness('2002', recentProjects, recentBoards);
       await signInExisting(current);
       const recoveredHome = await current.api.projects.resolveHome();
       expect(recoveredHome.value.currentProject).toMatchObject({ name: 'My project', status: 'ACTIVE' });

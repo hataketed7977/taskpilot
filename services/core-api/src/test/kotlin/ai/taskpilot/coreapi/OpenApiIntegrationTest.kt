@@ -40,6 +40,9 @@ private fun Map<String, Any?>.schema(name: String): Map<String, Any?> = required
 
 private fun Map<String, Any?>.schemaProperties(name: String): Set<String> = schema(name).requiredMap("properties").keys
 
+private fun Map<String, Any?>.schemaRequiredProperties(name: String): Set<String> =
+    (schema(name)["required"] as? List<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
+
 private fun Map<String, Any?>.schemaProperty(
     schemaName: String,
     propertyName: String,
@@ -182,7 +185,57 @@ class OpenApiIntegrationTest(
             ),
             document.schemaProperties("ProjectView"),
         )
-        assertEquals(setOf("requestId", "name", "description"), document.schemaProperties("CreateProjectRequest"))
+        assertEquals(setOf("requestId", "name", "description", "locale"), document.schemaProperties("CreateProjectRequest"))
+        assertEquals(
+            setOf("boardId", "projectId", "name", "description", "version", "createdAt", "updatedAt"),
+            document.schemaProperties("BoardSummary"),
+        )
+        assertEquals(
+            setOf("boardId", "projectId", "name", "description", "version", "createdAt", "updatedAt", "columns"),
+            document.schemaProperties("BoardView"),
+        )
+        assertEquals(
+            setOf("columnId", "name", "position", "version", "createdAt", "updatedAt", "cards"),
+            document.schemaProperties("BoardColumnView"),
+        )
+        assertEquals(
+            setOf("workItemId", "title", "description", "lifecycle", "workItemVersion", "placementVersion", "position"),
+            document.schemaProperties("CardView"),
+        )
+        assertEquals(
+            setOf("workItemId", "projectId", "title", "description", "lifecycle", "version", "createdAt", "updatedAt"),
+            document.schemaProperties("WorkItemView"),
+        )
+        assertEquals(setOf("workItem", "board"), document.schemaProperties("CreateWorkItemResult"))
+        assertEquals(setOf("workItem", "board"), document.schemaProperties("EditWorkItemResult"))
+        assertEquals(setOf("requestId", "name", "description", "locale"), document.schemaProperties("CreateBoardRequest"))
+        assertEquals(setOf("expectedVersion", "name", "description"), document.schemaProperties("EditBoardRequest"))
+        assertEquals(setOf("requestId", "expectedBoardVersion", "name"), document.schemaProperties("CreateColumnRequest"))
+        assertEquals(setOf("expectedBoardVersion", "expectedColumnVersion", "name"), document.schemaProperties("EditColumnRequest"))
+        assertEquals(setOf("expectedBoardVersion", "columnIds"), document.schemaProperties("ReorderColumnsRequest"))
+        assertEquals(
+            setOf("requestId", "expectedBoardVersion", "columnId", "title", "description"),
+            document.schemaProperties("CreateWorkItemRequest"),
+        )
+        assertEquals(
+            setOf(
+                "boardId",
+                "currentColumnId",
+                "targetColumnId",
+                "expectedBoardVersion",
+                "expectedPlacementVersion",
+                "expectedVersion",
+                "title",
+                "description",
+            ),
+            document.schemaProperties("EditWorkItemRequest"),
+        )
+        assertFalse("expectedBoardVersion" in document.schemaRequiredProperties("EditWorkItemRequest"))
+        assertFalse("expectedPlacementVersion" in document.schemaRequiredProperties("EditWorkItemRequest"))
+        assertEquals(
+            setOf("expectedBoardVersion", "expectedPlacementVersion", "targetColumnId", "beforeWorkItemId"),
+            document.schemaProperties("MovePlacementRequest"),
+        )
         assertEquals(setOf("expectedVersion", "name", "description"), document.schemaProperties("EditProjectRequest"))
         assertEquals(setOf("expectedVersion"), document.schemaProperties("ProjectStatusRequest"))
         assertEquals(
@@ -264,8 +317,6 @@ class OpenApiIntegrationTest(
             assertFalse(path.contains("members"), path)
             assertFalse(path.contains("memberships"), path)
             assertFalse(path.contains("teams"), path)
-            assertFalse(path.contains("boards"), path)
-            assertFalse(path.contains("work-items"), path)
             assertFalse(path.contains("workflows"), path)
             assertFalse(path.contains("agents"), path)
         }
@@ -432,6 +483,50 @@ class OpenApiIntegrationTest(
                         "DeleteProjectRequest",
                         null,
                         setOf("204", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards" to "get") to
+                    OperationContract(null, "BoardSummary[]", setOf("200", "400", "401", "404", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards" to "post") to
+                    OperationContract("CreateBoardRequest", "BoardView", setOf("201", "400", "401", "404", "409", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}" to "get") to
+                    OperationContract(null, "BoardView", setOf("200", "400", "401", "404", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}" to "patch") to
+                    OperationContract("EditBoardRequest", "BoardView", setOf("200", "400", "401", "404", "409", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/columns" to "post") to
+                    OperationContract("CreateColumnRequest", "BoardView", setOf("201", "400", "401", "404", "409", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/columns/{columnId}" to "patch") to
+                    OperationContract("EditColumnRequest", "BoardView", setOf("200", "400", "401", "404", "409", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/columns/{columnId}" to "delete") to
+                    OperationContract(null, null, setOf("204", "400", "401", "404", "409", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/column-order" to "put") to
+                    OperationContract(
+                        "ReorderColumnsRequest",
+                        "BoardView",
+                        setOf("200", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/work-items" to "post") to
+                    OperationContract(
+                        "CreateWorkItemRequest",
+                        "CreateWorkItemResult",
+                        setOf("201", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/work-items/{workItemId}" to "get") to
+                    OperationContract(null, "WorkItemView", setOf("200", "400", "401", "404", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/work-items/{workItemId}" to "patch") to
+                    OperationContract(
+                        "EditWorkItemRequest",
+                        "EditWorkItemResult",
+                        setOf("200", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/placements/{workItemId}/move" to "post") to
+                    OperationContract(
+                        "MovePlacementRequest",
+                        "BoardView",
+                        setOf("200", "400", "401", "404", "409", "503"),
                         "access-bearer",
                     ),
             )

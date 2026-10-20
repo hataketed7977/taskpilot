@@ -60,9 +60,11 @@ class OnboardingProvisioningTransactionIntegrationTest(
     fun resetDatabase() {
         failureControl.failAfter = null
         jdbc.execute(
-            "TRUNCATE TABLE project.project_memberships, project.projects, " +
-                "workspace.workspace_memberships, workspace.workspaces, access.terms_acceptances, " +
-                "access.external_identities, access.users",
+            """
+            TRUNCATE TABLE project.board_placements, project.board_columns, project.work_items, project.boards,
+                project.project_memberships, project.projects, workspace.workspace_memberships, workspace.workspaces,
+                access.terms_acceptances, access.external_identities, access.users
+            """.trimIndent(),
         )
     }
 
@@ -285,6 +287,8 @@ class OnboardingProvisioningTransactionIntegrationTest(
                 "workspace.workspace_memberships",
                 "project.projects",
                 "project.project_memberships",
+                "project.boards",
+                "project.board_columns",
             )
     }
 }

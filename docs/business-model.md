@@ -83,14 +83,15 @@ documentation.
 | Workspace Member | A User's membership and role within a Workspace, regardless of Workspace type |
 | Project | A Workspace-owned collaboration scope containing people, work, boards, and enabled automation |
 | Project Member | A User who can participate in a Project with a project-level role |
-| Work Item | The canonical record of a piece of work: content, custom values, assignments, and overall lifecycle |
+| Work Item | The canonical Project-owned work record; the Current basic form stores title, description, OPEN lifecycle, version, and audit data, while typed fields and assignments remain Target |
 | Assignment | A Work Item responsibility link to exactly one Project Member or Project Agent Binding |
 | Work Item Type | A reusable identity for a configurable kind of Work Item |
 | Work Item Type Version | An immutable definition of fields and validation for one Work Item Type |
-| Board | A configurable Project view over Work Items and their active workflow state |
+| Board | A Project-owned view over Work Items; the Current form persists ordinary Boards, ordered Columns, and Card placement, while workflow-derived views remain Target |
 | Column | A vertical Board stage such as Todo, Doing, Waiting, or Done |
 | Swimlane | A horizontal Board grouping rule, for example by owner, priority, type, or Agent |
-| Card | The UI projection of a Work Item on a Board; it has no independent business lifecycle |
+| Board Placement | The Board-local location and order of one Work Item, uniquely identified within a Board by `(boardId, workItemId)` |
+| Card | The UI projection of a Work Item plus its Board Placement; it reuses `WorkItemId` and has no independent identity or lifecycle |
 | Workflow | A reusable identity for a work-execution process |
 | Workflow Version | An immutable, validated graph of nodes, transitions, policies, and Agent Slots |
 | Workflow Run | One execution of a pinned Workflow Version for a Work Item |
@@ -155,6 +156,7 @@ classDiagram
     class Project
     class WorkItem
     class Board
+    class BoardPlacement
     class WorkflowVersion
     class WorkflowRun
     class AgentVersion
@@ -167,7 +169,8 @@ classDiagram
     Workspace "1" o-- "0..*" Project : owns
     Project "1" o-- "0..*" WorkItem : contains
     Project "1" o-- "0..*" Board : presents
-    Board ..> WorkItem : projects as Card
+    Board "1" o-- "0..*" BoardPlacement : arranges
+    BoardPlacement "0..*" --> "1" WorkItem : projects as Card
 
     Workspace "1" o-- "0..*" WorkflowVersion : publishes via Workflow
     WorkItem "1" --> "0..*" WorkflowRun : execution history
@@ -233,6 +236,11 @@ classDiagram
     class Swimlane {
         SwimlaneId id
     }
+    class BoardPlacement {
+        BoardPlacementId id
+        BoardId boardId
+        WorkItemId workItemId
+    }
 
     Workspace "1" o-- "0..*" WorkspaceMember
     WorkspaceMember "0..*" --> "1" User
@@ -252,13 +260,16 @@ classDiagram
     Project "1" o-- "0..*" Board
     Board "1" o-- "1..*" Column
     Board "1" o-- "0..*" Swimlane
-    Board ..> WorkItem : Card uses WorkItemId
+    Board "1" o-- "0..*" BoardPlacement
+    BoardPlacement "0..*" --> "1" WorkItem : Card uses WorkItemId
 ```
 
 An Assignment has exactly one target: either a Project Member or a Project
 Agent Binding. A Card has no separate identity; every Card action addresses the
-underlying `WorkItemId`. Columns and Swimlanes have identities because users can
-configure and reference them independently.
+underlying `WorkItemId`. A Board Placement owns only one Board-local Column,
+order, and optimistic version; the same Work Item may have independent
+Placements in multiple Boards. Columns and future Swimlanes have identities
+because users can configure and reference them independently.
 
 ### Definitions, Bindings, and Runtime
 
@@ -519,8 +530,10 @@ capability, not human access or approval authority.
 ## Work Items and Custom Fields
 
 A Work Item contains stable system fields such as title, description, creator,
-overall lifecycle, and timestamps. Configurable values conform to the pinned
-Work Item Type Version.
+overall lifecycle, version, and timestamps. **Current:** the basic Work Item is
+`OPEN` and does not require a Work Item Type Version. **Target:** once typed
+fields are used, their configurable values conform to one pinned immutable Work
+Item Type Version; introducing that relationship requires its own Change.
 
 A Work Item Type Version defines field keys, labels, data types, requiredness,
 defaults, allowed values, validation, and presentation hints. The implementation
@@ -540,21 +553,23 @@ They do not substitute for structured workflow outcomes or approval decisions.
 
 ## Board Semantics
 
-A Board stores view and interaction configuration: Columns, Swimlane rules,
-filters, sorting, visible card fields, and allowed action mappings. It does not
-store a second copy of Work Item or workflow state.
+**Current:** A Project owns any number of ordinary Boards. Each Board owns one
+or more ordered Columns and Board Placements. A Card combines canonical Work
+Item content with one Placement; there is no `CardId` and no copied title,
+description, or lifecycle. `(boardId, workItemId)` is unique, while the same Work
+Item may have independent Placements in multiple Boards.
 
-A Card is computed from the Work Item plus its active Workflow Run, Step Run,
-latest Agent Run summary, pending Approval Request, and selected presentation
-fields.
+The Current Card move is an authorized, Project-scoped, optimistic-concurrency
+controlled **layout action**. It changes only the selected Board Placement's
+Column/order, preserves the Work Item lifecycle and every other Board, and does
+not start Workflow or Agent execution. Board, Placement, and anchor conflicts
+reject the whole move so the client can restore the authoritative layout.
 
-Dragging a Card expresses intent. The server resolves that intent to an allowed
-business action, such as starting a workflow, completing a manual step, or
-cancelling work. A client cannot bypass workflow or approval rules by writing a
-Column identifier directly.
-
-WIP limits may initially be advisory. A hard concurrent capacity guarantee is
-not claimed until an explicit locking or reservation strategy exists.
+**Target:** Swimlanes, filters, visible fields, WIP policies, and Workflow action
+mappings remain future Board configuration. When Workflow is introduced, that
+Change must explicitly distinguish layout-only reordering from business actions
+that start or advance a Workflow; the Current implementation does not pre-decide
+that every drag is a Workflow transition.
 
 ## Agent Configuration and Provider Boundary
 
@@ -872,14 +887,14 @@ requested" and "execution stopped" are distinct facts.
    aligned to the same User and Workspace.
 4. An Agent is never a human member and cannot inherit human permissions or
    approve a human gate.
-5. A Work Item pins an immutable Work Item Type Version.
+5. A basic Work Item may exist without a type; any Work Item that uses typed fields pins one immutable Work Item Type Version.
 6. A Workflow Run pins an immutable Workflow Version.
 7. An Agent Run pins the exact Agent Version resolved at creation.
 8. A Work Item has at most one active Workflow Run in the MVP.
 9. A Workflow Run has at most one active Step Run in the MVP.
 10. Assignment does not create an Agent Run; workflow activation does.
 11. A Board never owns or duplicates canonical Work Item or workflow state.
-12. A Card move must resolve to an authorized, valid business action.
+12. Without a Workflow mapping, a Card move is an authorized, scope-checked and concurrency-controlled Board layout action; a future Workflow Change must explicitly define which moves instead map to business actions.
 13. Agent results used for routing conform to a declared structured schema;
     free-form text is not parsed to guess a transition.
 14. Technical retry remains inside one Agent Run; business rework creates new

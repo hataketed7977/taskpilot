@@ -50,8 +50,8 @@ journey alone implies no packaged or native result.
 | --- | --- |
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
-| Main/Preload contract | Channel allowlist, schema validation, serialization, sender/origin/top-frame/window-generation authorization, keyed Workspace/Project responses, and fixed capability exposure |
-| Main integration | Fixed federated and Workspace/Project clients, HTTP method/path/query allowlists, typed response validation, bootstrap/recent/fallback selection, environment-plus-User preference isolation and failure degradation, loopback method/path/body/size rules, attempt crash recovery, system-browser URL allowlist, direct session handoff, refresh rotation, credential adapter, authenticated cloud client, and generation fencing with owned test doubles |
+| Main/Preload contract | Channel allowlist, schema validation, serialization, sender/origin/top-frame/window-generation authorization, keyed Workspace/Project/Board responses, mutation/read generations, and fixed capability exposure |
+| Main integration | Fixed federated, Workspace/Project, and Project Work clients; HTTP allowlists; typed response validation; initial/recent Project and Board fallback; environment-plus-User preference isolation; loopback/auth/session handling; and generation fencing with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
 
@@ -136,7 +136,13 @@ Project shell at `960 × 640`, long Project names/descriptions, no horizontal
 overflow, visible primary actions, dialog focus trap and focus restoration,
 mutation-error association, exact-name permanent deletion, archived restoration,
 and reduced-motion styling. Long English copy wraps without horizontal loss or
-hiding primary actions.
+hiding primary actions. Current Project Work evidence additionally covers Board
+create/edit, Column create/edit/reorder/delete, basic Work Item create/edit,
+response fencing, pointer and keyboard-equivalent move, optimistic rollback,
+focus/live-region behavior, reduced motion, and a `960 × 640` horizontally
+scrollable Column region without page-level overflow. The system journey uses a
+provider/browser double plus real PostgreSQL and Redis; it does not prove real
+GitHub OAuth or Windows-native drag/focus behavior.
 
 ## Packaged and Native Matrix
 

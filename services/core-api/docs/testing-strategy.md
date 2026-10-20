@@ -137,8 +137,10 @@ contract. Do not mock the state transition or use case under test.
 
 ### Work Items and custom fields
 
-- Work Item values conform to the pinned Work Item Type Version.
-- Publishing a new type version does not mutate existing Work Items.
+- Current basic OPEN Work Items preserve canonical content/version without a
+  required type; Card reads do not copy their content.
+- Target typed values conform to a pinned Work Item Type Version, and publishing
+  a new type version must not mutate existing typed Work Items.
 - Required, enum, and typed values return path-specific diagnostics.
 - Assignment changes responsibility but do not start an Agent Run.
 - Comments cannot masquerade as workflow outcomes or approval decisions.
@@ -288,6 +290,15 @@ Local-Runtime fake cases:
 - Late updates from an old Workspace, Project, run, or attempt cannot pollute a
   newly selected scope.
 - Backpressure or a disconnected Desktop client does not block Agent execution.
+
+
+**Current Project Work evidence:** `ProjectWorkApplicationIntegrationTest` and
+`WorkspaceProjectMigrationIntegrationTest` use real PostgreSQL to cover
+composite scope constraints, deferrable ordering, concurrent request replay,
+Board/Placement contention, multi-Board canonical content, Project subtree
+deletion, and RESTRICT rollback. HTTP/OpenAPI tests own transport status,
+security, Problem Details, and implemented-path evidence. Run
+`./gradlew --no-daemon :services:core-api:qualityCheck` for the affected gate.
 
 ## Architecture Verification
 

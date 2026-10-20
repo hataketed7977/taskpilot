@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { classifyComposeProject, parseComposePs } from './compose-manager.mjs';
 import { childCommands, defaultLocalSettings, localConfiguration } from './dev-config.mjs';
-import { assertDesktopCoreApi, assertDesktopPortReplaceable, childExitedUnexpectedly, doctorHasBlockingProblems, isolatedSmokeEnvironment, parseCli, replaceRecordedHostServices, reserveLoopbackPort, stopHostServices, stopIsolatedSmokeCoreApi, waitForChild, waitForSpawn } from './dev.mjs';
+import { assertDesktopCoreApi, assertDesktopPortReplaceable, childExitedUnexpectedly, doctorHasBlockingProblems, isolatedSmokeEnvironment, parseCli, pnpmLockfilesMatch, projectDependencyChecks, replaceRecordedHostServices, reserveLoopbackPort, stopHostServices, stopIsolatedSmokeCoreApi, waitForChild, waitForSpawn } from './dev.mjs';
 import { parseMajorVersion, parsePnpmVersion, portConflictMessage, supportsNodeVersion } from './preflight.mjs';
 import {
   emptyState,
@@ -76,6 +76,70 @@ test('doctor fails when prerequisites, environment, or project dependencies are 
   assert.equal(doctorHasBlockingProblems(passing, 'invalid: missing secret', passing), true);
   assert.equal(doctorHasBlockingProblems(passing, 'valid, mode 644 (must not be readable by group/others)', passing), true);
   assert.equal(doctorHasBlockingProblems(passing, 'valid, mode 600', [{ ok: false }]), true);
+});
+
+test('dependency checks accept pnpm lockfiles that differ only by generated sibling ordering', () => {
+  const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-dependencies-'));
+  try {
+    mkdirSync(path.join(temporaryRoot, 'node_modules', '.pnpm'), { recursive: true });
+    mkdirSync(path.join(temporaryRoot, 'apps', 'desktop', 'node_modules', '.bin'), { recursive: true });
+    mkdirSync(path.join(temporaryRoot, 'apps', 'desktop', 'node_modules', 'electron'), { recursive: true });
+    writeFileSync(path.join(temporaryRoot, 'node_modules', '.modules.yaml'), 'nodeLinker: isolated\n');
+    writeFileSync(path.join(temporaryRoot, 'apps', 'desktop', 'node_modules', '.bin', 'vite'), '');
+
+    const repositoryLockfile = `lockfileVersion: '9.0'
+
+packages:
+
+  alpha@1.0.0:
+    resolution: {integrity: alpha}
+
+  beta@1.0.0:
+    resolution: {integrity: beta}
+`;
+    const installedLockfile = `lockfileVersion: '9.0'
+
+packages:
+
+  beta@1.0.0:
+    resolution: {integrity: beta}
+
+  alpha@1.0.0:
+    resolution: {integrity: alpha}
+`;
+    const repositoryLockfilePath = path.join(temporaryRoot, 'pnpm-lock.yaml');
+    const installedLockfilePath = path.join(temporaryRoot, 'node_modules', '.pnpm', 'lock.yaml');
+    writeFileSync(repositoryLockfilePath, repositoryLockfile);
+    writeFileSync(installedLockfilePath, installedLockfile);
+
+    assert.equal(pnpmLockfilesMatch(repositoryLockfilePath, installedLockfilePath), true);
+    assert.equal(projectDependencyChecks(temporaryRoot).find(check => check.name === 'pnpm lockfile state').ok, true);
+
+    writeFileSync(installedLockfilePath, installedLockfile.replace('integrity: alpha', 'integrity: stale'));
+    assert.equal(pnpmLockfilesMatch(repositoryLockfilePath, installedLockfilePath), false);
+    assert.equal(projectDependencyChecks(temporaryRoot).find(check => check.name === 'pnpm lockfile state').ok, false);
+
+
+    writeFileSync(repositoryLockfilePath, `lockfileVersion: '9.0'
+
+settings:
+  supportedArchitectures:
+    os:
+      - darwin
+      - linux
+`);
+    writeFileSync(installedLockfilePath, `lockfileVersion: '9.0'
+
+settings:
+  supportedArchitectures:
+    os:
+      - linux
+      - darwin
+`);
+    assert.equal(pnpmLockfilesMatch(repositoryLockfilePath, installedLockfilePath), false);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test('Desktop accepts only a healthy Core API owned by this checkout', () => {

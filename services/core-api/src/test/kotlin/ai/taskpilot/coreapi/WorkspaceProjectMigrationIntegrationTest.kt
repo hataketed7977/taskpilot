@@ -41,10 +41,80 @@ class WorkspaceProjectMigrationIntegrationTest {
     fun resetDatabase() {
         jdbc.execute(
             "TRUNCATE TABLE " +
+                "project.board_placements, project.board_columns, project.work_items, project.boards, " +
                 "project.project_memberships, project.projects, " +
                 "workspace.workspace_memberships, workspace.workspaces, " +
                 "access.terms_acceptances, access.external_identities, access.users",
         )
+    }
+
+    @Test
+    fun `project work tables use uuid primary keys`() {
+        val columns =
+            jdbc.queryForList(
+                """
+                SELECT table_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = 'project'
+                  AND table_name IN ('boards', 'board_columns', 'work_items', 'board_placements')
+                  AND column_name = 'id'
+                ORDER BY table_name
+                """.trimIndent(),
+            )
+        assertEquals(
+            listOf("board_columns", "board_placements", "boards", "work_items"),
+            columns.map { it["table_name"] },
+        )
+        assertEquals(setOf("uuid"), columns.map { it["data_type"] }.toSet())
+    }
+
+    @Test
+    fun `project work constraints preserve scope ordering versions and canonical content`() {
+        val constraints =
+            jdbc
+                .query(
+                    """
+                    SELECT conname, pg_get_constraintdef(oid) AS definition, condeferrable, condeferred
+                    FROM pg_constraint
+                    WHERE connamespace = 'project'::regnamespace
+                      AND conrelid IN (
+                          'project.boards'::regclass,
+                          'project.board_columns'::regclass,
+                          'project.work_items'::regclass,
+                          'project.board_placements'::regclass
+                      )
+                    """.trimIndent(),
+                ) { rows, _ ->
+                    rows.getString("conname") to
+                        ConstraintDefinition(
+                            rows.getString("definition"),
+                            rows.getBoolean("condeferrable"),
+                            rows.getBoolean("condeferred"),
+                        )
+                }.toMap()
+
+        assertConstraint(constraints, "fk_board_columns__boards", "FOREIGN KEY (project_id, board_id)")
+        assertConstraint(constraints, "fk_board_placements__boards", "FOREIGN KEY (project_id, board_id)")
+        assertConstraint(constraints, "fk_board_placements__columns", "FOREIGN KEY (project_id, board_id, column_id)")
+        assertConstraint(constraints, "fk_board_placements__work_items", "FOREIGN KEY (project_id, work_item_id)")
+        assertConstraint(constraints, "uq_board_placements__board_work_item", "UNIQUE (board_id, work_item_id)")
+        assertConstraint(constraints, "ck_boards__version_non_negative", "CHECK ((version >= 0))")
+        assertConstraint(constraints, "ck_board_columns__position_non_negative", "CHECK ((\"position\" >= 0))")
+        assertConstraint(constraints, "ck_board_columns__version_non_negative", "CHECK ((version >= 0))")
+        assertConstraint(constraints, "ck_work_items__title_not_blank", "CHECK ((btrim((title)::text) <> ''::text))")
+        assertConstraint(constraints, "ck_work_items__description_length", "char_length(description) <= 10000")
+        assertConstraint(constraints, "ck_work_items__lifecycle_supported", "lifecycle")
+        assertConstraint(constraints, "ck_work_items__version_non_negative", "CHECK ((version >= 0))")
+        assertConstraint(constraints, "ck_board_placements__position_non_negative", "CHECK ((\"position\" >= 0))")
+        assertConstraint(constraints, "ck_board_placements__version_non_negative", "CHECK ((version >= 0))")
+        assertConstraint(constraints, "ck_boards__request_fingerprint_not_blank", "create_request_fingerprint")
+        assertConstraint(constraints, "ck_board_columns__request_fingerprint_not_blank", "create_request_fingerprint")
+        assertConstraint(constraints, "ck_work_items__request_fingerprint_not_blank", "create_request_fingerprint")
+
+        assertEquals(true, constraints.getValue("uq_board_columns__board_position").deferrable)
+        assertEquals(false, constraints.getValue("uq_board_columns__board_position").initiallyDeferred)
+        assertEquals(true, constraints.getValue("uq_board_placements__column_position").deferrable)
+        assertEquals(false, constraints.getValue("uq_board_placements__column_position").initiallyDeferred)
     }
 
     @Test
@@ -146,6 +216,24 @@ class WorkspaceProjectMigrationIntegrationTest {
             jdbc.update("DELETE FROM project.projects WHERE id = ?", projectId)
         }
     }
+
+    private fun assertConstraint(
+        constraints: Map<String, ConstraintDefinition>,
+        name: String,
+        expectedFragment: String,
+    ) {
+        val definition = constraints[name] ?: error("Missing constraint $name")
+        kotlin.test.assertTrue(
+            definition.sql.contains(expectedFragment),
+            "Expected $name to contain '$expectedFragment', but was '${definition.sql}'",
+        )
+    }
+
+    private data class ConstraintDefinition(
+        val sql: String,
+        val deferrable: Boolean,
+        val initiallyDeferred: Boolean,
+    )
 
     private fun insertUser(): UUID =
         UUID.randomUUID().also { id ->
@@ -272,6 +360,15 @@ class WorkspaceProjectMigrationIntegrationTest {
                 "project.project_memberships.fk_project_memberships__users",
                 "project.projects.fk_projects__created_by_users",
                 "project.projects.fk_projects__workspaces",
+                "project.boards.fk_boards__projects",
+                "project.boards.fk_boards__created_by_users",
+                "project.board_columns.fk_board_columns__boards",
+                "project.board_columns.fk_board_columns__created_by_users",
+                "project.work_items.fk_work_items__projects",
+                "project.work_items.fk_work_items__created_by_users",
+                "project.board_placements.fk_board_placements__boards",
+                "project.board_placements.fk_board_placements__columns",
+                "project.board_placements.fk_board_placements__work_items",
             )
     }
 }

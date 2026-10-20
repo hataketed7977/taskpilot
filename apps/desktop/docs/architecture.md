@@ -284,8 +284,10 @@ registration with in-app legal-document review; OS-credential-backed session
 restore, refresh, and logout; and an authenticated Project home. Renderer shows
 the fixed personal Workspace context, ACTIVE Project navigation, truthful
 loading/error/empty states, create/edit/archive/restore/permanent-delete
-interactions, account/language controls, and logout. Main also owns
-a fixed-method-and-path Workspace/Project client, validates typed responses at
+interactions, multiple Board navigation and Board/Column/Work Item operations,
+pointer and keyboard Card movement, account/language controls, and logout. Main
+also owns fixed-method-and-path Workspace/Project and Project Work clients,
+validates typed responses at
 the trust boundary, performs refresh and terminal credential cleanup, and fences
 asynchronous completion by session generation. Its Project-home coordinator
 validates registration bootstrap and the device's recent-Project preference
@@ -302,8 +304,8 @@ carry a Main-produced response key so Renderer rejects superseded session,
 User, Workspace, or Project results. No bearer, endpoint URL, `fetch`, generic HTTP, or
 generic IPC primitive reaches Renderer.
 
-**Target:** Team Workspace behavior, Project membership UI, Board and Work
-Item surfaces, Agent configuration, `REMOTE_MANAGED` UI,
+**Target:** Team Workspace behavior, Project membership UI, Agent
+configuration, `REMOTE_MANAGED` UI,
 `LOCAL_DESKTOP` execution, shell/PTY, and local workspace binding remain later
 changes.
 

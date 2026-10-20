@@ -37,6 +37,39 @@ describe('serializable IPC result contract', () => {
     expect(owner.completeGitHubRegistration).not.toHaveBeenCalled();
   });
 
+  it('requires layout versions only when a Work Item changes Column', async () => {
+    const handlers = new Map<string, (event: typeof trusted, input?: unknown) => unknown>();
+    const owner = { editWorkItem: vi.fn().mockResolvedValue({}) };
+    registerDesktopHandlers(
+      { handle: (channel, handler) => handlers.set(channel, handler as never), removeHandler: vi.fn() },
+      { auth: {}, workspaces: {}, projects: {}, boards: owner } as never,
+      { webContentsId: 7, generation: 1 },
+    );
+    const location = {
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+      projectId: '22222222-2222-4222-8222-222222222222',
+      boardId: '33333333-3333-4333-8333-333333333333',
+      workItemId: '44444444-4444-4444-8444-444444444444',
+      currentColumnId: '55555555-5555-4555-8555-555555555555',
+      expectedVersion: 0,
+      title: 'Task',
+    };
+    const handler = handlers.get(CHANNELS.editWorkItem)!;
+
+    await expect(handler(trusted, { ...location, targetColumnId: location.currentColumnId })).resolves.toMatchObject({ ok: true });
+    await expect(handler(trusted, {
+      ...location,
+      targetColumnId: '66666666-6666-4666-8666-666666666666',
+      expectedPlacementVersion: 0,
+    })).resolves.toEqual({ ok: false, error: { code: 'IPC_INPUT_INVALID', category: 'validation' } });
+    await expect(handler(trusted, {
+      ...location,
+      targetColumnId: '66666666-6666-4666-8666-666666666666',
+      expectedBoardVersion: 1,
+    })).resolves.toEqual({ ok: false, error: { code: 'IPC_INPUT_INVALID', category: 'validation' } });
+    expect(owner.editWorkItem).toHaveBeenCalledTimes(1);
+  });
+
   it('unwraps values and rejects with only the plain error union', () => {
     expect(unwrapDesktopResult({ ok: true, value: { status: 'signedOut' as const } })).toEqual({ status: 'signedOut' });
     expect(() => unwrapDesktopResult({ ok: false, error: { code: 'AUTHENTICATION_REQUIRED', category: 'authentication', recovery: 'SIGN_IN' } })).toThrow();

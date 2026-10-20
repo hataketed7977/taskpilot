@@ -208,6 +208,10 @@ class AccessIdentityMigrationIntegrationTest {
                 "workspace.workspace_memberships",
                 "project.projects",
                 "project.project_memberships",
+                "project.boards",
+                "project.board_columns",
+                "project.work_items",
+                "project.board_placements",
             )
         private val ENTITY_TABLES = EXPECTED_BUSINESS_TABLES
         private val EXPECTED_PRIMARY_KEYS = ENTITY_TABLES.associateWith { "id" }
@@ -218,6 +222,9 @@ class AccessIdentityMigrationIntegrationTest {
                 "project.projects->workspace.workspaces",
                 "project.projects->access.users",
                 "project.project_memberships->access.users",
+                "project.boards->access.users",
+                "project.board_columns->access.users",
+                "project.work_items->access.users",
             )
         private val REMOVED_TABLES =
             setOf(

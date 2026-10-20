@@ -54,7 +54,7 @@ function fixture() {
 describe('createDesktopComposition', () => {
   it('exposes narrow Auth, Workspace and Project capabilities and wires GitHub login to session establishment', async () => {
     const current = fixture();
-    expect(Object.keys(current.composition.capabilities)).toEqual(['auth', 'workspaces', 'projects']);
+    expect(Object.keys(current.composition.capabilities)).toEqual(['auth', 'workspaces', 'projects', 'boards']);
     const { auth } = current.composition.capabilities;
     const observed = vi.fn();
     auth.subscribeSessionView(observed);

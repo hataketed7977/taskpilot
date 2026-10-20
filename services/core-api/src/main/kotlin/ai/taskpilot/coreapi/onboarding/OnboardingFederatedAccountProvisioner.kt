@@ -30,6 +30,7 @@ open class OnboardingFederatedAccountProvisioner(
                 workspaceId = workspaceId,
                 ownerUserId = request.userId,
                 name = defaultProjectName(request.legalLocale),
+                locale = request.legalLocale,
                 now = request.now,
             ),
         )

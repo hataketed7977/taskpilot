@@ -52,6 +52,7 @@ class ProjectController(
                     body.requestId,
                     body.name,
                     body.description,
+                    body.locale,
                 ),
             ),
         )
@@ -121,6 +122,7 @@ data class CreateProjectRequest(
     val requestId: UUID,
     val name: String,
     val description: String?,
+    val locale: String = "en",
 )
 
 data class EditProjectRequest(

@@ -15,9 +15,11 @@ import io.swagger.v3.oas.models.security.SecurityScheme
 import org.springdoc.core.customizers.OperationCustomizer
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.method.HandlerMethod
 
 @Configuration(proxyBeanMethods = false)
@@ -139,6 +141,30 @@ private object DesktopOpenApiContracts {
                 responseContract("200", "ProjectView", "400", "401", "404", "409", "503"),
             operation("ProjectController", "/{projectId}/permanent-deletion", "POST") to
                 responseContract("204", null, "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards", "GET") to
+                responseContract("200", "BoardSummary[]", "400", "401", "404", "503"),
+            operation("ProjectWorkController", "/boards", "POST") to
+                responseContract("201", "BoardView", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}", "GET") to
+                responseContract("200", "BoardView", "400", "401", "404", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}", "PATCH") to
+                responseContract("200", "BoardView", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}/columns", "POST") to
+                responseContract("201", "BoardView", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}/columns/{columnId}", "PATCH") to
+                responseContract("200", "BoardView", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}/columns/{columnId}", "DELETE") to
+                responseContract("204", null, "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}/column-order", "PUT") to
+                responseContract("200", "BoardView", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}/work-items", "POST") to
+                responseContract("201", "CreateWorkItemResult", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/work-items/{workItemId}", "GET") to
+                responseContract("200", "WorkItemView", "400", "401", "404", "503"),
+            operation("ProjectWorkController", "/work-items/{workItemId}", "PATCH") to
+                responseContract("200", "EditWorkItemResult", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}/placements/{workItemId}/move", "POST") to
+                responseContract("200", "BoardView", "400", "401", "404", "409", "503"),
         )
 
     private val operationDescriptions =
@@ -171,6 +197,23 @@ private object DesktopOpenApiContracts {
                 "Permanently and irreversibly deletes the path-scoped Project as its Project OWNER. confirmationName must " +
                 "exactly match the current name, expectedVersion rejects concurrent changes, and protected dependencies " +
                 "reject deletion.",
+            operation("ProjectWorkController", "/boards", "GET") to
+                "Lists Project-scoped Boards as the Project OWNER in deterministic createdAt and boardId order.",
+            operation("ProjectWorkController", "/boards", "POST") to
+                "Creates a Project-scoped Board and its localized initial Column atomically as the Project OWNER. " +
+                "requestId is idempotent within actor and Project scope.",
+            operation("ProjectWorkController", "/boards/{boardId}/columns/{columnId}", "DELETE") to
+                "Deletes an empty non-last Column as the Project OWNER using Board and Column expected versions. " +
+                "Reload the authoritative Board after success.",
+            operation("ProjectWorkController", "/boards/{boardId}/work-items", "POST") to
+                "Creates a Work Item and its first Placement atomically as the Project OWNER. " +
+                "requestId and expectedBoardVersion participate in the idempotency contract.",
+            operation("ProjectWorkController", "/work-items/{workItemId}", "PATCH") to
+                "Edits Work Item content and optionally moves its current Board Placement to another Column atomically. " +
+                "A cross-Column edit validates Work Item, Board, and Placement expected versions and returns authoritative views.",
+            operation("ProjectWorkController", "/boards/{boardId}/placements/{workItemId}/move", "POST") to
+                "Moves the Work Item Card using Board and Placement expected versions and returns the authoritative Board " +
+                "without changing Work Item lifecycle.",
         )
 
     private fun responseContract(
@@ -190,6 +233,8 @@ private object DesktopOpenApiContracts {
             method.getAnnotation(GetMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "GET" }
                 ?: method.getAnnotation(PostMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "POST" }
                 ?: method.getAnnotation(PatchMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "PATCH" }
+                ?: method.getAnnotation(PutMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "PUT" }
+                ?: method.getAnnotation(DeleteMapping::class.java)?.let { it.value.firstOrNull().orEmpty() to "DELETE" }
                 ?: ("" to "")
         return operation(beanType.simpleName, path, httpMethod)
     }

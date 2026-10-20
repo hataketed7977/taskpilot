@@ -1,6 +1,6 @@
 import { App } from '../../src/renderer/App';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
-import type { FederatedAuthFlowView, PersonalWorkspaceView, ProjectResponseKey, ProjectView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
+import type { BoardResponseKey, BoardView, FederatedAuthFlowView, PersonalWorkspaceView, ProjectResponseKey, ProjectView, SessionView, TaskPilotDesktopApi, WorkItemView } from '../../src/shared/contracts';
 
 const user = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
 const waiting: FederatedAuthFlowView = {
@@ -19,8 +19,25 @@ const project: ProjectView = {
 const archivedProject: ProjectView = {
   ...project, projectId: '44444444-4444-4444-8444-444444444444', name: '旧版本', status: 'ARCHIVED', archivedAt: '2026-10-14T01:00:00Z', version: 1,
 };
+const board: BoardView = {
+  boardId: '55555555-5555-4555-8555-555555555555', projectId: project.projectId,
+  name: '工作看板', description: '', version: 0,
+  createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z',
+  columns: [{
+    columnId: '66666666-6666-4666-8666-666666666666', name: '待处理', position: 0, version: 0,
+    createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z', cards: [],
+  }],
+};
+const boardSummary = { boardId: board.boardId, projectId: board.projectId, name: board.name, description: board.description, version: board.version, createdAt: board.createdAt, updatedAt: board.updatedAt };
 const projectKey = (overrides: Partial<ProjectResponseKey> = {}): ProjectResponseKey => ({
   sessionGeneration: 1, userId: user.userId, workspaceId: workspace.workspaceId, ...overrides,
+});
+const boardKey = (overrides: Partial<BoardResponseKey> = {}): BoardResponseKey => ({
+  ...projectKey({ projectId: project.projectId }), boardId: board.boardId, boardGeneration: 0, ...overrides,
+});
+const workItem = (title: string): WorkItemView => ({
+  workItemId: '77777777-7777-4777-8777-777777777777', projectId: project.projectId, title, description: '',
+  lifecycle: 'OPEN', version: 0, createdAt: board.createdAt, updatedAt: board.updatedAt,
 });
 
 function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilotDesktopApi {
@@ -45,6 +62,21 @@ function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilotDeskto
       archive: cy.stub().resolves({ key: projectKey({ projectId: project.projectId }), value: { ...project, status: 'ARCHIVED' } }),
       restore: cy.stub().resolves({ key: projectKey({ projectId: archivedProject.projectId }), value: { ...archivedProject, status: 'ACTIVE', archivedAt: null } }),
       permanentlyDelete: cy.stub().resolves({ key: projectKey({ projectId: project.projectId }), value: undefined }),
+    },
+    boards: {
+      resolveHome: cy.stub().resolves({ key: boardKey(), value: { boards: [boardSummary], currentBoard: board } }),
+      list: cy.stub().resolves({ key: boardKey(), value: [boardSummary] }),
+      open: cy.stub().resolves({ key: boardKey(), value: board }),
+      create: cy.stub().resolves({ key: boardKey(), value: board }),
+      edit: cy.stub().resolves({ key: boardKey(), value: board }),
+      createColumn: cy.stub().resolves({ key: boardKey(), value: board }),
+      editColumn: cy.stub().resolves({ key: boardKey(), value: board }),
+      reorderColumns: cy.stub().resolves({ key: boardKey(), value: board }),
+      deleteColumn: cy.stub().resolves({ key: boardKey(), value: undefined }),
+      createWorkItem: cy.stub().resolves({ key: boardKey(), value: { workItem: workItem('新工作项'), board } }),
+      openWorkItem: cy.stub().resolves({ key: boardKey(), value: workItem('新工作项') }),
+      editWorkItem: cy.stub().resolves({ key: boardKey(), value: workItem('更新后的工作项') }),
+      moveCard: cy.stub().resolves({ key: boardKey(), value: board }),
     },
   };
 }
@@ -144,7 +176,9 @@ describe('Desktop first-use experience', () => {
     mountApp(api);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).click();
     cy.findByRole('heading', { name: '在浏览器中继续' }).should('be.visible');
-    cy.findByRole('combobox', { name: '语言' }).focus().select('en').should('be.focused');
+    cy.findByRole('combobox', { name: '语言' }).focus().click();
+    cy.findByRole('option', { name: 'English' }).click();
+    cy.findByRole('combobox', { name: 'Language' }).should('be.focused');
     cy.findByRole('heading', { name: 'Continue in your browser' }).should('be.visible');
     cy.findByRole('status').should('contain.text', 'Waiting for you to finish GitHub authorization');
     cy.wrap(api.auth.startGitHubSignIn).should('have.been.calledOnce');
@@ -178,7 +212,8 @@ describe('Desktop first-use experience', () => {
     mountApp(api);
     cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
     cy.findByRole('button', { name: '打开账号菜单' }).click();
-    cy.findByRole('combobox', { name: '语言' }).select('en');
+    cy.findByRole('combobox', { name: '语言' }).click();
+    cy.findByRole('option', { name: 'English' }).click();
     cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
     cy.contains('Signed in with GitHub').should('be.visible');
     cy.findByRole('button', { name: 'Sign out' }).should('be.visible');

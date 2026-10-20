@@ -1,11 +1,19 @@
 package ai.taskpilot.coreapi.project.api
 
+import ai.taskpilot.coreapi.project.BoardVersionConflict
+import ai.taskpilot.coreapi.project.ColumnNotEmptyConflict
+import ai.taskpilot.coreapi.project.LastColumnConflict
+import ai.taskpilot.coreapi.project.PlacementConflict
 import ai.taskpilot.coreapi.project.ProjectDeleteRestricted
 import ai.taskpilot.coreapi.project.ProjectIdempotencyConflict
 import ai.taskpilot.coreapi.project.ProjectNameConfirmationMismatch
 import ai.taskpilot.coreapi.project.ProjectNotFound
+import ai.taskpilot.coreapi.project.ProjectResourceVersionConflict
 import ai.taskpilot.coreapi.project.ProjectValidationFailed
 import ai.taskpilot.coreapi.project.ProjectVersionConflict
+import ai.taskpilot.coreapi.project.ProjectWorkIdempotencyConflict
+import ai.taskpilot.coreapi.project.ProjectWorkNotFound
+import ai.taskpilot.coreapi.project.ProjectWorkValidationFailed
 import ai.taskpilot.coreapi.project.WorkspaceNotFound
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.dao.DataAccessException
@@ -19,13 +27,29 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import java.net.URI
 
-@RestControllerAdvice(assignableTypes = [ProjectController::class])
+@RestControllerAdvice(assignableTypes = [ProjectController::class, ProjectWorkController::class])
+@Suppress("TooManyFunctions") // Explicit exception mappings keep the HTTP error contract auditable.
 class ProjectProblemHandler {
     @ExceptionHandler(ProjectValidationFailed::class)
     fun validation(
         failure: ProjectValidationFailed,
         request: HttpServletRequest,
     ) = problem(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", request, failure.path)
+
+    @ExceptionHandler(ProjectWorkValidationFailed::class)
+    fun workValidation(
+        failure: ProjectWorkValidationFailed,
+        request: HttpServletRequest,
+    ) = problem(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", request, failure.path)
+
+    @ExceptionHandler(ProjectWorkNotFound::class)
+    fun projectWorkNotFound(
+        failure: ProjectWorkNotFound,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", request)
+    }
 
     @ExceptionHandler(WorkspaceNotFound::class, ProjectNotFound::class)
     fun projectNotFound(
@@ -61,6 +85,60 @@ class ProjectProblemHandler {
     ): ResponseEntity<ProblemDetail> {
         failure.hashCode()
         return problem(HttpStatus.CONFLICT, "PROJECT_DELETE_RESTRICTED", request)
+    }
+
+    @ExceptionHandler(BoardVersionConflict::class)
+    fun boardVersionConflict(
+        failure: BoardVersionConflict,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "BOARD_VERSION_CONFLICT", request)
+    }
+
+    @ExceptionHandler(ProjectResourceVersionConflict::class)
+    fun resourceVersionConflict(
+        failure: ProjectResourceVersionConflict,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "RESOURCE_VERSION_CONFLICT", request)
+    }
+
+    @ExceptionHandler(ColumnNotEmptyConflict::class)
+    fun columnNotEmpty(
+        failure: ColumnNotEmptyConflict,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "COLUMN_NOT_EMPTY", request)
+    }
+
+    @ExceptionHandler(LastColumnConflict::class)
+    fun lastColumn(
+        failure: LastColumnConflict,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "LAST_COLUMN", request)
+    }
+
+    @ExceptionHandler(PlacementConflict::class)
+    fun placementConflict(
+        failure: PlacementConflict,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "PLACEMENT_CONFLICT", request)
+    }
+
+    @ExceptionHandler(ProjectWorkIdempotencyConflict::class)
+    fun workIdempotencyConflict(
+        failure: ProjectWorkIdempotencyConflict,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", request)
     }
 
     @ExceptionHandler(ProjectIdempotencyConflict::class)
@@ -125,6 +203,11 @@ class ProjectProblemHandler {
             "PROJECT_NOT_FOUND" -> "The requested resource was not found."
 
             "PROJECT_VERSION_CONFLICT",
+            "BOARD_VERSION_CONFLICT",
+            "RESOURCE_VERSION_CONFLICT",
+            "COLUMN_NOT_EMPTY",
+            "LAST_COLUMN",
+            "PLACEMENT_CONFLICT",
             "IDEMPOTENCY_CONFLICT",
             "PROJECT_NAME_CONFIRMATION_MISMATCH",
             "PROJECT_DELETE_RESTRICTED",

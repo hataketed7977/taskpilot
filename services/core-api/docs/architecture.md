@@ -59,10 +59,11 @@ The implemented application is deliberately limited to:
 - no mail sender, SMTP, Mailpit, email, password, OTP, or reset fallback;
   first registration provisions the Access identity facts, one PERSONAL
   Workspace with OWNER membership, and one ordinary default Project with OWNER
-  membership;
-- authenticated Workspace discovery and Project list/detail/create/edit HTTP
-  operations backed by server-side Workspace and Project OWNER authorization,
-  request-id idempotency, and optimistic version checks;
+  membership plus a localized ordinary Board and initial Column;
+- authenticated Workspace discovery plus Project and Project Work operations:
+  Project create/edit/archive/restore/delete, multiple Boards, Columns, basic
+  OPEN Work Items, Board Placements, and Card moves, all backed by server-side
+  OWNER authorization, request-id idempotency, and optimistic version checks;
 - a fail-closed Spring Security chain that permits only explicit anonymous auth
   endpoints and Actuator probes, authenticates Desktop account, Workspace, and
   Project routes with opaque access credentials, and rejects every other route; and
@@ -308,19 +309,22 @@ canonical persisted form.
 
 ## Board Interaction
 
-Board queries compose Work Items with active workflow and execution summaries.
-A persistent Card table is not introduced initially.
+**Current:** Project Work remains inside the `project` capability and PostgreSQL
+schema. A Project owns ordinary Boards and basic OPEN Work Items; a Board owns at
+least one ordered Column and Board-local Placements. Cards reuse `WorkItemId` and
+join canonical Work Item content at read time rather than persisting a Card
+copy. The same Work Item may have independent Placements in multiple Boards.
 
-`MoveCard` is an application use case, not a direct placement update:
+Board, Column, Work Item, and Placement mutations execute in local PostgreSQL
+transactions after Workspace/Project OWNER and composite scope checks. Creation
+uses actor-plus-Project request IDs and payload fingerprints. Board layout writes
+lock the Board and use Board/resource versions; integer positions are normalized
+under deferrable unique constraints. A Card move updates only the selected
+Placement and returns the authoritative Board snapshot. It does not change Work
+Item lifecycle or invoke Workflow/Agent behavior.
 
-1. Load the Board definition and current Work Item execution summary.
-2. Resolve the target Column to an allowed action.
-3. authorize the actor and validate expected versions.
-4. Execute the corresponding workflow or Work Item operation.
-5. Return authoritative state for client reconciliation.
-
-Advisory WIP checks may be performed. Hard concurrent WIP rejection requires a
-separate reservation or locking design before it is claimed as guaranteed.
+**Target:** Workflow-derived Board views, action mappings, Swimlanes, WIP policy,
+custom fields, and independent Board/Work Item deletion are not Current.
 
 ## Persistence
 
@@ -358,8 +362,10 @@ class hierarchy.
 
 ## Current Workspace-Scoped Project Operations
 
-The Current Desktop API exposes the authenticated User's PERSONAL Workspace and
-authorized Project list, detail, create, and edit operations. Project pages are
+The Current Desktop API exposes the authenticated User's PERSONAL Workspace,
+authorized Project operations, and explicit Project Work operations for Board
+list/create/read/edit, Column create/edit/reorder/delete, basic Work Item
+create/read/edit, and Placement move. Project pages are
 ordered by `(createdAt, projectId)` and use an opaque Base64URL cursor whose
 encoding is an internal server contract; clients must not parse it. The cursor
 is bound to one Workspace and Project status. `limit` defaults to 50 and is
@@ -388,9 +394,9 @@ ambient PostgreSQL transaction coordinated by `onboarding`; Access issues the
 Redis session only after commit. Project OWNER may archive/restore with optimistic
 versions; retries that already reached the target state return the unchanged
 view. Permanent deletion locks and revalidates the scoped Project, version, and
-exact current name, explicitly deletes Memberships before the Project, preserves
-the PERSONAL Workspace, and maps protected dependencies to
-`PROJECT_DELETE_RESTRICTED`. All current and future Project FKs default to
+exact current name, explicitly deletes Placement → Column → Board → Work Item →
+Membership → Project, preserves the PERSONAL Workspace, and maps unknown
+protected dependencies to `PROJECT_DELETE_RESTRICTED`. All current and future Project FKs default to
 `RESTRICT`; no generic cascade is approved. Runtime OpenAPI publication and Desktop Main/Preload consumption for these
 Workspace/Project operations are Current. TEAM behavior remains Target.
 

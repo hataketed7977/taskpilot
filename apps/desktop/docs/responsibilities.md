@@ -60,7 +60,7 @@
 | `main/app` | Electron lifecycle, windows, single-instance behavior |
 | `main/ipc` | IPC sender/origin/session authorization, schema validation, rate/size limits, dispatch |
 | `main/cloud-client` | Credentialed Desktop API requests, fixed Workspace/Project route allowlist, token refresh, logout cleanup and transport errors |
-| `main/projects` | Typed Workspace/Project response validation, Project-home selection, session-generation fencing, and the environment-plus-User recent-Project device preference |
+| `main/projects` | Typed Workspace/Project/Project Work response validation, Project/Board-home selection, session and Board-generation fencing, and environment-plus-User scoped recent Project/Board device preferences |
 | `main/native` | Credential, dialog, notification, deep-link and platform adapters |
 | `main/runtime-client` | Fixed-path Runtime launch, JSON-RPC/JSONL stdio client, generated contracts, version/capability negotiation, health, cancellation, shutdown and child failure state |
 | `preload` | Narrow typed capabilities exposed to a sandboxed Renderer |
@@ -68,7 +68,7 @@
 | `renderer/i18n` | Supported locale resolution, safe local preference, static message catalogs, fallback policy and document-language synchronization |
 | `renderer/pages` | Route/window entry and page composition |
 | `renderer/modules/<domain>` | Cohesive first-party UI capability and its presentation logic |
-| `renderer/components` | Application-wide business-neutral React components |
+| `renderer/components` | Application-wide business-neutral React primitives plus narrow shared presentation adapters; Current code owns the controlled single-value Select interaction and the locale selector that maps supported locale data onto it |
 | `renderer/api` | Query-facing adapters over typed Preload cloud capabilities plus error normalization; no credentials or direct authenticated HTTP |
 | `shared-ipc` | Serializable process-boundary schemas; no implementation logic |
 
@@ -76,6 +76,10 @@
 
 - A Renderer component never imports Electron, Node, Preload internals, cloud
   endpoint functions, or Runtime protocol clients directly.
+- Shared Renderer Select primitives accept stable values, labels, disabled state,
+  and accessible naming rather than business objects. Page/domain owners retain
+  validation, pending state, submission timing, and API/IPC parameters; locale
+  option construction remains with the locale adapter rather than each page.
 - Preload APIs are capability-based (`selectWorkspace`, `subscribeRunView`),
   not generic (`send`, `invoke`, `readFile`, `exec`).
 - Main handlers validate identity, schema, scope, and lifecycle before calling
@@ -103,24 +107,22 @@
 ## Initial Interaction Areas
 
 The Current implementation slice includes system-browser GitHub authentication,
-first-registration confirmation with legal-document review, crash-safe attempt
-resume, OS-credential-backed session restore/refresh/logout, and the authenticated
-Project home. Renderer owns the fixed personal-Workspace context, ACTIVE Project
-list/switching, create/edit/archive/restore/permanent-delete interactions,
-truthful loading/error/empty states, and reachable account/language/logout
-controls. Main additionally owns fixed allowlisted Workspace/Project HTTP
-operations, typed response validation, registration-bootstrap and
-recent-Project fallback resolution, a non-authoritative recent-Project device
-preference partitioned by environment and `UserId`, and session-generation
-fencing. Preload owns narrow typed Auth, Workspace, and Project capabilities;
-every Project result carries a Main-produced response key and IPC remains
-channel-specific and validated.
+first-registration/legal review, OS-credential-backed session lifecycle, the
+Project shell, and the Project's direct Board home. Renderer owns ACTIVE Project
+and Board switching, Project lifecycle actions, Board create/edit, Column
+create/edit/reorder/delete, basic Work Item create/edit, pointer drag plus
+keyboard-equivalent Card movement, truthful loading/error/empty states, and
+reachable account/language/logout controls. Main owns allowlisted
+Workspace/Project/Project Work HTTP operations, typed validation, bootstrap and
+recent Project/Board fallback, non-authoritative environment/User-scoped device
+preferences, session/Project/Board response-key fencing, and mutation-vs-read
+generations. Preload exposes only narrow typed capabilities; Renderer receives
+no bearer, URL, `fetch`, or generic IPC.
 
 TEAM Workspace behavior and membership management are not exposed. The current
-slice does not start Agent Runtime.
-Later Target UI may include Board and Work Item workflows, provider-neutral
-Agent configuration, Run monitoring, approval prompts, logs, Diff review, and
-artifact access. This inventory is not an implementation claim or permission to
+slice does not start Agent Runtime. Later Target UI may include Workflow/Agent
+integration, Swimlanes, custom fields, independent Board/Work Item deletion,
+Run monitoring, approval prompts, logs, Diff review, and artifact access. This inventory is not an implementation claim or permission to
 create all pages in one change.
 
 ## Security and Privacy

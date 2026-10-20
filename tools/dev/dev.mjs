@@ -150,6 +150,32 @@ async function assertInfrastructurePortsAvailable(config, environment) {
   }
 }
 
+export function pnpmLockfilesMatch(lockfile, installedLockfile) {
+  if (!existsSync(lockfile) || !existsSync(installedLockfile)) return false;
+
+  const canonicalize = content => {
+    const ancestors = [];
+    const sequencePositions = new Map();
+    const records = [];
+    for (const rawLine of content.split(/\r?\n/)) {
+      if (!rawLine.trim() || rawLine.trimStart().startsWith('#')) continue;
+      const indentation = rawLine.match(/^ */)[0].length;
+      const text = rawLine.slice(indentation).trimEnd();
+      while (ancestors.length && ancestors.at(-1).indentation >= indentation) ancestors.pop();
+      const parent = ancestors.map(ancestor => ancestor.text).join('\u001f');
+      const normalizedText = text.startsWith('- ')
+        ? `@${sequencePositions.get(parent) ?? 0}:${text}`
+        : text;
+      if (text.startsWith('- ')) sequencePositions.set(parent, (sequencePositions.get(parent) ?? 0) + 1);
+      records.push([...ancestors.map(ancestor => ancestor.text), normalizedText].join('\u001f'));
+      if (text.endsWith(':')) ancestors.push({ indentation, text: normalizedText });
+    }
+    return records.sort().join('\n');
+  };
+
+  return canonicalize(readFileSync(lockfile, 'utf8')) === canonicalize(readFileSync(installedLockfile, 'utf8'));
+}
+
 export function projectDependencyChecks(root = repositoryRoot) {
   const required = [
     ['pnpm workspace dependencies', path.join(root, 'node_modules', '.modules.yaml')],
@@ -162,7 +188,7 @@ export function projectDependencyChecks(root = repositoryRoot) {
   checks.push({
     name: 'pnpm lockfile state',
     target: installedLockfile,
-    ok: existsSync(lockfile) && existsSync(installedLockfile) && readFileSync(lockfile).equals(readFileSync(installedLockfile)),
+    ok: pnpmLockfilesMatch(lockfile, installedLockfile),
   });
   return checks;
 }

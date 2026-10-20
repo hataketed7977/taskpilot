@@ -20,12 +20,30 @@ export const CHANNELS = {
   archiveProject: 'projects:archive',
   restoreProject: 'projects:restore',
   permanentlyDeleteProject: 'projects:permanently-delete',
+  resolveBoardHome: 'boards:resolve-home',
+  listBoards: 'boards:list',
+  openBoard: 'boards:open',
+  createBoard: 'boards:create',
+  editBoard: 'boards:edit',
+  createColumn: 'boards:columns:create',
+  editColumn: 'boards:columns:edit',
+  reorderColumns: 'boards:columns:reorder',
+  deleteColumn: 'boards:columns:delete',
+  createWorkItem: 'boards:work-items:create',
+  openWorkItem: 'boards:work-items:open',
+  editWorkItem: 'boards:work-items:edit',
+  moveCard: 'boards:cards:move',
 } as const;
 
 const uuid = z.string().uuid();
 const boundedText = (maximum: number) => z.string().refine(value => [...value].length <= maximum);
 const location = z.object({ workspaceId: uuid, projectId: uuid }).strict();
-const statusMutation = location.extend({ expectedVersion: z.number().int().nonnegative() }).strict();
+const version = z.number().int().nonnegative();
+const locale = z.enum(['zh-CN', 'en']);
+const statusMutation = location.extend({ expectedVersion: version }).strict();
+const boardLocation = location.extend({ boardId: uuid }).strict();
+const columnLocation = boardLocation.extend({ columnId: uuid }).strict();
+const workItemLocation = location.extend({ workItemId: uuid }).strict();
 const schemas = {
   getCapabilities: z.undefined(),
   startGitHubSignIn: z.undefined(),
@@ -48,11 +66,35 @@ const schemas = {
     workspaceId: uuid, status: z.enum(['ACTIVE', 'ARCHIVED']), limit: z.number().int().min(1).max(100).optional(), cursor: z.string().min(1).max(2048).optional(),
   }).strict(),
   openProject: location,
-  createProject: z.object({ workspaceId: uuid, requestId: uuid, name: boundedText(200), description: boundedText(2000).optional() }).strict(),
+  createProject: z.object({ workspaceId: uuid, requestId: uuid, name: boundedText(200), description: boundedText(2000).optional(), locale }).strict(),
   editProject: statusMutation.extend({ name: boundedText(200), description: boundedText(2000).optional() }).strict(),
   archiveProject: statusMutation,
   restoreProject: statusMutation,
   permanentlyDeleteProject: statusMutation.extend({ confirmationName: boundedText(200) }).strict(),
+  resolveBoardHome: location,
+  listBoards: location,
+  openBoard: boardLocation,
+  createBoard: location.extend({ requestId: uuid, name: boundedText(120), description: boundedText(2000).optional(), locale }).strict(),
+  editBoard: boardLocation.extend({ expectedVersion: version, name: boundedText(120), description: boundedText(2000).optional() }).strict(),
+  createColumn: boardLocation.extend({ requestId: uuid, expectedBoardVersion: version, name: boundedText(80) }).strict(),
+  editColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version, name: boundedText(80) }).strict(),
+  reorderColumns: boardLocation.extend({ expectedBoardVersion: version, columnIds: z.array(uuid).min(1).max(50) }).strict(),
+  deleteColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version }).strict(),
+  createWorkItem: boardLocation.extend({ columnId: uuid, requestId: uuid, expectedBoardVersion: version, title: boundedText(300), description: boundedText(10_000).optional() }).strict(),
+  openWorkItem: workItemLocation,
+  editWorkItem: workItemLocation.extend({
+    boardId: uuid,
+    currentColumnId: uuid,
+    targetColumnId: uuid,
+    expectedBoardVersion: version.optional(),
+    expectedPlacementVersion: version.optional(),
+    expectedVersion: version,
+    title: boundedText(300),
+    description: boundedText(10_000).optional(),
+  }).strict()
+    .refine(input => input.currentColumnId === input.targetColumnId || input.expectedBoardVersion !== undefined, { path: ['expectedBoardVersion'] })
+    .refine(input => input.currentColumnId === input.targetColumnId || input.expectedPlacementVersion !== undefined, { path: ['expectedPlacementVersion'] }),
+  moveCard: boardLocation.extend({ workItemId: uuid, expectedBoardVersion: version, expectedPlacementVersion: version, targetColumnId: uuid, beforeWorkItemId: uuid.optional() }).strict(),
 };
 type Method = keyof typeof schemas;
 type Capability = keyof TaskPilotDesktopApi;
@@ -90,6 +132,19 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
     [CHANNELS.archiveProject, 'projects', 'archiveProject'],
     [CHANNELS.restoreProject, 'projects', 'restoreProject'],
     [CHANNELS.permanentlyDeleteProject, 'projects', 'permanentlyDeleteProject'],
+    [CHANNELS.resolveBoardHome, 'boards', 'resolveBoardHome'],
+    [CHANNELS.listBoards, 'boards', 'listBoards'],
+    [CHANNELS.openBoard, 'boards', 'openBoard'],
+    [CHANNELS.createBoard, 'boards', 'createBoard'],
+    [CHANNELS.editBoard, 'boards', 'editBoard'],
+    [CHANNELS.createColumn, 'boards', 'createColumn'],
+    [CHANNELS.editColumn, 'boards', 'editColumn'],
+    [CHANNELS.reorderColumns, 'boards', 'reorderColumns'],
+    [CHANNELS.deleteColumn, 'boards', 'deleteColumn'],
+    [CHANNELS.createWorkItem, 'boards', 'createWorkItem'],
+    [CHANNELS.openWorkItem, 'boards', 'openWorkItem'],
+    [CHANNELS.editWorkItem, 'boards', 'editWorkItem'],
+    [CHANNELS.moveCard, 'boards', 'moveCard'],
   ];
   const owners: Record<Capability, Record<Method, ((input?: never) => unknown) | undefined>> = {
     auth: {
@@ -102,6 +157,13 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
       resolveProjectHome: capabilities.projects.resolveHome, listProjects: capabilities.projects.list, openProject: capabilities.projects.open,
       createProject: capabilities.projects.create, editProject: capabilities.projects.edit, archiveProject: capabilities.projects.archive,
       restoreProject: capabilities.projects.restore, permanentlyDeleteProject: capabilities.projects.permanentlyDelete,
+    } as never,
+    boards: {
+      resolveBoardHome: capabilities.boards?.resolveHome, listBoards: capabilities.boards?.list, openBoard: capabilities.boards?.open,
+      createBoard: capabilities.boards?.create, editBoard: capabilities.boards?.edit, createColumn: capabilities.boards?.createColumn,
+      editColumn: capabilities.boards?.editColumn, reorderColumns: capabilities.boards?.reorderColumns, deleteColumn: capabilities.boards?.deleteColumn,
+      createWorkItem: capabilities.boards?.createWorkItem, openWorkItem: capabilities.boards?.openWorkItem,
+      editWorkItem: capabilities.boards?.editWorkItem, moveCard: capabilities.boards?.moveCard,
     } as never,
   };
   for (const [channel, capability, method] of entries) {

@@ -16,9 +16,17 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const PROJECT_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects$`, 'i');
 const PROJECT_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})$`, 'i');
 const PROJECT_ACTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/(archive|restore|permanent-deletion)$`, 'i');
+const BOARD_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards$`, 'i');
+const BOARD_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})$`, 'i');
+const BOARD_COLUMN_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/columns$`, 'i');
+const BOARD_COLUMN_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/columns/(${UUID})$`, 'i');
+const BOARD_COLUMN_ORDER_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/column-order$`, 'i');
+const BOARD_WORK_ITEM_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/work-items$`, 'i');
+const WORK_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/work-items/(${UUID})$`, 'i');
+const PLACEMENT_MOVE_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/placements/(${UUID})/move$`, 'i');
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
-export interface TransportRequest { method: 'GET' | 'POST' | 'PATCH'; path: string; body?: unknown; accessToken?: string; idempotencyKey?: string; timeoutMs?: number; outcomeUnknownOnNetworkFailure?: boolean }
+export interface TransportRequest { method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'; path: string; body?: unknown; accessToken?: string; idempotencyKey?: string; timeoutMs?: number; outcomeUnknownOnNetworkFailure?: boolean }
 export interface HttpTransport { request<T>(request: TransportRequest): Promise<T> }
 export class TransportError extends Error { constructor(public readonly detail: DesktopError, public readonly status?: number) { super(detail.code); } }
 export class OutcomeUnknownError extends Error { constructor() { super('Request outcome is unknown'); } }
@@ -92,6 +100,17 @@ function isAllowlistedRequest(request: TransportRequest): boolean {
   }
   if (PROJECT_ITEM_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'PATCH');
   if (PROJECT_ACTION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
+  if (BOARD_COLLECTION_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'POST');
+  if (BOARD_ITEM_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'PATCH');
+  if (BOARD_COLUMN_COLLECTION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
+  if (BOARD_COLUMN_ITEM_PATH.test(pathname!)) {
+    if (request.method === 'PATCH') return query === '';
+    return request.method === 'DELETE' && validColumnDeleteQuery(query);
+  }
+  if (BOARD_COLUMN_ORDER_PATH.test(pathname!)) return query === '' && request.method === 'PUT';
+  if (BOARD_WORK_ITEM_COLLECTION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
+  if (WORK_ITEM_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'PATCH');
+  if (PLACEMENT_MOVE_PATH.test(pathname!)) return query === '' && request.method === 'POST';
   return false;
 }
 
@@ -110,4 +129,11 @@ function validProjectQuery(query: string): boolean {
   return (status === 'ACTIVE' || status === 'ARCHIVED')
     && /^\d+$/.test(search.get('limit') ?? '') && Number.isInteger(limit) && limit >= 1 && limit <= 100
     && (cursor === null || (cursor.length >= 1 && cursor.length <= 2048));
+}
+
+function validColumnDeleteQuery(query: string): boolean {
+  const search = new URLSearchParams(query);
+  const keys = [...search.keys()];
+  if (keys.length !== 2 || new Set(keys).size !== 2 || !keys.includes('expectedBoardVersion') || !keys.includes('expectedColumnVersion')) return false;
+  return ['expectedBoardVersion', 'expectedColumnVersion'].every(key => /^\d+$/.test(search.get(key) ?? ''));
 }

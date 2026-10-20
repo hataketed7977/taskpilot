@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
+import { boardTestApi } from './board-test-api';
 import type {
   KeyedResponse,
   PersonalWorkspaceView,
@@ -46,6 +47,7 @@ const home = (projects = [firstProject, secondProject, thirdProject], currentPro
 function authenticatedApi(overrides: Partial<TaskPilotDesktopApi['projects']> = {}) {
   let listener: ((view: SessionView) => void) | undefined;
   const api: TaskPilotDesktopApi = {
+    boards: boardTestApi({ sessionGeneration: 7, userId: user.userId, workspaceId: workspace.workspaceId, projectId: firstProject.projectId }),
     auth: {
       getCapabilities: vi.fn().mockResolvedValue({ github: { enabled: true } }), startGitHubSignIn: vi.fn(), continueGitHubSignIn: vi.fn(),
       completeGitHubRegistration: vi.fn(), cancelGitHubSignIn: vi.fn(),
@@ -343,7 +345,8 @@ describe('personal Workspace Project home', () => {
     renderApp(api);
 
     await operator.click(await screen.findByRole('button', { name: '打开账号菜单' }));
-    await operator.selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+    await operator.click(screen.getByRole('combobox', { name: '语言' }));
+    await operator.click(screen.getByRole('option', { name: 'English' }));
     expect(screen.getAllByText('Personal space')).not.toHaveLength(0);
     await operator.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(api.auth.logout).toHaveBeenCalledOnce();

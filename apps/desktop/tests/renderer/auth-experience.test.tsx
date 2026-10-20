@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
+import { boardTestApi } from './board-test-api';
 import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
 
 const currentUser = { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' };
@@ -44,6 +45,7 @@ function deferred<T>() {
 function signedOutApi(): TaskPilotDesktopApi {
   const signedOut: SessionView = { status: 'signedOut' };
   return {
+    boards: boardTestApi({ sessionGeneration: projectKey.sessionGeneration, userId: projectKey.userId, workspaceId: projectKey.workspaceId, projectId: projectKey.projectId }),
     workspaces: { list: vi.fn().mockResolvedValue({ key: projectKey, value: [workspace] }) },
     projects: {
       resolveHome: vi.fn().mockResolvedValue({ key: projectKey, value: { workspace, projects: [project], currentProject: project } }),

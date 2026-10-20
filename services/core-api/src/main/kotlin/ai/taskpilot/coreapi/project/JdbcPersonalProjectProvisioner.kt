@@ -37,6 +37,13 @@ class JdbcPersonalProjectProvisioner(
             request.ownerUserId,
             timestamp,
         )
+        ProjectWorkProvisioning.insertInitialBoard(
+            jdbc,
+            request.projectId,
+            request.ownerUserId,
+            request.locale,
+            request.now,
+        )
         return request.projectId
     }
 }

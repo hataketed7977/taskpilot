@@ -102,7 +102,8 @@ class ProjectApplicationService(
     override fun create(command: CreateProjectCommand): ProjectView {
         requireWorkspaceOwner(command.actorUserId, command.workspaceId)
         val input = normalizedInput(command.name, command.description)
-        val fingerprint = fingerprint(input)
+        val locale = normalizedLocale(command.locale)
+        val fingerprint = fingerprint(input, locale)
         return requireNotNull(
             transactions.execute {
                 val projectId = UUID.randomUUID()
@@ -136,6 +137,13 @@ class ProjectApplicationService(
                         projectId,
                         command.actorUserId,
                         timestamp,
+                    )
+                    ai.taskpilot.coreapi.project.ProjectWorkProvisioning.insertInitialBoard(
+                        jdbc,
+                        projectId,
+                        command.actorUserId,
+                        locale,
+                        clock.instant(),
                     )
                 }
                 val persisted =
@@ -195,10 +203,11 @@ class ProjectApplicationService(
                         ?: throw ProjectNotFound()
                 if (current.version != command.expectedVersion) throw ProjectVersionConflict()
                 if (current.name != command.confirmationName) throw ProjectNameConfirmationMismatch()
-                jdbc.update(
-                    "DELETE FROM project.project_memberships WHERE project_id = ?",
-                    command.projectId,
-                )
+                jdbc.update("DELETE FROM project.board_placements WHERE project_id = ?", command.projectId)
+                jdbc.update("DELETE FROM project.board_columns WHERE project_id = ?", command.projectId)
+                jdbc.update("DELETE FROM project.boards WHERE project_id = ?", command.projectId)
+                jdbc.update("DELETE FROM project.work_items WHERE project_id = ?", command.projectId)
+                jdbc.update("DELETE FROM project.project_memberships WHERE project_id = ?", command.projectId)
                 if (
                     jdbc.update(
                         "DELETE FROM project.projects WHERE id = ? AND workspace_id = ? AND version = ?",
@@ -348,12 +357,21 @@ class ProjectApplicationService(
         return NormalizedProjectInput(normalizedName, normalizedDescription)
     }
 
-    private fun fingerprint(input: NormalizedProjectInput): String {
-        val canonical = "${input.name.length}:${input.name}${input.description.length}:${input.description}"
+    private fun fingerprint(
+        input: NormalizedProjectInput,
+        locale: String,
+    ): String {
+        val canonical =
+            "${input.name.length}:${input.name}${input.description.length}:${input.description}${locale.length}:$locale"
         return MessageDigest
             .getInstance("SHA-256")
             .digest(canonical.toByteArray(StandardCharsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun normalizedLocale(locale: String): String {
+        if (locale !in SUPPORTED_LOCALES) throw ProjectValidationFailed("locale")
+        return locale
     }
 
     private fun String.codePointCount() = codePointCount(0, length)
@@ -414,6 +432,7 @@ class ProjectApplicationService(
         const val MAXIMUM_LIMIT = 100
         const val MAXIMUM_NAME_CODE_POINTS = 200
         const val MAXIMUM_DESCRIPTION_CODE_POINTS = 2000
+        val SUPPORTED_LOCALES = setOf("zh-CN", "en")
         const val CURSOR_PARTS = 6
         const val CURSOR_VERSION = "v1"
         const val CURSOR_VERSION_INDEX = 0

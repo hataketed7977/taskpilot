@@ -21,7 +21,9 @@ Workspace OWNER persistence, discovery, and authorization. Access also owns the 
 locale allowlist, exact `(locale, legalBundleVersion, termsVersion,
 privacyVersion)` validation, atomic acceptance persistence, and server-generated
 `acceptedAt`; it does not own Desktop language preference or general server-side
-i18n. The GitHub adapter performs only
+i18n. Project currently owns ordinary Boards, ordered Columns, basic OPEN Work
+Items, Board Placements, OWNER-authorized layout moves, and their Desktop API.
+Cards reuse `WorkItemId`; they are not persisted business records. The GitHub adapter performs only
 authorization/token/authenticated-user exchange outside database transactions
 and returns a normalized durable identity; it does not persist Provider tokens.
 
@@ -135,8 +137,10 @@ shape per concept.
 
 ### Work management
 
-- Create, edit, complete, cancel, and explicitly reopen a Work Item.
-- Publish a Work Item Type Version and explicitly migrate compatible Work Items.
+- **Current:** create and edit basic OPEN Work Items; create/edit Boards and
+  Columns; reorder/delete eligible Columns; create and move Board Placements.
+- **Target:** complete, cancel, and explicitly reopen a Work Item; publish a Work
+  Item Type Version and explicitly migrate compatible typed Work Items.
 - Assign a human or select/override an Agent Slot binding.
 - Add and list comments.
 - Configure and query a Board.
@@ -208,14 +212,15 @@ are idempotent and observable.
 
 ## Board Responsibilities
 
-Project Work owns Board definitions and Board queries. A Board may define
-Columns, Swimlane rules, filters, sorting, visible fields, and action mappings.
-It does not persist Card business state.
+**Current:** Project Work owns ordinary Board/Column definitions, basic Work
+Items, Board Placements, and joined Card queries. `(boardId, workItemId)` is the
+Board-local uniqueness boundary; Work Item content remains canonical. Card move
+is a versioned layout mutation only and cannot alter lifecycle, another Board,
+or start Workflow/Agent execution.
 
-Moving a Card resolves to a typed application action. Automation and Project
-Work remain authoritative for workflow and Work Item transitions. Attempts to
-move a Card past a pending Approval Request or into an impossible Column are
-rejected with stable diagnostics.
+**Target:** Swimlanes, workflow/execution summaries, WIP policies, and action
+mappings remain unimplemented. A later Workflow Change must define any mapping
+from a Board gesture to a Work Item or Workflow business transition.
 
 ## Workflow Responsibilities
 

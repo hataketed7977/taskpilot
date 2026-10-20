@@ -141,6 +141,8 @@ class OnboardingConcurrentProvisioningIntegrationTest(
                 "workspace.workspace_memberships",
                 "project.projects",
                 "project.project_memberships",
+                "project.boards",
+                "project.board_columns",
             )
     }
 }

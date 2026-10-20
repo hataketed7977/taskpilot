@@ -14,4 +14,5 @@ data class DefaultProjectProvisioningRequest(
     val ownerUserId: UUID,
     val name: String,
     val now: Instant,
+    val locale: String = "en",
 )

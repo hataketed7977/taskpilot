@@ -143,3 +143,119 @@ CREATE TABLE project.project_memberships (
 
 CREATE INDEX ix_project_memberships__user_project
     ON project.project_memberships (user_id, project_id);
+
+CREATE TABLE project.boards (
+    id UUID,
+    project_id UUID NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    description VARCHAR(2000) NOT NULL DEFAULT '',
+    version BIGINT NOT NULL,
+    created_by_user_id UUID NOT NULL,
+    create_request_id UUID NOT NULL,
+    create_request_fingerprint VARCHAR(128) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT pk_boards PRIMARY KEY (id),
+    CONSTRAINT uq_boards__project_id_id UNIQUE (project_id, id),
+    CONSTRAINT fk_boards__projects FOREIGN KEY (project_id)
+        REFERENCES project.projects(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_boards__created_by_users FOREIGN KEY (created_by_user_id)
+        REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_boards__project_actor_request
+        UNIQUE (project_id, created_by_user_id, create_request_id),
+    CONSTRAINT ck_boards__name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT ck_boards__description_length CHECK (char_length(description) <= 2000),
+    CONSTRAINT ck_boards__version_non_negative CHECK (version >= 0),
+    CONSTRAINT ck_boards__request_fingerprint_not_blank CHECK (btrim(create_request_fingerprint) <> '')
+);
+
+CREATE INDEX ix_boards__project_created_id
+    ON project.boards (project_id, created_at, id);
+
+CREATE TABLE project.board_columns (
+    id UUID,
+    project_id UUID NOT NULL,
+    board_id UUID NOT NULL,
+    name VARCHAR(80) NOT NULL,
+    position BIGINT NOT NULL,
+    version BIGINT NOT NULL,
+    created_by_user_id UUID NOT NULL,
+    create_request_id UUID NOT NULL,
+    create_request_fingerprint VARCHAR(128) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT pk_board_columns PRIMARY KEY (id),
+    CONSTRAINT uq_board_columns__project_board_id UNIQUE (project_id, board_id, id),
+    CONSTRAINT fk_board_columns__boards FOREIGN KEY (project_id, board_id)
+        REFERENCES project.boards(project_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_board_columns__created_by_users FOREIGN KEY (created_by_user_id)
+        REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_board_columns__project_actor_request
+        UNIQUE (project_id, created_by_user_id, create_request_id),
+    CONSTRAINT uq_board_columns__board_position UNIQUE (board_id, position)
+        DEFERRABLE INITIALLY IMMEDIATE,
+    CONSTRAINT ck_board_columns__name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT ck_board_columns__position_non_negative CHECK (position >= 0),
+    CONSTRAINT ck_board_columns__version_non_negative CHECK (version >= 0),
+    CONSTRAINT ck_board_columns__request_fingerprint_not_blank CHECK (btrim(create_request_fingerprint) <> '')
+);
+
+CREATE INDEX ix_board_columns__board_position_id
+    ON project.board_columns (board_id, position, id);
+
+CREATE TABLE project.work_items (
+    id UUID,
+    project_id UUID NOT NULL,
+    title VARCHAR(300) NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    lifecycle VARCHAR(32) NOT NULL,
+    version BIGINT NOT NULL,
+    created_by_user_id UUID NOT NULL,
+    create_request_id UUID NOT NULL,
+    create_request_fingerprint VARCHAR(128) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT pk_work_items PRIMARY KEY (id),
+    CONSTRAINT uq_work_items__project_id_id UNIQUE (project_id, id),
+    CONSTRAINT fk_work_items__projects FOREIGN KEY (project_id)
+        REFERENCES project.projects(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_work_items__created_by_users FOREIGN KEY (created_by_user_id)
+        REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_work_items__project_actor_request
+        UNIQUE (project_id, created_by_user_id, create_request_id),
+    CONSTRAINT ck_work_items__title_not_blank CHECK (btrim(title) <> ''),
+    CONSTRAINT ck_work_items__description_length CHECK (char_length(description) <= 10000),
+    CONSTRAINT ck_work_items__lifecycle_supported CHECK (lifecycle = 'OPEN'),
+    CONSTRAINT ck_work_items__version_non_negative CHECK (version >= 0),
+    CONSTRAINT ck_work_items__request_fingerprint_not_blank CHECK (btrim(create_request_fingerprint) <> '')
+);
+
+CREATE INDEX ix_work_items__project_created_id
+    ON project.work_items (project_id, created_at, id);
+
+CREATE TABLE project.board_placements (
+    id UUID,
+    project_id UUID NOT NULL,
+    board_id UUID NOT NULL,
+    column_id UUID NOT NULL,
+    work_item_id UUID NOT NULL,
+    position BIGINT NOT NULL,
+    version BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT pk_board_placements PRIMARY KEY (id),
+    CONSTRAINT fk_board_placements__boards FOREIGN KEY (project_id, board_id)
+        REFERENCES project.boards(project_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_board_placements__columns FOREIGN KEY (project_id, board_id, column_id)
+        REFERENCES project.board_columns(project_id, board_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_board_placements__work_items FOREIGN KEY (project_id, work_item_id)
+        REFERENCES project.work_items(project_id, id) ON DELETE RESTRICT,
+    CONSTRAINT uq_board_placements__board_work_item UNIQUE (board_id, work_item_id),
+    CONSTRAINT uq_board_placements__column_position UNIQUE (board_id, column_id, position)
+        DEFERRABLE INITIALLY IMMEDIATE,
+    CONSTRAINT ck_board_placements__position_non_negative CHECK (position >= 0),
+    CONSTRAINT ck_board_placements__version_non_negative CHECK (version >= 0)
+);
+
+CREATE INDEX ix_board_placements__column_position_id
+    ON project.board_placements (board_id, column_id, position, id);

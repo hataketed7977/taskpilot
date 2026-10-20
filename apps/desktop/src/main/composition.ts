@@ -6,6 +6,9 @@ import type { FederatedAuthRecoveryStore } from './auth/auth-recovery-store.js';
 import { LoopbackReceiver } from './auth/loopback-receiver.js';
 import type { CredentialStore } from './credentials/credential-store.js';
 import { WorkspaceProjectClient } from './projects/project-client.js';
+import { ProjectWorkClient } from './projects/project-work-client.js';
+import { ProjectWorkCoordinator } from './projects/project-work-coordinator.js';
+import { MemoryRecentBoardStore, type RecentBoardStore } from './projects/recent-board-store.js';
 import { ProjectHomeCoordinator } from './projects/project-home-coordinator.js';
 import { MemoryRecentProjectStore, type RecentProjectStore } from './projects/recent-project-store.js';
 import { SessionCoordinator } from './session/session-coordinator.js';
@@ -16,6 +19,7 @@ export interface DesktopCompositionOptions {
   credentials: CredentialStore;
   authRecovery: FederatedAuthRecoveryStore;
   recentProjects?: RecentProjectStore;
+  recentBoards?: RecentBoardStore;
   deviceInstallationId: string;
   browser: ExternalBrowser;
   activateDesktop?: DesktopWindowActivator;
@@ -27,6 +31,7 @@ export interface DesktopComposition {
   session: SessionCoordinator;
   federatedAuth: FederatedAuthCoordinator;
   projectHome: ProjectHomeCoordinator;
+  projectWork: ProjectWorkCoordinator;
 }
 
 export function createDesktopComposition(options: DesktopCompositionOptions): DesktopComposition {
@@ -43,6 +48,12 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
     session,
     new WorkspaceProjectClient(options.transport),
     options.recentProjects ?? new MemoryRecentProjectStore(),
+  );
+  const projectWork = new ProjectWorkCoordinator(
+    options.environment,
+    session,
+    new ProjectWorkClient(options.transport),
+    options.recentBoards ?? new MemoryRecentBoardStore(),
   );
   const federatedAuth = new FederatedAuthCoordinator(
     options.environment,
@@ -80,5 +91,20 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
     restore: input => projectHome.restore(input),
     permanentlyDelete: input => projectHome.permanentlyDelete(input),
   };
-  return { capabilities: { auth, workspaces, projects }, session, federatedAuth, projectHome };
+  const boards: TaskPilotDesktopApi['boards'] = {
+    resolveHome: input => projectWork.resolveHome(input),
+    list: input => projectWork.list(input),
+    open: input => projectWork.open(input),
+    create: input => projectWork.create(input),
+    edit: input => projectWork.edit(input),
+    createColumn: input => projectWork.createColumn(input),
+    editColumn: input => projectWork.editColumn(input),
+    reorderColumns: input => projectWork.reorderColumns(input),
+    deleteColumn: input => projectWork.deleteColumn(input),
+    createWorkItem: input => projectWork.createWorkItem(input),
+    openWorkItem: input => projectWork.openWorkItem(input),
+    editWorkItem: input => projectWork.editWorkItem(input),
+    moveCard: input => projectWork.moveCard(input),
+  };
+  return { capabilities: { auth, workspaces, projects, boards }, session, federatedAuth, projectHome, projectWork };
 }

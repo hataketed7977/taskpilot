@@ -29,5 +29,20 @@ export function createTaskPilotDesktopApi(invoke: DesktopInvoke, subscribe: Sess
       restore: input => call(CHANNELS.restoreProject, input),
       permanentlyDelete: input => call(CHANNELS.permanentlyDeleteProject, input),
     },
+    boards: {
+      resolveHome: input => call(CHANNELS.resolveBoardHome, input),
+      list: input => call(CHANNELS.listBoards, input),
+      open: input => call(CHANNELS.openBoard, input),
+      create: input => call(CHANNELS.createBoard, input),
+      edit: input => call(CHANNELS.editBoard, input),
+      createColumn: input => call(CHANNELS.createColumn, input),
+      editColumn: input => call(CHANNELS.editColumn, input),
+      reorderColumns: input => call(CHANNELS.reorderColumns, input),
+      deleteColumn: input => call(CHANNELS.deleteColumn, input),
+      createWorkItem: input => call(CHANNELS.createWorkItem, input),
+      openWorkItem: input => call(CHANNELS.openWorkItem, input),
+      editWorkItem: input => call(CHANNELS.editWorkItem, input),
+      moveCard: input => call(CHANNELS.moveCard, input),
+    },
   };
 }

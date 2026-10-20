@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocale } from './i18n/locale-state';
 import type {
   AuthCapabilities,
   FederatedAuthFlowView,
   SessionView,
   TaskPilotDesktopApi,
 } from '../shared/contracts';
-import { useLocale } from './i18n/locale-state';
 import { formatLegalEffectiveDate, legalDocument, resolveLegalBundle, type LegalBundle, type LegalDocumentKind } from './legal/legal-bundle';
 import { ProjectHome } from './project-home';
 import { displayNameInitials } from './profile';
+import { LanguageSelector } from './components/language-selector';
 
 type CodedError = Error & { code?: string; path?: string; retryAfterSeconds?: number; recovery?: string };
 type CapabilityState = 'loading' | 'ready' | 'unavailable';
@@ -42,7 +43,7 @@ export function App({ api }: { api: TaskPilotDesktopApi }) {
     return (
       <main id="main-content" className="center">
         <section className="notice" aria-labelledby="connection-title">
-          <LanguageSelector inline />
+          <LanguageSelector variant="inline" />
           <h1 id="connection-title">{t('session.unavailableTitle')}</h1>
           <p>{t('session.unavailableDetail')}</p>
           <button type="button" onClick={() => window.location.reload()}>{t('common.retry')}</button>
@@ -516,27 +517,6 @@ function LegalDocument({ bundle, kind, onBack }: { bundle: LegalBundle; kind: Le
         ))}
       </div>
     </article>
-  );
-}
-
-function LanguageSelector({ inline = false }: { inline?: boolean }) {
-  const { locale, changeLocale } = useLocale();
-  const { t } = useTranslation();
-  return (
-    <label className={`language-selector${inline ? ' language-selector--inline' : ''}`}>
-      <span className="visually-hidden">{t('language.label')}</span>
-      <svg className="language-selector__icon" viewBox="0 0 20 20" aria-hidden="true">
-        <circle cx="10" cy="10" r="7.25" />
-        <path d="M2.9 10h14.2M10 2.75c2.05 2.02 3.1 4.44 3.1 7.25S12.05 15.23 10 17.25C7.95 15.23 6.9 12.81 6.9 10S7.95 4.77 10 2.75Z" />
-      </svg>
-      <select aria-label={t('language.label')} value={locale} onChange={(event) => void changeLocale(event.target.value as 'zh-CN' | 'en')}>
-        <option value="zh-CN">{t('language.chinese')}</option>
-        <option value="en">{t('language.english')}</option>
-      </select>
-      <svg className="language-selector__chevron" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="m4.5 6 3.5 3.5L11.5 6" />
-      </svg>
-    </label>
   );
 }
 

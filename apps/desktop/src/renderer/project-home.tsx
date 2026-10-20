@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocale } from './i18n/locale-state';
 import type {
   ProjectHomeView,
   ProjectResponseKey,
@@ -7,8 +8,9 @@ import type {
   SessionView,
   TaskPilotDesktopApi,
 } from '../shared/contracts';
-import { useLocale } from './i18n/locale-state';
 import { displayNameInitials } from './profile';
+import { BoardWorkspace } from './board-workspace';
+import { LanguageSelector } from './components/language-selector';
 
 type AuthenticatedSession = Extract<SessionView, { status: 'authenticated' }>;
 type Surface = 'home' | 'settings' | 'archived';
@@ -177,7 +179,7 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
               onBack={() => setSurface('home')} onSaved={(project) => { replaceProject(project); setSurface('home'); }}
               onArchived={() => { setSurface('home'); void loadHome(); }} onDelete={() => setDeleteProject(current)} />
           ) : (
-            <ProjectSurface project={current} onSettings={() => setSurface('settings')} />
+            <ProjectSurface api={api} userId={session.currentUser.userId} workspaceId={home.workspace.workspaceId} project={current} onSettings={() => setSurface('settings')} />
           )
         ) : (
           <EmptyProjects onCreate={() => setCreateOpen(true)} onArchived={() => void showArchived()} />
@@ -196,9 +198,8 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
   );
 }
 
-function ProjectSurface({ project, onSettings }: { project: ProjectView; onSettings(): void }) {
-  const { t } = useTranslation();
-  return <div className="project-page"><header className="project-page__header"><div><p>{t('project.personalSpace')}</p><h1>{project.name}</h1>{project.description ? <p className="project-description">{project.description}</p> : null}</div><button type="button" className="project-button" onClick={onSettings}><SettingsIcon />{t('project.settingsAction')}</button></header><div className="project-start"><span className="project-start__mark" aria-hidden="true">TP</span><h2>{t('project.readyTitle')}</h2><p>{t('project.readyDetail')}</p></div></div>;
+function ProjectSurface({ api, userId, workspaceId, project, onSettings }: { api: TaskPilotDesktopApi; userId: string; workspaceId: string; project: ProjectView; onSettings(): void }) {
+  return <BoardWorkspace key={project.projectId} api={api} userId={userId} workspaceId={workspaceId} project={project} onSettings={onSettings} />;
 }
 
 function EmptyProjects({ onCreate, onArchived }: { onCreate(): void; onArchived(): void }) {
@@ -259,6 +260,7 @@ function CreateProjectDialog({ workspaceId, api, accepts, onClose, onCreated }: 
   onClose(): void; onCreated(project: ProjectView, key: ProjectResponseKey): void;
 }) {
   const { t } = useTranslation();
+  const { locale } = useLocale();
   const [name, setName] = useState(''); const [description, setDescription] = useState(''); const [pending, setPending] = useState(false); const [error, setError] = useState(false);
   const input = useRef<HTMLInputElement>(null); const requestIdentity = useRef<{ fingerprint: string; requestId: string } | undefined>(undefined);
   const fieldErrors = projectFieldErrors(name, description);
@@ -267,7 +269,7 @@ function CreateProjectDialog({ workspaceId, api, accepts, onClose, onCreated }: 
     event.preventDefault(); if (!normalizeProjectText(name) || fieldErrors.invalid || pending) return; setPending(true); setError(false);
     const fingerprint = JSON.stringify([normalizeProjectText(name), normalizeProjectText(description)]);
     if (requestIdentity.current?.fingerprint !== fingerprint) requestIdentity.current = { fingerprint, requestId: crypto.randomUUID() };
-    try { const result = await api.projects.create({ workspaceId, requestId: requestIdentity.current.requestId, name: normalizeProjectText(name), description: normalizeProjectText(description) }); if (accepts(result.key, { workspaceId, projectId: result.value.projectId })) onCreated(result.value, result.key); }
+    try { const result = await api.projects.create({ workspaceId, requestId: requestIdentity.current.requestId, name: normalizeProjectText(name), description: normalizeProjectText(description), locale }); if (accepts(result.key, { workspaceId, projectId: result.value.projectId })) onCreated(result.value, result.key); }
     catch { setError(true); } finally { setPending(false); }
   };
   return <Modal title={t('project.createTitle')} onClose={onClose} pending={pending}><form aria-describedby={error ? 'project-create-error' : undefined} onSubmit={(event) => void submit(event)}><ProjectFields inputRef={input} name={name} description={description} setName={setName} setDescription={setDescription} /><div className="dialog-actions"><button type="button" className="project-button" disabled={pending} onClick={onClose}>{t('project.cancel')}</button><button type="submit" className="project-button project-button--primary" disabled={pending || !normalizeProjectText(name) || fieldErrors.invalid}>{pending ? t('project.creating') : t('project.create')}</button></div>{error ? <p id="project-create-error" className="project-error" role="alert">{t('project.mutationError')}</p> : null}</form></Modal>;
@@ -337,13 +339,11 @@ function normalizeProjectText(value: string) {
 
 function AccountMenu({ api, user }: { api: TaskPilotDesktopApi; user: AuthenticatedSession['currentUser'] }) {
   const { t } = useTranslation(); const [pending, setPending] = useState(false);
-  return <section className="account-menu" aria-label={t('project.accountMenu')}><div className="account-menu__identity"><Avatar user={user} size="large" /><div><strong>{user.displayName}</strong><span>{t('project.signedIn')}</span></div></div><LanguageSelectorInline /><button type="button" className="account-menu__logout" disabled={pending} onClick={() => { setPending(true); void api.auth.logout().finally(() => setPending(false)); }}>{pending ? t('account.loggingOut') : t('account.logout')}</button></section>;
+  return <section className="account-menu" aria-label={t('project.accountMenu')}><div className="account-menu__identity"><Avatar user={user} size="large" /><div><strong>{user.displayName}</strong><span>{t('project.signedIn')}</span></div></div><LanguageSelector variant="account" /><button type="button" className="account-menu__logout" disabled={pending} onClick={() => { setPending(true); void api.auth.logout().finally(() => setPending(false)); }}>{pending ? t('account.loggingOut') : t('account.logout')}</button></section>;
 }
 
-function LanguageSelectorInline() { const { locale, changeLocale } = useLocale(); const { t } = useTranslation(); return <label className="account-language"><span>{t('language.label')}</span><select aria-label={t('language.label')} value={locale} onChange={event => void changeLocale(event.target.value as 'zh-CN' | 'en')}><option value="zh-CN">{t('language.chinese')}</option><option value="en">{t('language.english')}</option></select></label>; }
 function Avatar({ user, size }: { user: AuthenticatedSession['currentUser']; size: 'small' | 'large' }) { return user.avatarUrl ? <img className={`shell-avatar shell-avatar--${size}`} src={user.avatarUrl} alt="" width={size === 'small' ? 28 : 36} height={size === 'small' ? 28 : 36} referrerPolicy="no-referrer" /> : <span className={`shell-avatar shell-avatar--${size} shell-avatar--fallback`} aria-hidden="true">{displayNameInitials(user.displayName)}</span>; }
 function ProjectShellSkeleton({ user }: { user: AuthenticatedSession['currentUser'] }) { const { t } = useTranslation(); return <main id="main-content" className="project-shell project-shell--loading" aria-busy="true"><header className="project-titlebar"><span className="project-wordmark" translate="no">TaskPilot</span></header><aside className="project-sidebar"><div className="workspace-context"><span className="workspace-symbol">P</span><div><span>{t('project.personalSpace')}</span><small>{t('project.workspaceOwner')}</small></div></div><div className="skeleton skeleton--row" /><div className="skeleton skeleton--row" /><div className="skeleton skeleton--row" /><div className="account-dock"><Avatar user={user} size="small" /></div></aside><section className="project-workspace"><div className="project-page"><div className="skeleton skeleton--title" /><div className="skeleton skeleton--copy" /><p role="status" className="visually-hidden">{t('project.loading')}</p></div></section></main>; }
 function useInitialFocus(input: RefObject<HTMLElement | null>) { useEffect(() => { input.current?.focus(); }, [input]); }
 function ProjectCollectionIcon() { return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 4.75h4.1l1.3 1.5h7.1v6.25a1.5 1.5 0 0 1-1.5 1.5h-9.5a1.5 1.5 0 0 1-1.5-1.5z" /><path d="M2.25 4.75v-1.25A1.5 1.5 0 0 1 3.75 2h3.1l1.3 1.5h4.1a1.5 1.5 0 0 1 1.5 1.5v1.25" /></svg>; }
 function ArchiveIcon() { return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11v8h-11zM2 2.5h12v2H2zm4 4h4" /></svg>; }
-function SettingsIcon() { return <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M12.4 3.6l-1 1M4.6 11.4l-1 1" /></svg>; }

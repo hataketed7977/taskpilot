@@ -39,6 +39,7 @@ import kotlin.test.assertTrue
     classes = [CoreApiApplication::class, FakeFederatedProviderConfiguration::class],
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@Suppress("LargeClass") // One fixture exercises the complete authenticated Desktop HTTP boundary.
 class AuthenticationHttpIntegrationTest(
     @param:LocalServerPort private val port: Int,
 ) {
@@ -322,6 +323,211 @@ class AuthenticationHttpIntegrationTest(
             )
         assertProblem(invalidStatus, 400, "VALIDATION_FAILED")
         assertEquals("status", invalidStatus.json().requiredText("path"))
+    }
+
+    @Test
+    fun `authenticated project work API enforces scope versions and stable transport semantics`() {
+        val registered = registerAccount()
+        val root = "/desktop/v1/workspaces/${registered.workspaceId}/projects/${registered.projectId}"
+
+        assertEquals(401, request("GET", "$root/boards").status)
+        val initialBoards = request("GET", "$root/boards", bearer = registered.accessToken)
+        assertEquals(200, initialBoards.status)
+        val initialBoardId = initialBoards.jsonList().single().requiredText("boardId")
+        val initialBoard = request("GET", "$root/boards/$initialBoardId", bearer = registered.accessToken)
+        assertEquals(200, initialBoard.status)
+        assertEquals("工作看板", initialBoard.json().requiredText("name"))
+
+        val boardRequestId = java.util.UUID.randomUUID()
+        val createdBoard =
+            request(
+                "POST",
+                "$root/boards",
+                """{"requestId":"$boardRequestId","name":" Delivery ","description":" Notes ","locale":"en"}""",
+                registered.accessToken,
+            )
+        assertEquals(201, createdBoard.status)
+        val boardId = createdBoard.json().requiredText("boardId")
+        val firstColumn = createdBoard.json().listOfObjects("columns").single()
+        assertEquals("To do", firstColumn.requiredText("name"))
+        val firstColumnId = firstColumn.requiredText("columnId")
+
+        val boardReplay =
+            request(
+                "POST",
+                "$root/boards",
+                """{"requestId":"$boardRequestId","name":"Delivery","description":"Notes","locale":"en"}""",
+                registered.accessToken,
+            )
+        assertEquals(201, boardReplay.status)
+        assertEquals(boardId, boardReplay.json().requiredText("boardId"))
+        assertProblem(
+            request(
+                "POST",
+                "$root/boards",
+                """{"requestId":"$boardRequestId","name":"Changed","description":"Notes","locale":"en"}""",
+                registered.accessToken,
+            ),
+            409,
+            "IDEMPOTENCY_CONFLICT",
+        )
+
+        val secondColumn =
+            request(
+                "POST",
+                "$root/boards/$boardId/columns",
+                """{"requestId":"${java.util.UUID.randomUUID()}","expectedBoardVersion":0,"name":"Done"}""",
+                registered.accessToken,
+            )
+        assertEquals(201, secondColumn.status)
+        val secondColumnId =
+            secondColumn
+                .json()
+                .listOfObjects("columns")
+                .last()
+                .requiredText("columnId")
+
+        val itemRequestId = java.util.UUID.randomUUID()
+        val createdItem =
+            request(
+                "POST",
+                "$root/boards/$boardId/work-items",
+                """
+                {"requestId":"$itemRequestId","expectedBoardVersion":1,"columnId":"$firstColumnId",
+                "title":" Task ","description":" Detail "}
+                """.trimIndent(),
+                registered.accessToken,
+            )
+        assertEquals(201, createdItem.status)
+        val workItemId = createdItem.json().nested("workItem").requiredText("workItemId")
+        assertEquals("OPEN", createdItem.json().nested("workItem").requiredText("lifecycle"))
+        assertEquals(
+            workItemId,
+            createdItem
+                .json()
+                .nested("board")
+                .listOfObjects("columns")
+                .first()
+                .listOfObjects("cards")
+                .single()
+                .requiredText("workItemId"),
+        )
+
+        val itemReplay =
+            request(
+                "POST",
+                "$root/boards/$boardId/work-items",
+                """
+                {"requestId":"$itemRequestId","expectedBoardVersion":1,"columnId":"$firstColumnId",
+                "title":"Task","description":"Detail"}
+                """.trimIndent(),
+                registered.accessToken,
+            )
+        assertEquals(201, itemReplay.status)
+        assertEquals(workItemId, itemReplay.json().nested("workItem").requiredText("workItemId"))
+        assertProblem(
+            request(
+                "POST",
+                "$root/boards/$boardId/work-items",
+                """
+                {"requestId":"${java.util.UUID.randomUUID()}","expectedBoardVersion":1,
+                "columnId":"$firstColumnId","title":"Stale","description":null}
+                """.trimIndent(),
+                registered.accessToken,
+            ),
+            409,
+            "BOARD_VERSION_CONFLICT",
+        )
+
+        val moved =
+            request(
+                "POST",
+                "$root/boards/$boardId/placements/$workItemId/move",
+                """{"expectedBoardVersion":2,"expectedPlacementVersion":0,"targetColumnId":"$secondColumnId","beforeWorkItemId":null}""",
+                registered.accessToken,
+            )
+        assertEquals(200, moved.status)
+        val movedCard =
+            moved
+                .json()
+                .listOfObjects("columns")
+                .last()
+                .listOfObjects("cards")
+                .single()
+        assertEquals("1", movedCard.requiredText("placementVersion"))
+        assertEquals("OPEN", movedCard.requiredText("lifecycle"))
+
+        val editedItem =
+            request(
+                "PATCH",
+                "$root/work-items/$workItemId",
+                """
+                {"boardId":"$boardId","currentColumnId":"$secondColumnId",
+                "targetColumnId":"$secondColumnId","expectedVersion":0,
+                "title":"Updated","description":null}
+                """.trimIndent(),
+                registered.accessToken,
+            )
+        assertEquals(200, editedItem.status)
+        assertEquals("Updated", editedItem.json().nested("workItem").requiredText("title"))
+        assertEquals(boardId, editedItem.json().nested("board").requiredText("boardId"))
+        assertEquals(
+            "Updated",
+            request(
+                "GET",
+                "$root/boards/$boardId",
+                bearer = registered.accessToken,
+            ).json().listOfObjects("columns").last().listOfObjects("cards").single().requiredText("title"),
+        )
+
+        val missingBoardVersion =
+            request(
+                "PATCH",
+                "$root/work-items/$workItemId",
+                """
+                {"boardId":"$boardId","currentColumnId":"$secondColumnId",
+                "targetColumnId":"$firstColumnId","expectedPlacementVersion":1,"expectedVersion":1,
+                "title":"Must not move","description":null}
+                """.trimIndent(),
+                registered.accessToken,
+            )
+        assertProblem(missingBoardVersion, 400, "VALIDATION_FAILED")
+        assertEquals("expectedBoardVersion", missingBoardVersion.json().requiredText("path"))
+
+        val missingPlacementVersion =
+            request(
+                "PATCH",
+                "$root/work-items/$workItemId",
+                """
+                {"boardId":"$boardId","currentColumnId":"$secondColumnId",
+                "targetColumnId":"$firstColumnId","expectedBoardVersion":3,"expectedVersion":1,
+                "title":"Must not move","description":null}
+                """.trimIndent(),
+                registered.accessToken,
+            )
+        assertProblem(missingPlacementVersion, 400, "VALIDATION_FAILED")
+        assertEquals("expectedPlacementVersion", missingPlacementVersion.json().requiredText("path"))
+
+        assertProblem(
+            request(
+                "DELETE",
+                "$root/boards/$boardId/columns/$secondColumnId?expectedBoardVersion=3&expectedColumnVersion=0",
+                bearer = registered.accessToken,
+            ),
+            409,
+            "COLUMN_NOT_EMPTY",
+        )
+        assertProblem(
+            request(
+                "GET",
+                "/desktop/v1/workspaces/${java.util.UUID.randomUUID()}/projects/${registered.projectId}/boards/$boardId",
+                bearer = registered.accessToken,
+            ),
+            404,
+            "PROJECT_NOT_FOUND",
+        )
+        assertEquals(405, request("DELETE", "$root/boards/$boardId", bearer = registered.accessToken).status)
+        assertEquals(405, request("DELETE", "$root/work-items/$workItemId", bearer = registered.accessToken).status)
     }
 
     @Test

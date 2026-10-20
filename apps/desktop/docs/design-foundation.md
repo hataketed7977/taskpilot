@@ -25,7 +25,7 @@ than a general productivity app while remaining calmer than an IDE or an
 observability console.
 
 The Current Renderer covers authentication, legal review, session lifecycle,
-and the authenticated Project home. Main and Preload provide narrow, typed
+the Project shell, and its direct multi-Board work surface. Main and Preload provide narrow, typed
 personal-Workspace and Project capabilities. The implemented first-use journey
 is:
 
@@ -37,8 +37,9 @@ secure Desktop shell
 → account, language, and logout remain reachable
 ```
 
-`TEAM`, members, Board, Agent execution, local directory binding, terminals,
-Diff, and activity metrics remain Target. The shell stays extensible without
+`TEAM`, members, Workflow/Agent execution, Swimlanes, custom fields, independent
+Board/Work Item deletion, local directory binding, terminals, Diff, and activity
+metrics remain Target. The shell stays extensible without
 showing disabled promises or fabricated data for those later capabilities.
 
 ### Audience and primary job
@@ -281,37 +282,44 @@ Interactive controls never overlap a drag region. The visual shell may share
 layout code, but title-bar measurements and window-control accommodations are
 platform adapters, not CSS guesses spread across pages.
 
-### Application shell and Project home
+### Application shell, Project and Board home
 
 ```text
 ┌─ title region ─────────────────────────────────────────────────────────────┐
 │ TaskPilot                                                                  │
 ├──────────────────────┬─────────────────────────────────────────────────────┤
 │ Personal space       │ My project                         Project settings │
-│                      │ A short description when one exists.               │
-│ ▱ Projects           ├─────────────────────────────────────────────────────┤
-│   My project         │                                                     │
-│   Launch notes       │ Project home                                       │
-│ + New project        │                                                     │
-│ Archived projects    │ This is the stable project context.                │
-│                      │ Board and Agent content is not invented here.       │
-│ Ada · Account        │                                                     │
+│ ▱ Projects           │ [Planning] [Delivery]                    + Board    │
+│   My project         ├─────────────────────────────────────────────────────┤
+│   Launch notes       │ ┌ To do ─────┐ ┌ Doing ────┐ ┌ Done ───────────┐  │
+│ + New project        │ │ + Work item│ │           │ │                 │  │
+│ Archived projects    │ │ Task card  │ │           │ │                 │  │
+│                      │ └────────────┘ └───────────┘ └─────────────────┘  │
+│ Ada · Account        │       Board region scrolls horizontally             │
 └──────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
-The shell is list-led rather than a dashboard. The fixed personal Workspace is
-shown as context, not as a switcher or creatable object. ACTIVE Projects form
-the only Project slots; the current Project combines surface, an inset edge,
-weight, and `aria-current`, not color alone. The main pane shows the real Project name
-and optional description, followed by a quiet start surface with no fake
-metrics, Board, Agent, TEAM, invitation, or member placeholders.
+The shell stays list-led rather than becoming a dashboard. The fixed personal
+Workspace is context, not a switcher. ACTIVE Projects remain stable navigation
+slots; selecting one opens its remembered accessible Board, or the earliest
+Board deterministically. Board tabs/selectors sit inside the Project pane, and
+Columns form one bounded horizontal scrolling region so `960 × 640` never gains
+page-level horizontal overflow.
 
-At `960 × 640`, the navigation remains visible at `208px`; long names wrap to
-two lines without covering the new-Project action. Below that supported width,
-the navigation may become a dismissible overlay while the header retains the
-current Project name. Account, language, and logout live together at the bottom
-of the navigation so they remain reachable without competing with Project
-actions.
+Cards are compact Work Item projections, not decorative metric tiles. User
+names, Board/Column names, titles, and descriptions are never translated.
+Creating a Board selects it; dialogs use the first meaningful field, preserve
+input on validation errors, and return focus. Card move supports pointer drag;
+the pointer's closest Card edge selects an exact insertion position, while one
+Card-height slot replaces the source Card in layout while one lifted drag preview
+follows the pointer. Surrounding Cards yield through a short, interruptible FLIP
+translation and the target Column combines outline, elevation, and a structural
+signal rather than color alone. Editing a Work Item and selecting its
+Column is the non-drag equivalent. Moves preview
+locally, adopt the successful server snapshot, and roll back with one associated
+alert and reload action on failure. Focus follows the moved Card and announcements
+use a polite live region. Reduced motion removes spatial transitions without
+hiding the slot, outline, or other state changes.
 
 ### Project operation layers
 
@@ -539,6 +547,21 @@ provider-name branches.
   on Windows through a platform-aware formatter.
 - Escape closes only the top dismissible layer and never discards dirty input
   without confirmation.
+
+The Current Renderer single-value Select uses one shared trigger/menu recipe for
+language and Work Item Column fields. It keeps the stable value controlled by
+its caller, renders the menu in a collision-aware portal above dialogs, marks
+the selected option with both a check and semantic state, restores focus to the
+trigger on dismissal, and disables the whole interaction while its owning form
+is pending. Long labels truncate visually without changing their accessible
+name, long lists scroll inside the menu, and decorative menu motion is removed
+for reduced-motion preferences. Escape dismisses this menu before an enclosing
+Dialog.
+
+The signed-out and account language entry points consume the same supported
+locale source and switching logic. Their floating, inline, and account layouts
+may differ, but their values, option names, keyboard behavior, and focus return
+remain one interaction contract.
 
 ### Offline and reconnect
 

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
+import { boardTestApi } from './board-test-api';
 import { useLocale } from '../../src/renderer/i18n/locale-state';
 import {
   LEGAL_BUNDLE_CATALOG,
@@ -17,6 +18,7 @@ import type { SessionView, TaskPilotDesktopApi } from '../../src/shared/contract
 function signedOutApi(): TaskPilotDesktopApi {
   const signedOut: SessionView = { status: 'signedOut' };
   return {
+    boards: boardTestApi({ sessionGeneration: 1, userId: '11111111-1111-4111-8111-111111111111', workspaceId: '22222222-2222-4222-8222-222222222222', projectId: '33333333-3333-4333-8333-333333333333' }),
     workspaces: { list: vi.fn() },
     projects: {
       resolveHome: vi.fn().mockImplementation(() => new Promise(() => undefined)),

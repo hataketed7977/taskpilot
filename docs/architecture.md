@@ -534,8 +534,9 @@ threshold is an architectural policy change, not a local test workaround.
   the complete current Project lifecycle; generated TypeScript transport types
   may be introduced later only with an explicit source-of-truth and drift policy.
 - Core API `access` owns User, External Identity, legal acceptance, and session
-  authentication; `workspace` owns Workspace and Workspace Membership; `project` owns
-  Project and Project Membership. Their PostgreSQL baseline, first-registration
+  authentication; `workspace` owns Workspace and Workspace Membership; `project`
+  owns Project, Project Membership, Board, Column, Work Item, and Placement. Their
+  PostgreSQL baseline, first-registration
   provisioning, narrow capability contracts, and current Workspace/Project HTTP
   behavior are Current.
 - The narrow `onboarding` capability is the approved first-registration
@@ -654,8 +655,9 @@ This architecture document does not duplicate that model. In particular:
 - Durable jobs or reliable events are used for long-running Agent work,
   provider callbacks, external side effects, realtime notification, audit, and
   other actual asynchronous boundaries.
-- A Board projects Work Items and workflow execution; it never becomes a second
-  source of business state.
+- A Board projects canonical Work Items through Board-local Placements; it never
+  becomes a second source of Work Item state. Current Card moves change layout
+  only; future workflow-derived actions require an explicit business-model Change.
 
 Implementation structure and persistence may refine the logical model, but may
 not silently rename concepts, merge independent lifecycles, or contradict its

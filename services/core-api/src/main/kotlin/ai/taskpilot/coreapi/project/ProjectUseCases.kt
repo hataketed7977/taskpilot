@@ -31,6 +31,7 @@ data class CreateProjectCommand(
     val requestId: UUID,
     val name: String,
     val description: String?,
+    val locale: String = "en",
 )
 
 data class EditProjectCommand(

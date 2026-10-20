@@ -8,6 +8,7 @@ import { FixedHttpTransport, type Environment } from './api/transport.js';
 import { createDesktopComposition } from './composition.js';
 import { KeyringCredentialStore } from './credentials/credential-store.js';
 import { JsonRecentProjectStore } from './projects/recent-project-store.js';
+import { JsonRecentBoardStore } from './projects/recent-board-store.js';
 import { KeyringFederatedAuthRecoveryStore } from './auth/auth-recovery-store.js';
 import { CHANNELS, registerDesktopHandlers } from './ipc.js';
 import { resolveDesktopRendererLocation } from './renderer-location.js';
@@ -40,6 +41,7 @@ async function createWindow() {
     credentials,
     authRecovery: new KeyringFederatedAuthRecoveryStore(createKeyringEntry),
     recentProjects: new JsonRecentProjectStore(join(userData, 'recent-projects.json')),
+    recentBoards: new JsonRecentBoardStore(join(userData, 'recent-boards.json')),
     deviceInstallationId,
     browser: { open: async url => { await shell.openExternal(url, { activate: true }); } },
     activateDesktop: () => {

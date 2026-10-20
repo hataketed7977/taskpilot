@@ -27,6 +27,7 @@
   "dependencies": {
     "@fontsource-variable/inter": "latest",
     "@napi-rs/keyring": "2.1.0",
+    "@radix-ui/react-select": "2.4.1",
     "i18next": "26.4.3",
     "react": "latest",
     "react-dom": "latest",
