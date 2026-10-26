@@ -17,12 +17,15 @@ frontend, Gateway, backend, CLI, or infrastructure decisions until a real
 subproject exists to own the detail.
 
 The repository now contains runnable Desktop and Core API subprojects. Their
-current first-use slice covers system-browser GitHub authentication, first
-registration, opaque-session restore/refresh/logout, production Flyway
-migrations for durable identity facts, Redis-backed temporary authentication
-state, and non-production runtime OpenAPI. Workspace and Project capabilities,
-Agent Runtime, Gateway, broader product behavior, deployment, signing, and
-updates remain Target unless explicitly marked Current.
+current slice covers system-browser GitHub authentication, first registration
+with personal Workspace and default Project provisioning, opaque-session
+restore/refresh/logout, Project management and the Desktop Project home,
+ordinary Boards with ordered Columns, basic Work Items, Board-local Card
+placement and moves, the production Flyway baseline for these durable facts,
+Redis-backed temporary authentication state, and non-production runtime
+OpenAPI. `TEAM` Workspaces, Work Item types and assignments, workflows, Agent
+configuration and execution, approvals, Agent Runtime, Gateway, deployment,
+signing, and updates remain Target unless explicitly marked Current.
 
 ## Diagram Conventions
 
@@ -146,7 +149,7 @@ attribute. The registration preview HTTP DTO exposes the required version triple
 ```text
 taskpilot/
 ├── apps/
-│   ├── desktop/              # Current Electron/React first-use slice
+│   ├── desktop/              # Current Electron/React auth, Project, and Board slice
 │   │   ├── AGENTS.md
 │   │   ├── docs/
 │   │   ├── src/
@@ -163,7 +166,7 @@ taskpilot/
 │       ├── AGENTS.md
 │       ├── build.gradle.kts
 │       ├── docs/
-│       └── src/               # Current first-use APIs, persistence, and layered tests
+│       └── src/               # Current auth, Workspace/Project, Project Work APIs, persistence, and tests
 ├── contracts/                 # Future, when API specifications exist
 ├── docs/
 │   ├── README.md              # Documentation knowledge map

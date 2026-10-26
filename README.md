@@ -3,8 +3,9 @@
 TaskPilot is a SaaS-ready task and ticket management product under active
 implementation. Its first-party Windows and macOS Desktop client is designed to
 coordinate Agents working on explicitly selected local projects. The repository
-currently includes a runnable Desktop first-use slice and a runnable Core API;
-most workflow and Agent-execution capabilities remain approved Target design.
+currently includes a runnable Desktop and Core API covering sign-in, personal
+Workspace and Project management, and basic Boards and Work Items; workflow and
+Agent-execution capabilities remain approved Target design.
 
 ## Target Architecture
 
@@ -47,11 +48,21 @@ non-production profiles, and `:services:core-api:qualityCheck` is the complete
 Core API gate. GitHub proves control of an external identity while TaskPilot
 keeps its own stable `UserId` and authorization boundary.
 
+First registration also provisions one `PERSONAL` Workspace and one ordinary
+default Project with Owner memberships in the same PostgreSQL transaction. The
+Core API implements Project creation, editing, archive/restore, and permanent
+deletion, plus the first Project Work slice: ordinary Boards with ordered
+Columns, basic Work Items with title and description, and Board-local Card
+placement and moves.
+
 The Electron/React Desktop implements the corresponding system-browser GitHub
 login, first-registration confirmation, OS-credential-backed session restore,
-refresh, and logout through hardened Main/Preload/Renderer boundaries. Workspace
-and Project capabilities, Agent Runtime, Gateway, signed installers, production
-deployment, and cross-platform native release evidence remain Target only.
+refresh, and logout through hardened Main/Preload/Renderer boundaries, followed
+by the Project home and Board workspace for these capabilities. Work Item types,
+custom fields, assignments, workflows, Agent configuration and execution,
+approvals, `TEAM` Workspaces, Agent Runtime, Gateway, signed installers,
+production deployment, and cross-platform native release evidence remain Target
+only.
 
 ## Local Development
 
