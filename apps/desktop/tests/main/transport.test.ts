@@ -48,6 +48,19 @@ describe('FixedHttpTransport', () => {
     ]) await expect(transport.request(input)).rejects.toThrow('Endpoint is not allowlisted');
   });
 
+  it('allowlists only POST for the fixed permanent Board deletion action', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const transport = new FixedHttpTransport('local', fetcher);
+    const workspace = '11111111-1111-4111-8111-111111111111';
+    const project = '22222222-2222-4222-8222-222222222222';
+    const board = '33333333-3333-4333-8333-333333333333';
+    const path = `/desktop/v1/workspaces/${workspace}/projects/${project}/boards/${board}/permanent-deletion`;
+
+    await expect(transport.request({ method: 'POST', path, body: {} })).resolves.toBeUndefined();
+    await expect(transport.request({ method: 'DELETE', path })).rejects.toThrow('Endpoint is not allowlisted');
+    await expect(transport.request({ method: 'POST', path: `${path}?retry=true` })).rejects.toThrow('Endpoint is not allowlisted');
+  });
+
   it('rejects malformed Workspace, Project, and session-delivery endpoints', async () => {
     const transport = new FixedHttpTransport('local', vi.fn());
     for (const path of [

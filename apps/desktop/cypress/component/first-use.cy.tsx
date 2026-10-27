@@ -37,7 +37,7 @@ const boardKey = (overrides: Partial<BoardResponseKey> = {}): BoardResponseKey =
 });
 const workItem = (title: string): WorkItemView => ({
   workItemId: '77777777-7777-4777-8777-777777777777', projectId: project.projectId, title, description: '',
-  lifecycle: 'OPEN', version: 0, createdAt: board.createdAt, updatedAt: board.updatedAt,
+  version: 0, createdAt: board.createdAt, updatedAt: board.updatedAt,
 });
 
 function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilotDesktopApi {

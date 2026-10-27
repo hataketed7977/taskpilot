@@ -25,6 +25,7 @@ export const CHANNELS = {
   openBoard: 'boards:open',
   createBoard: 'boards:create',
   editBoard: 'boards:edit',
+  permanentlyDeleteBoard: 'boards:permanently-delete',
   createColumn: 'boards:columns:create',
   editColumn: 'boards:columns:edit',
   reorderColumns: 'boards:columns:reorder',
@@ -43,7 +44,7 @@ const locale = z.enum(['zh-CN', 'en']);
 const statusMutation = location.extend({ expectedVersion: version }).strict();
 const boardLocation = location.extend({ boardId: uuid }).strict();
 const columnLocation = boardLocation.extend({ columnId: uuid }).strict();
-const workItemLocation = location.extend({ workItemId: uuid }).strict();
+const workItemLocation = boardLocation.extend({ workItemId: uuid }).strict();
 const schemas = {
   getCapabilities: z.undefined(),
   startGitHubSignIn: z.undefined(),
@@ -76,6 +77,7 @@ const schemas = {
   openBoard: boardLocation,
   createBoard: location.extend({ requestId: uuid, name: boundedText(120), description: boundedText(2000).optional(), locale }).strict(),
   editBoard: boardLocation.extend({ expectedVersion: version, name: boundedText(120), description: boundedText(2000).optional() }).strict(),
+  permanentlyDeleteBoard: boardLocation.extend({ expectedVersion: version, confirmationName: boundedText(120) }).strict(),
   createColumn: boardLocation.extend({ requestId: uuid, expectedBoardVersion: version, name: boundedText(80) }).strict(),
   editColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version, name: boundedText(80) }).strict(),
   reorderColumns: boardLocation.extend({ expectedBoardVersion: version, columnIds: z.array(uuid).min(1).max(50) }).strict(),
@@ -137,6 +139,7 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
     [CHANNELS.openBoard, 'boards', 'openBoard'],
     [CHANNELS.createBoard, 'boards', 'createBoard'],
     [CHANNELS.editBoard, 'boards', 'editBoard'],
+    [CHANNELS.permanentlyDeleteBoard, 'boards', 'permanentlyDeleteBoard'],
     [CHANNELS.createColumn, 'boards', 'createColumn'],
     [CHANNELS.editColumn, 'boards', 'editColumn'],
     [CHANNELS.reorderColumns, 'boards', 'reorderColumns'],
@@ -160,7 +163,8 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
     } as never,
     boards: {
       resolveBoardHome: capabilities.boards?.resolveHome, listBoards: capabilities.boards?.list, openBoard: capabilities.boards?.open,
-      createBoard: capabilities.boards?.create, editBoard: capabilities.boards?.edit, createColumn: capabilities.boards?.createColumn,
+      createBoard: capabilities.boards?.create, editBoard: capabilities.boards?.edit, permanentlyDeleteBoard: capabilities.boards?.permanentlyDelete,
+      createColumn: capabilities.boards?.createColumn,
       editColumn: capabilities.boards?.editColumn, reorderColumns: capabilities.boards?.reorderColumns, deleteColumn: capabilities.boards?.deleteColumn,
       createWorkItem: capabilities.boards?.createWorkItem, openWorkItem: capabilities.boards?.openWorkItem,
       editWorkItem: capabilities.boards?.editWorkItem, moveCard: capabilities.boards?.moveCard,

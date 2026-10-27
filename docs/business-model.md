@@ -83,7 +83,7 @@ documentation.
 | Workspace Member | A User's membership and role within a Workspace, regardless of Workspace type |
 | Project | A Workspace-owned collaboration scope containing people, work, boards, and enabled automation |
 | Project Member | A User who can participate in a Project with a project-level role |
-| Work Item | The canonical Project-owned work record; the Current basic form stores title, description, OPEN lifecycle, version, and audit data, while typed fields and assignments remain Target |
+| Work Item | The canonical Project-owned work record; the Current basic form stores title, description, version, and audit data without an implemented state capability, while typed fields and assignments remain Target |
 | Assignment | A Work Item responsibility link to exactly one Project Member or Project Agent Binding |
 | Work Item Type | A reusable identity for a configurable kind of Work Item |
 | Work Item Type Version | An immutable definition of fields and validation for one Work Item Type |
@@ -529,9 +529,15 @@ capability, not human access or approval authority.
 
 ## Work Items and Custom Fields
 
-A Work Item contains stable system fields such as title, description, creator,
-overall lifecycle, version, and timestamps. **Current:** the basic Work Item is
-`OPEN` and does not require a Work Item Type Version. **Target:** once typed
+A Work Item contains stable identity, title, description, creator, version, and
+created/updated timestamps. **Current:** the basic Work Item has no implemented
+state capability and does not require a Work Item Type Version. Persistence and
+Work Item/Card responses contain neither `lifecycle` nor `status`; there is no
+placeholder state or state action. **Target:** the approved overall lifecycle is
+`Open`, `Completed`, and `Cancelled`, with explicit reopen transitions as shown
+below. A later independent Change implements its persistence/API, authorization,
+history, and multi-Board integration, not a new decision on those states or legal
+transitions. **Target:** once typed
 fields are used, their configurable values conform to one pinned immutable Work
 Item Type Version; introducing that relationship requires its own Change.
 
@@ -555,13 +561,19 @@ They do not substitute for structured workflow outcomes or approval decisions.
 
 **Current:** A Project owns any number of ordinary Boards. Each Board owns one
 or more ordered Columns and Board Placements. A Card combines canonical Work
-Item content with one Placement; there is no `CardId` and no copied title,
-description, or lifecycle. `(boardId, workItemId)` is unique, while the same Work
-Item may have independent Placements in multiple Boards.
+Item content with one Placement; there is no `CardId` and no copied title or
+description. `(boardId, workItemId)` is unique, while the same Work Item may
+have independent Placements in multiple Boards. A Column describes only that
+Board-local Placement and does not imply the Target overall state. A Project may own zero
+Boards. An empty Board (one with no Board Placements) may be permanently and
+irreversibly deleted by the Project OWNER using the current Board version and an
+exact current-name confirmation. The transaction deletes the Board's Columns
+before the Board, preserves all Project-owned Work Items, and rejects a non-empty
+Board or protected dependency without partial deletion.
 
 The Current Card move is an authorized, Project-scoped, optimistic-concurrency
 controlled **layout action**. It changes only the selected Board Placement's
-Column/order, preserves the Work Item lifecycle and every other Board, and does
+Column/order, preserves canonical Work Item content and every other Board, and does
 not start Workflow or Agent execution. Board, Placement, and anchor conflicts
 reject the whole move so the client can restore the authoritative layout.
 
@@ -718,6 +730,9 @@ status, bounded progress summaries, output references, and audit facts.
 ## Lifecycle State Machines
 
 ### Work Item
+
+**Target:** this approved state machine is not implemented by the Current basic
+Work Item. Board-local Columns describe Placements, not these states.
 
 ```mermaid
 stateDiagram-v2

@@ -1,5 +1,8 @@
 package ai.taskpilot.coreapi.project.api
 
+import ai.taskpilot.coreapi.project.BoardDeleteRestricted
+import ai.taskpilot.coreapi.project.BoardNameConfirmationMismatch
+import ai.taskpilot.coreapi.project.BoardNotEmptyConflict
 import ai.taskpilot.coreapi.project.BoardVersionConflict
 import ai.taskpilot.coreapi.project.ColumnNotEmptyConflict
 import ai.taskpilot.coreapi.project.LastColumnConflict
@@ -94,6 +97,33 @@ class ProjectProblemHandler {
     ): ResponseEntity<ProblemDetail> {
         failure.hashCode()
         return problem(HttpStatus.CONFLICT, "BOARD_VERSION_CONFLICT", request)
+    }
+
+    @ExceptionHandler(BoardNameConfirmationMismatch::class)
+    fun boardNameConfirmationMismatch(
+        failure: BoardNameConfirmationMismatch,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "BOARD_NAME_CONFIRMATION_MISMATCH", request)
+    }
+
+    @ExceptionHandler(BoardNotEmptyConflict::class)
+    fun boardNotEmpty(
+        failure: BoardNotEmptyConflict,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "BOARD_NOT_EMPTY", request)
+    }
+
+    @ExceptionHandler(BoardDeleteRestricted::class)
+    fun boardDeleteRestricted(
+        failure: BoardDeleteRestricted,
+        request: HttpServletRequest,
+    ): ResponseEntity<ProblemDetail> {
+        failure.hashCode()
+        return problem(HttpStatus.CONFLICT, "BOARD_DELETE_RESTRICTED", request)
     }
 
     @ExceptionHandler(ProjectResourceVersionConflict::class)
@@ -204,6 +234,9 @@ class ProjectProblemHandler {
 
             "PROJECT_VERSION_CONFLICT",
             "BOARD_VERSION_CONFLICT",
+            "BOARD_NAME_CONFIRMATION_MISMATCH",
+            "BOARD_NOT_EMPTY",
+            "BOARD_DELETE_RESTRICTED",
             "RESOURCE_VERSION_CONFLICT",
             "COLUMN_NOT_EMPTY",
             "LAST_COLUMN",

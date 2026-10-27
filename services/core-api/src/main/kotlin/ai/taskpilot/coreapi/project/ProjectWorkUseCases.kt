@@ -27,7 +27,6 @@ data class CardView(
     val workItemId: UUID,
     val title: String,
     val description: String,
-    val lifecycle: String,
     val workItemVersion: Long,
     val placementVersion: Long,
     val position: Long,
@@ -49,7 +48,6 @@ data class WorkItemView(
     val projectId: UUID,
     val title: String,
     val description: String,
-    val lifecycle: String,
     val version: Long,
     val createdAt: Instant,
     val updatedAt: Instant,
@@ -113,6 +111,15 @@ data class DeleteColumnCommand(
     val columnId: UUID,
     val expectedBoardVersion: Long,
     val expectedColumnVersion: Long,
+)
+
+data class DeleteBoardCommand(
+    val actorUserId: UUID,
+    val workspaceId: UUID,
+    val projectId: UUID,
+    val boardId: UUID,
+    val expectedVersion: Long,
+    val confirmationName: String,
 )
 
 data class CreateWorkItemCommand(
@@ -191,6 +198,8 @@ interface ProjectWorkUseCases {
 
     fun deleteColumn(command: DeleteColumnCommand)
 
+    fun permanentlyDeleteBoard(command: DeleteBoardCommand)
+
     fun createWorkItem(command: CreateWorkItemCommand): CreateWorkItemResult
 
     fun workItem(
@@ -218,6 +227,12 @@ class ProjectWorkValidationFailed(
 class ProjectWorkIdempotencyConflict : ProjectWorkFailure("IDEMPOTENCY_CONFLICT")
 
 class BoardVersionConflict : ProjectWorkFailure("BOARD_VERSION_CONFLICT")
+
+class BoardNameConfirmationMismatch : ProjectWorkFailure("BOARD_NAME_CONFIRMATION_MISMATCH")
+
+class BoardNotEmptyConflict : ProjectWorkFailure("BOARD_NOT_EMPTY")
+
+class BoardDeleteRestricted : ProjectWorkFailure("BOARD_DELETE_RESTRICTED")
 
 class ProjectResourceVersionConflict : ProjectWorkFailure("RESOURCE_VERSION_CONFLICT")
 

@@ -37,6 +37,32 @@ describe('serializable IPC result contract', () => {
     expect(owner.completeGitHubRegistration).not.toHaveBeenCalled();
   });
 
+  it('validates and invokes only the fixed permanent Board deletion capability', async () => {
+    const handlers = new Map<string, (event: typeof trusted, input?: unknown) => unknown>();
+    const permanentlyDelete = vi.fn().mockResolvedValue({ outcome: 'deleted', home: { boards: [] } });
+    registerDesktopHandlers(
+      { handle: (channel, handler) => handlers.set(channel, handler as never), removeHandler: vi.fn() },
+      { auth: {}, workspaces: {}, projects: {}, boards: { permanentlyDelete } } as never,
+      { webContentsId: 7, generation: 1 },
+    );
+    const input = {
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+      projectId: '22222222-2222-4222-8222-222222222222',
+      boardId: '33333333-3333-4333-8333-333333333333',
+      expectedVersion: 0,
+      confirmationName: 'Delivery',
+    };
+
+    await expect(handlers.get(CHANNELS.permanentlyDeleteBoard)!(trusted, input)).resolves.toMatchObject({
+      ok: true, value: { outcome: 'deleted', home: { boards: [] } },
+    });
+    await expect(handlers.get(CHANNELS.permanentlyDeleteBoard)!(trusted, { ...input, expectedVersion: -1 })).resolves.toEqual({
+      ok: false, error: { code: 'IPC_INPUT_INVALID', category: 'validation' },
+    });
+    expect(permanentlyDelete).toHaveBeenCalledTimes(1);
+    expect(permanentlyDelete).toHaveBeenCalledWith(input);
+  });
+
   it('requires layout versions only when a Work Item changes Column', async () => {
     const handlers = new Map<string, (event: typeof trusted, input?: unknown) => unknown>();
     const owner = { editWorkItem: vi.fn().mockResolvedValue({}) };

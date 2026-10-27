@@ -18,6 +18,7 @@ const PROJECT_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects
 const PROJECT_ACTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/(archive|restore|permanent-deletion)$`, 'i');
 const BOARD_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards$`, 'i');
 const BOARD_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})$`, 'i');
+const BOARD_PERMANENT_DELETION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/permanent-deletion$`, 'i');
 const BOARD_COLUMN_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/columns$`, 'i');
 const BOARD_COLUMN_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/columns/(${UUID})$`, 'i');
 const BOARD_COLUMN_ORDER_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/column-order$`, 'i');
@@ -102,6 +103,7 @@ function isAllowlistedRequest(request: TransportRequest): boolean {
   if (PROJECT_ACTION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
   if (BOARD_COLLECTION_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'POST');
   if (BOARD_ITEM_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'PATCH');
+  if (BOARD_PERMANENT_DELETION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
   if (BOARD_COLUMN_COLLECTION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
   if (BOARD_COLUMN_ITEM_PATH.test(pathname!)) {
     if (request.method === 'PATCH') return query === '';

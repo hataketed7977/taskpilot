@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OutcomeUnknownError } from '../../src/main/api/transport.js';
 import { MemoryCredentialStore } from '../../src/main/credentials/credential-store.js';
 import { ProjectWorkCoordinator } from '../../src/main/projects/project-work-coordinator.js';
 import { MemoryRecentBoardStore } from '../../src/main/projects/recent-board-store.js';
@@ -22,7 +23,7 @@ function fixture() {
   const client = {
     listBoards: vi.fn().mockResolvedValue([summary(firstId), summary(recentId)]),
     getBoard: vi.fn(async (_token, input) => board(input.boardId)),
-    createBoard: vi.fn(), editBoard: vi.fn(), createColumn: vi.fn(), editColumn: vi.fn(), reorderColumns: vi.fn(),
+    createBoard: vi.fn(), editBoard: vi.fn(), permanentlyDeleteBoard: vi.fn(), createColumn: vi.fn(), editColumn: vi.fn(), reorderColumns: vi.fn(),
     deleteColumn: vi.fn(), createWorkItem: vi.fn(), getWorkItem: vi.fn(), editWorkItem: vi.fn(), moveCard: vi.fn(),
   };
   return { session, preferences, client, coordinator: new ProjectWorkCoordinator('production', session, client, preferences) };
@@ -54,7 +55,7 @@ describe('ProjectWorkCoordinator', () => {
   it('routes every mutation and work item read with generation fencing', async () => {
     const current = fixture();
     const changed = board(firstId, 1);
-    const item = { workItemId: recentId, projectId, title: 'Task', description: '', lifecycle: 'OPEN' as const, version: 0, createdAt: now, updatedAt: now };
+    const item = { workItemId: recentId, projectId, title: 'Task', description: '', version: 0, createdAt: now, updatedAt: now };
     current.client.createBoard.mockResolvedValue(changed);
     current.client.createColumn.mockResolvedValue(changed);
     current.client.editColumn.mockResolvedValue(changed);
@@ -73,7 +74,7 @@ describe('ProjectWorkCoordinator', () => {
     await expect(current.coordinator.reorderColumns({ ...location, expectedBoardVersion: 1, columnIds: [columnId] })).resolves.toMatchObject({ key: { boardGeneration: 4 } });
     await expect(current.coordinator.deleteColumn({ ...location, columnId, expectedBoardVersion: 1, expectedColumnVersion: 0 })).resolves.toMatchObject({ key: { boardGeneration: 5 } });
     await expect(current.coordinator.createWorkItem({ ...location, columnId, requestId: recentId, expectedBoardVersion: 1, title: 'Task' })).resolves.toMatchObject({ key: { boardGeneration: 6 } });
-    await expect(current.coordinator.openWorkItem({ workspaceId, projectId, workItemId: recentId })).resolves.toMatchObject({ value: item });
+    await expect(current.coordinator.openWorkItem({ workspaceId, projectId, boardId: firstId, workItemId: recentId })).resolves.toMatchObject({ value: item });
     await expect(current.coordinator.editWorkItem({
       ...location,
       workItemId: recentId,
@@ -112,4 +113,134 @@ describe('ProjectWorkCoordinator', () => {
     older.resolve(board(firstId)); await first;
     await expect(current.preferences.load('production', userA.userId, workspaceId, projectId)).resolves.toBe(recentId);
   });
+
+  it('deletes an empty Board, clears the preference and resolves the earliest remaining Board', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockResolvedValue(undefined);
+    current.client.listBoards.mockResolvedValueOnce([summary(recentId)]);
+    await current.session.establish(issued());
+    await current.preferences.save('production', userA.userId, workspaceId, projectId, firstId);
+
+    await expect(current.coordinator.permanentlyDeleteBoard({
+      workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId,
+    })).resolves.toMatchObject({ value: { outcome: 'deleted', home: { currentBoard: { boardId: recentId } } } });
+    await expect(current.preferences.load('production', userA.userId, workspaceId, projectId)).resolves.toBe(recentId);
+    expect(current.client.permanentlyDeleteBoard).toHaveBeenCalledOnce();
+  });
+
+  it('returns the existing zero Board home after deleting the final Board', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockResolvedValue(undefined);
+    current.client.listBoards.mockResolvedValueOnce([]);
+    await current.session.establish(issued());
+    await expect(current.coordinator.permanentlyDeleteBoard({
+      workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId,
+    })).resolves.toMatchObject({ value: { outcome: 'deleted', home: { boards: [] } } });
+  });
+
+  it('does not roll back a committed deletion when preference cleanup fails', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockResolvedValue(undefined);
+    current.client.listBoards.mockResolvedValueOnce([]);
+    vi.spyOn(current.preferences, 'clear').mockRejectedValueOnce(new Error('disk unavailable'));
+    await current.session.establish(issued());
+    await expect(current.coordinator.permanentlyDeleteBoard({
+      workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId,
+    })).resolves.toMatchObject({ value: { outcome: 'deleted' } });
+  });
+
+  it('reports committed deletion separately when the authoritative home refresh fails', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockResolvedValue(undefined);
+    current.client.listBoards.mockRejectedValueOnce(new TypeError('offline'));
+    await current.session.establish(issued());
+    await expect(current.coordinator.permanentlyDeleteBoard({
+      workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId,
+    })).rejects.toMatchObject({ code: 'BOARD_DELETE_COMMITTED_REFRESH_FAILED' });
+    expect(current.client.permanentlyDeleteBoard).toHaveBeenCalledOnce();
+  });
+
+  it('reconciles a lost response to deleted without resending the irreversible request', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockRejectedValueOnce(new OutcomeUnknownError());
+    current.client.listBoards.mockResolvedValueOnce([summary(recentId)]);
+    await current.session.establish(issued());
+    await expect(current.coordinator.permanentlyDeleteBoard({
+      workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId,
+    })).resolves.toMatchObject({ value: { outcome: 'deleted', home: { currentBoard: { boardId: recentId } } } });
+    expect(current.client.permanentlyDeleteBoard).toHaveBeenCalledOnce();
+  });
+
+  it('reconciles a lost response to not deleted and reloads the isolated Board', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockRejectedValueOnce(new OutcomeUnknownError());
+    current.client.listBoards.mockResolvedValueOnce([summary(firstId), summary(recentId)]);
+    await current.session.establish(issued());
+    await expect(current.coordinator.permanentlyDeleteBoard({
+      workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId,
+    })).resolves.toMatchObject({
+      key: { boardId: firstId, boardGeneration: 1 },
+      value: { outcome: 'notDeleted', home: { currentBoard: { boardId: firstId } } },
+    });
+    expect(current.client.getBoard).toHaveBeenCalledWith('access-a', { workspaceId, projectId, boardId: firstId });
+    expect(current.client.permanentlyDeleteBoard).toHaveBeenCalledOnce();
+  });
+
+  it('keeps an unknown deletion isolated until resolveHome can reconcile it', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockRejectedValueOnce(new OutcomeUnknownError());
+    current.client.listBoards.mockRejectedValueOnce(new TypeError('still offline'));
+    await current.session.establish(issued());
+    const deletion = { workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId };
+    await expect(current.coordinator.permanentlyDeleteBoard(deletion)).rejects.toMatchObject({ code: 'BOARD_DELETE_RESULT_UNKNOWN' });
+    await expect(current.coordinator.edit({ ...deletion, name: firstId })).rejects.toMatchObject({ code: 'BOARD_DELETE_RESULT_UNKNOWN' });
+
+    current.client.listBoards.mockResolvedValueOnce([summary(firstId), summary(recentId)]);
+    await expect(current.coordinator.resolveHome({ workspaceId, projectId })).resolves.toMatchObject({
+      key: { boardId: firstId, boardGeneration: 1 }, value: { currentBoard: { boardId: firstId } },
+    });
+    expect(current.client.permanentlyDeleteBoard).toHaveBeenCalledOnce();
+  });
+
+  it('rejects old Board read detail and mutation completions after deletion tombstones their start tokens', async () => {
+    const current = fixture();
+    const read = Promise.withResolvers<ReturnType<typeof board>>();
+    const detail = Promise.withResolvers<{ workItemId: string; projectId: string; title: string; description: string; version: number; createdAt: string; updatedAt: string }>();
+    const mutation = Promise.withResolvers<ReturnType<typeof board>>();
+    current.client.getBoard.mockReturnValueOnce(read.promise);
+    current.client.getWorkItem.mockReturnValueOnce(detail.promise);
+    current.client.editBoard.mockReturnValueOnce(mutation.promise);
+    current.client.permanentlyDeleteBoard.mockResolvedValueOnce(undefined);
+    current.client.listBoards.mockResolvedValueOnce([]);
+    await current.session.establish(issued());
+    const location = { workspaceId, projectId, boardId: firstId };
+    const oldRead = current.coordinator.open(location);
+    const oldDetail = current.coordinator.openWorkItem({ ...location, workItemId: recentId });
+    const oldMutation = current.coordinator.edit({ ...location, expectedVersion: 0, name: 'Old' });
+    await current.coordinator.permanentlyDeleteBoard({ ...location, expectedVersion: 0, confirmationName: firstId });
+    read.resolve(board(firstId));
+    detail.resolve({ workItemId: recentId, projectId, title: 'Old', description: '', version: 0, createdAt: now, updatedAt: now });
+    mutation.resolve(board(firstId, 1));
+    await expect(oldRead).rejects.toMatchObject({ code: 'BOARD_RESPONSE_SUPERSEDED' });
+    await expect(oldDetail).rejects.toMatchObject({ code: 'BOARD_RESPONSE_SUPERSEDED' });
+    await expect(oldMutation).rejects.toMatchObject({ code: 'BOARD_RESPONSE_SUPERSEDED' });
+  });
+
+  it('scopes reconciliation isolation to the current User and Project', async () => {
+    const current = fixture();
+    current.client.permanentlyDeleteBoard.mockRejectedValueOnce(new OutcomeUnknownError());
+    current.client.listBoards.mockRejectedValueOnce(new TypeError('offline'));
+    await current.session.establish(issued());
+    await expect(current.coordinator.permanentlyDeleteBoard({
+      workspaceId, projectId, boardId: firstId, expectedVersion: 0, confirmationName: firstId,
+    })).rejects.toMatchObject({ code: 'BOARD_DELETE_RESULT_UNKNOWN' });
+    const otherProjectId = '88888888-8888-4888-8888-888888888888';
+    current.client.editBoard.mockResolvedValueOnce(board(firstId, 1));
+    await expect(current.coordinator.edit({ workspaceId, projectId: otherProjectId, boardId: firstId, expectedVersion: 0, name: 'Other' })).resolves.toBeDefined();
+    await current.session.logout();
+    await current.session.establish(issued(userB, 'b'));
+    current.client.editBoard.mockResolvedValueOnce(board(firstId, 2));
+    await expect(current.coordinator.edit({ workspaceId, projectId, boardId: firstId, expectedVersion: 0, name: 'Other user' })).resolves.toBeDefined();
+  });
+
 });

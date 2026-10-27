@@ -199,17 +199,21 @@ class OpenApiIntegrationTest(
             document.schemaProperties("BoardColumnView"),
         )
         assertEquals(
-            setOf("workItemId", "title", "description", "lifecycle", "workItemVersion", "placementVersion", "position"),
+            setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position"),
             document.schemaProperties("CardView"),
         )
         assertEquals(
-            setOf("workItemId", "projectId", "title", "description", "lifecycle", "version", "createdAt", "updatedAt"),
+            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt"),
             document.schemaProperties("WorkItemView"),
         )
         assertEquals(setOf("workItem", "board"), document.schemaProperties("CreateWorkItemResult"))
         assertEquals(setOf("workItem", "board"), document.schemaProperties("EditWorkItemResult"))
         assertEquals(setOf("requestId", "name", "description", "locale"), document.schemaProperties("CreateBoardRequest"))
         assertEquals(setOf("expectedVersion", "name", "description"), document.schemaProperties("EditBoardRequest"))
+        assertEquals(
+            setOf("expectedVersion", "confirmationName"),
+            document.schemaProperties("DeleteBoardRequest"),
+        )
         assertEquals(setOf("requestId", "expectedBoardVersion", "name"), document.schemaProperties("CreateColumnRequest"))
         assertEquals(setOf("expectedBoardVersion", "expectedColumnVersion", "name"), document.schemaProperties("EditColumnRequest"))
         assertEquals(setOf("expectedBoardVersion", "columnIds"), document.schemaProperties("ReorderColumnsRequest"))
@@ -286,6 +290,17 @@ class OpenApiIntegrationTest(
         assertTrue(deletion.contains("irreversib", ignoreCase = true))
         assertTrue(deletion.contains("confirmationName"))
         assertTrue(deletion.contains("protected dependenc", ignoreCase = true))
+        val boardDeletion =
+            paths
+                .requiredMap(
+                    "/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/permanent-deletion",
+                ).requiredMap("post")["description"] as String
+        assertTrue(boardDeletion.contains("irreversib", ignoreCase = true))
+        assertTrue(boardDeletion.contains("expectedVersion"))
+        assertTrue(boardDeletion.contains("confirmationName"))
+        assertTrue(boardDeletion.contains("empty Board", ignoreCase = true))
+        assertTrue(boardDeletion.contains("Work Items", ignoreCase = true))
+        assertTrue(boardDeletion.contains("protected dependenc", ignoreCase = true))
     }
 
     private fun verifySharedComponents(document: Map<String, Any?>) {
@@ -493,6 +508,13 @@ class OpenApiIntegrationTest(
                     OperationContract(null, "BoardView", setOf("200", "400", "401", "404", "503"), "access-bearer"),
                 ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}" to "patch") to
                     OperationContract("EditBoardRequest", "BoardView", setOf("200", "400", "401", "404", "409", "503"), "access-bearer"),
+                ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/permanent-deletion" to "post") to
+                    OperationContract(
+                        "DeleteBoardRequest",
+                        null,
+                        setOf("204", "400", "401", "404", "409", "503"),
+                        "access-bearer",
+                    ),
                 ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/columns" to "post") to
                     OperationContract("CreateColumnRequest", "BoardView", setOf("201", "400", "401", "404", "409", "503"), "access-bearer"),
                 ("/desktop/v1/workspaces/{workspaceId}/projects/{projectId}/boards/{boardId}/columns/{columnId}" to "patch") to

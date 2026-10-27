@@ -137,8 +137,14 @@ contract. Do not mock the state transition or use case under test.
 
 ### Work Items and custom fields
 
-- Current basic OPEN Work Items preserve canonical content/version without a
+- Current basic Work Items without a state capability preserve canonical content/version without a
   required type; Card reads do not copy their content.
+- `WorkspaceProjectMigrationIntegrationTest` migrates fresh PostgreSQL and asserts
+  the exact `work_items` columns and preserved constraints, with no state column/check.
+  Application, HTTP create/detail/edit/Board reads, and runtime OpenAPI assert
+  exact Work Item/Card properties; authorization, atomic rollback, versions,
+  and independent multi-Board Placements remain covered. Run:
+  `./gradlew --no-daemon :services:core-api:test --tests "*WorkspaceProjectMigrationIntegrationTest" --tests "*ProjectWorkApplicationIntegrationTest" --tests "*AuthenticationHttpIntegrationTest" --tests "*OpenApiIntegrationTest"`.
 - Target typed values conform to a pinned Work Item Type Version, and publishing
   a new type version must not mutate existing typed Work Items.
 - Required, enum, and typed values return path-specific diagnostics.
@@ -154,6 +160,11 @@ contract. Do not mock the state transition or use case under test.
   actors, invalid transitions, and approval bypass.
 - Advisory WIP behavior is not tested or documented as a strict guarantee.
 - Board list/query access is batched and avoids N+1 patterns.
+- Empty-Board permanent deletion tests cover multiple empty Columns, last-Board
+  deletion, retained Work Items, OWNER and composite scope, exact-name/current-version
+  checks, non-empty rejection, protected dependency rollback, and Columns-before-Board
+  ordering. HTTP/OpenAPI tests freeze bearer requirements, `204`, the four stable
+  `409` Problem Details codes, request shape, and irreversible operation description.
 
 ### Workflow definitions
 
@@ -295,8 +306,8 @@ Local-Runtime fake cases:
 **Current Project Work evidence:** `ProjectWorkApplicationIntegrationTest` and
 `WorkspaceProjectMigrationIntegrationTest` use real PostgreSQL to cover
 composite scope constraints, deferrable ordering, concurrent request replay,
-Board/Placement contention, multi-Board canonical content, Project subtree
-deletion, and RESTRICT rollback. HTTP/OpenAPI tests own transport status,
+Board/Placement contention, multi-Board canonical content, empty-Board and
+Project subtree deletion, retained Work Items, and RESTRICT rollback. HTTP/OpenAPI tests own transport status,
 security, Problem Details, and implemented-path evidence. Run
 `./gradlew --no-daemon :services:core-api:qualityCheck` for the affected gate.
 

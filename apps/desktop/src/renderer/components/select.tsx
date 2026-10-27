@@ -15,6 +15,7 @@ export type SelectProps = SelectAccessibleName & {
   options: readonly SelectOption[];
   onValueChange(value: string): void;
   disabled?: boolean;
+  ariaDescribedBy?: string;
   variant?: 'default' | 'compact';
 };
 
@@ -25,6 +26,7 @@ export function Select({
   ariaLabel,
   labelledBy,
   disabled = false,
+  ariaDescribedBy,
   variant = 'default',
 }: SelectProps) {
   return (
@@ -33,6 +35,7 @@ export function Select({
         className={`tp-select-trigger tp-select-trigger--${variant}`}
         aria-label={ariaLabel}
         aria-labelledby={labelledBy}
+        aria-describedby={ariaDescribedBy}
       >
         <SelectPrimitive.Value />
         <SelectPrimitive.Icon className="tp-select-trigger__icon" aria-hidden="true">

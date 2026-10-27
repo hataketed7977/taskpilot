@@ -400,7 +400,10 @@ class AuthenticationHttpIntegrationTest(
             )
         assertEquals(201, createdItem.status)
         val workItemId = createdItem.json().nested("workItem").requiredText("workItemId")
-        assertEquals("OPEN", createdItem.json().nested("workItem").requiredText("lifecycle"))
+        assertEquals(
+            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt"),
+            createdItem.json().nested("workItem").keys,
+        )
         assertEquals(
             workItemId,
             createdItem
@@ -455,7 +458,10 @@ class AuthenticationHttpIntegrationTest(
                 .listOfObjects("cards")
                 .single()
         assertEquals("1", movedCard.requiredText("placementVersion"))
-        assertEquals("OPEN", movedCard.requiredText("lifecycle"))
+        assertEquals(
+            setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position"),
+            movedCard.keys,
+        )
 
         val editedItem =
             request(
@@ -470,6 +476,25 @@ class AuthenticationHttpIntegrationTest(
             )
         assertEquals(200, editedItem.status)
         assertEquals("Updated", editedItem.json().nested("workItem").requiredText("title"))
+        val itemKeys = setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt")
+        val cardKeys = setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position")
+        assertEquals(itemKeys, editedItem.json().nested("workItem").keys)
+        val detail = request("GET", "$root/work-items/$workItemId", bearer = registered.accessToken)
+        assertEquals(200, detail.status)
+        assertEquals(itemKeys, detail.json().keys)
+        val readBoard = request("GET", "$root/boards/$boardId", bearer = registered.accessToken)
+        assertEquals(200, readBoard.status)
+        assertEquals(
+            cardKeys,
+            readBoard
+                .json()
+                .listOfObjects("columns")
+                .last()
+                .listOfObjects("cards")
+                .single()
+                .keys,
+        )
+
         assertEquals(boardId, editedItem.json().nested("board").requiredText("boardId"))
         assertEquals(
             "Updated",
@@ -517,6 +542,116 @@ class AuthenticationHttpIntegrationTest(
             409,
             "COLUMN_NOT_EMPTY",
         )
+
+        val nonEmptyDeletionPath = "$root/boards/$boardId/permanent-deletion"
+        assertProblem(
+            request(
+                "POST",
+                nonEmptyDeletionPath,
+                """{"expectedVersion":2,"confirmationName":"Delivery"}""",
+                registered.accessToken,
+            ),
+            409,
+            "BOARD_VERSION_CONFLICT",
+        )
+        assertProblem(
+            request(
+                "POST",
+                nonEmptyDeletionPath,
+                """{"expectedVersion":3,"confirmationName":" Delivery "}""",
+                registered.accessToken,
+            ),
+            409,
+            "BOARD_NAME_CONFIRMATION_MISMATCH",
+        )
+        assertProblem(
+            request(
+                "POST",
+                nonEmptyDeletionPath,
+                """{"expectedVersion":3,"confirmationName":"Delivery"}""",
+                registered.accessToken,
+            ),
+            409,
+            "BOARD_NOT_EMPTY",
+        )
+
+        val disposableBoard =
+            request(
+                "POST",
+                "$root/boards",
+                """{"requestId":"${java.util.UUID.randomUUID()}","name":"Disposable","description":null,"locale":"en"}""",
+                registered.accessToken,
+            )
+        assertEquals(201, disposableBoard.status)
+        val disposableBoardId = disposableBoard.json().requiredText("boardId")
+        val disposableDeletionPath = "$root/boards/$disposableBoardId/permanent-deletion"
+        assertEquals(
+            401,
+            request(
+                "POST",
+                disposableDeletionPath,
+                """{"expectedVersion":0,"confirmationName":"Disposable"}""",
+            ).status,
+        )
+        val deleted =
+            request(
+                "POST",
+                disposableDeletionPath,
+                """{"expectedVersion":0,"confirmationName":"Disposable"}""",
+                registered.accessToken,
+            )
+        assertNotEquals(405, deleted.status)
+        assertEquals(204, deleted.status)
+        assertFalse(
+            request("GET", "$root/boards", bearer = registered.accessToken)
+                .jsonList()
+                .any { it.requiredText("boardId") == disposableBoardId },
+        )
+        assertProblem(
+            request("GET", "$root/boards/$disposableBoardId", bearer = registered.accessToken),
+            404,
+            "PROJECT_NOT_FOUND",
+        )
+
+        val protectedBoard =
+            request(
+                "POST",
+                "$root/boards",
+                """{"requestId":"${java.util.UUID.randomUUID()}","name":"Protected","description":null,"locale":"en"}""",
+                registered.accessToken,
+            )
+        assertEquals(201, protectedBoard.status)
+        val protectedBoardId = protectedBoard.json().requiredText("boardId")
+        postgres.createConnection("").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TABLE project.board_delete_http_test_guards (
+                        board_id UUID PRIMARY KEY REFERENCES project.boards(id) ON DELETE RESTRICT
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    "INSERT INTO project.board_delete_http_test_guards (board_id) VALUES ('$protectedBoardId')",
+                )
+            }
+        }
+        try {
+            assertProblem(
+                request(
+                    "POST",
+                    "$root/boards/$protectedBoardId/permanent-deletion",
+                    """{"expectedVersion":0,"confirmationName":"Protected"}""",
+                    registered.accessToken,
+                ),
+                409,
+                "BOARD_DELETE_RESTRICTED",
+            )
+        } finally {
+            postgres.createConnection("").use { connection ->
+                connection.createStatement().use { it.execute("DROP TABLE project.board_delete_http_test_guards") }
+            }
+        }
         assertProblem(
             request(
                 "GET",

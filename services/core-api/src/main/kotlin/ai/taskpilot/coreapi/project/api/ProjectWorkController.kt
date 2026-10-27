@@ -7,6 +7,7 @@ import ai.taskpilot.coreapi.project.CreateBoardCommand
 import ai.taskpilot.coreapi.project.CreateColumnCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemResult
+import ai.taskpilot.coreapi.project.DeleteBoardCommand
 import ai.taskpilot.coreapi.project.DeleteColumnCommand
 import ai.taskpilot.coreapi.project.EditBoardCommand
 import ai.taskpilot.coreapi.project.EditColumnCommand
@@ -94,6 +95,27 @@ class ProjectWorkController(
                 body.description,
             ),
         )
+
+    @PostMapping("/boards/{boardId}/permanent-deletion")
+    fun permanentlyDeleteBoard(
+        @AuthenticationPrincipal actor: DesktopActor,
+        @PathVariable workspaceId: UUID,
+        @PathVariable projectId: UUID,
+        @PathVariable boardId: UUID,
+        @RequestBody body: DeleteBoardRequest,
+    ): ResponseEntity<Void> {
+        projectWork.permanentlyDeleteBoard(
+            DeleteBoardCommand(
+                actor.userId,
+                workspaceId,
+                projectId,
+                boardId,
+                body.expectedVersion,
+                body.confirmationName,
+            ),
+        )
+        return ResponseEntity.noContent().build()
+    }
 
     @PostMapping("/boards/{boardId}/columns")
     fun createColumn(
@@ -277,6 +299,11 @@ data class EditBoardRequest(
     val expectedVersion: Long,
     val name: String,
     val description: String?,
+)
+
+data class DeleteBoardRequest(
+    val expectedVersion: Long,
+    val confirmationName: String,
 )
 
 data class CreateColumnRequest(

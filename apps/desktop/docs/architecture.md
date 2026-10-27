@@ -285,11 +285,17 @@ restore, refresh, and logout; and an authenticated Project home. Renderer shows
 the fixed personal Workspace context, ACTIVE Project navigation, truthful
 loading/error/empty states, create/edit/archive/restore/permanent-delete
 interactions, multiple Board navigation and Board/Column/Work Item operations,
-pointer and keyboard Card movement, account/language controls, and logout. Main
+including empty-Board permanent deletion, authoritative read-only Work Item
+detail, field-local editing, pointer and keyboard Card movement,
+account/language controls, and logout. Activating a Card first requests
+`openWorkItem`; the Card projection supplies only location/loading context and
+never substitutes for the returned Work Item. Renderer owns the detail's
+loading, error, read-only, single-field editing, implicit saving, transient saved,
+pending-intent, validation/error recovery, and conflict presentation states. Main
 also owns fixed-method-and-path Workspace/Project and Project Work clients,
 validates typed responses at
 the trust boundary, performs refresh and terminal credential cleanup, and fences
-asynchronous completion by session generation. Its Project-home coordinator
+asynchronous completion by session generation. Its Project Work coordinator owns explicit Board-deletion commit/refresh separation, response-lost reconciliation against the authoritative Board list, scoped tombstones/isolation, and operation-start eligibility fencing so late Board reads, details, or mutations cannot revive deleted state. Its Project-home coordinator
 validates registration bootstrap and the device's recent-Project preference
 against Core API before selecting a Project, falls back to the first ACTIVE
 Project or an empty state, and treats corrupt or unavailable preference storage
@@ -297,8 +303,36 @@ as non-blocking. The preference is JSON stored under Desktop user data and keyed
 by cloud environment plus `UserId`; it is not business truth. Agent Runtime is
 not started.
 
-Preload currently exposes fixed typed `workspaces` and `projects` capabilities
-in addition to authentication. IPC validates channel-specific schemas, sender,
+Current shared Work Item/Card contracts and strict Main Zod parsers contain no
+`lifecycle` or `status`; legacy fields fail closed rather than being optional or
+silently stripped. Renderer displays the actual title as the unique single-line
+Dialog heading, a full-width multiline description body, and the audit footer.
+Placement remains authoritative data but has no property row or editor in the
+Focused Work Sheet; the Board canvas expresses location and Board drag is the
+movement entry point. The sheet uses an approximately `760 × 480px` standard desktop work surface that
+contracts to viewport-safe margins in both axes: header/close and audit footer
+stay pinned, the description body absorbs ordinary free space, only the middle
+content region scrolls when needed, and read/edit description surfaces share the
+same flexible multiline slot with a `128px` minimum and top-left text origin.
+Read/edit title controls share their text origin and font metrics; editing uses the same reserved full-field boundary as the read state rather than introducing a different inline underline. Saving keeps the editor and draft mounted
+until the authoritative result. Saving/saved live feedback is conditional and
+positioned adjacent without a permanent layout slot; generic dialogs retain
+their existing header behavior.
+
+Preload currently exposes fixed typed `workspaces`, `projects`, and `boards`
+capabilities in addition to authentication. Board permanent deletion and Work
+Item detail/update are fixed capabilities; Main alone owns their authenticated
+URLs, current credentials, recent-Board preference cleanup, and deletion
+reconciliation. Work Item saves use the latest confirmed detail baseline; title
+saves on Enter or true focus exit, and description saves on true focus exit or
+Ctrl/Cmd+Enter. Each content save preserves the confirmed Board/Column Placement
+context required by the atomic API, but the detail UI does not change Placement.
+Dirty close or field-switch intent waits for one in-flight save before continuing;
+ordinary successful edits expose only transient saving/saved feedback, while
+validation, temporary failure, and conflict retain the field draft for explicit
+recovery. Version conflicts reload authoritative Work Item and Board snapshots before
+Renderer presents the latest value beside the retained local draft. IPC
+validates channel-specific schemas, sender,
 top frame, Renderer origin, payload size, and window/session generation. Results
 carry a Main-produced response key so Renderer rejects superseded session,
 User, Workspace, or Project results. No bearer, endpoint URL, `fetch`, generic HTTP, or

@@ -50,8 +50,8 @@ journey alone implies no packaged or native result.
 | --- | --- |
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
-| Main/Preload contract | Channel allowlist, schema validation, serialization, sender/origin/top-frame/window-generation authorization, keyed Workspace/Project/Board responses, mutation/read generations, and fixed capability exposure |
-| Main integration | Fixed federated, Workspace/Project, and Project Work clients; HTTP allowlists; typed response validation; initial/recent Project and Board fallback; environment-plus-User preference isolation; loopback/auth/session handling; and generation fencing with owned test doubles |
+| Main/Preload contract | Channel allowlist, schema validation, serialization, sender/origin/top-frame/window-generation authorization, keyed Workspace/Project/Board responses, Board-scoped Work Item detail responses, mutation/read generations, permanent-delete validation, and fixed capability exposure |
+| Main integration | Fixed federated, Workspace/Project, and Project Work clients; HTTP allowlists; typed response validation; initial/recent Project and Board fallback; environment-plus-User preference isolation; explicit Board deletion commit/refresh behavior; response-lost reconciliation, tombstones/isolation and operation-start fencing; loopback/auth/session handling; and generation fencing with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
 
@@ -95,7 +95,16 @@ session generation fencing. It also covers the Workspace/Project HTTP allowlist 
 typed contracts, registration bootstrap, environment-plus-User recent-Project
 partitioning, valid and stale preference fallback, corrupt/read/write-failed
 preference degradation, terminal `401` cleanup, channel-specific IPC validation,
-and late-result rejection after logout or account replacement. Renderer tests
+and late-result rejection after logout or account replacement. Project Work
+Main tests additionally cover the fixed empty-Board deletion request, preference
+cleanup, earliest/zero-Board home, committed-delete refresh failure, all three
+response-lost reconciliation outcomes, scoped result-unknown isolation,
+authoritative Work Item detail/update contracts, and rejection of late Board
+read/detail/mutation completions. The pure detail-state reducer covers one active
+field, field-local drafts and errors, Escape discard, implicit saving, repeated-intent
+deduplication, transient saved feedback, conflict choices, saving-state immunity
+to blur/Escape/draft/repeat-submit events, composition Enter suppression, and
+editor/draft/pending-intent retention through saving and conflict. Renderer tests
 also cover initial/default/recent/fallback Project selection, create/edit,
 archive/restore/permanent-delete and post-delete selection, retryable errors,
 empty state, bilingual copy, logout, and stale keyed-result rejection. These
@@ -136,11 +145,44 @@ Project shell at `960 × 640`, long Project names/descriptions, no horizontal
 overflow, visible primary actions, dialog focus trap and focus restoration,
 mutation-error association, exact-name permanent deletion, archived restoration,
 and reduced-motion styling. Long English copy wraps without horizontal loss or
-hiding primary actions. Current Project Work evidence additionally covers Board
-create/edit, Column create/edit/reorder/delete, basic Work Item create/edit,
-response fencing, pointer and keyboard-equivalent move, optimistic rollback,
-focus/live-region behavior, reduced motion, and a `960 × 640` horizontally
-scrollable Column region without page-level overflow. The system journey uses a
+hiding primary actions. Current Project Work evidence additionally covers Board create/edit, Column
+create/edit/reorder/delete, Work Item creation, authoritative read-only detail,
+a unique actual-title heading, strict no-state response shape, audit footer, and
+field-local title and multiline-description saves. Detail tests assert that no
+Placement/Column row, combobox, or movement entry point is present while content
+saves still carry the confirmed Column context required by the API. Cypress owns
+unchanged-value no-submit, save-before-dismiss, conflict retry/use-latest, Card or
+selected-Board focus fallback, long bilingual detail, reduced motion, and
+minimum-window (`960 × 640`) journeys.
+
+Stable-sheet geometry probes sample panel bounds, close control, audit footer,
+persistent description label, and field text origins across read → edit → saving
+→ success/validation/temporary-failure/conflict. Transitions without a genuine
+content-footprint change must stay within 1 CSS pixel per axis, with continuous
+screenshots and video retained as evidence. Cypress also verifies a single-line
+non-scrolling title with an approximately 16px close gap, a viewport-safe standard
+sheet of approximately `760 × 480px`, and a full-width multiline description whose
+read/edit text origin stays at the top-left of one flexible slot with an
+approximately `128px` minimum. Title probes compare the actual text origin, font
+metrics, and structural box model rather than only outer bounds. They also verify
+editor/draft/label/scroll retention while saving, viewport-safe contraction, and
+IME composition Enter suppression.
+`test:system` builds Main/Preload before the JVM runner; explicit dynamic imports
+execute those compiled modules while the real Renderer mounts in
+jsdom against their API. The journey asserts exact Work Item/Card keys, actual
+title heading, Enter-triggered implicit save, and persisted version/content;
+native Electron geometry and behavior evidence stay separate.
+Main consumer tests accept the exact no-state Work Item/Card responses and reject
+injected legacy lifecycle/status fields. Cypress tests flat static fields, title
+26px/body 14px/footer 11px, conditional feedback without idle slots, long bilingual
+content at 960×640, 1280×800, and 1600×900, and no feedback layout shift.
+Renderer integration covers loading/error/read-only/editing/saving/conflict
+states and response fencing; it locks editor/draft and persistent-label
+retention during saving, IME composition suppression, and single-snapshot saves
+across rapid field switches and close requests; reducer tests cover state transitions independently.
+Pointer and keyboard-equivalent movement, optimistic rollback, focus/live-region
+behavior, and the horizontally scrollable Column region remain covered. The
+system journey uses a
 provider/browser double plus real PostgreSQL and Redis; it does not prove real
 GitHub OAuth or Windows-native drag/focus behavior.
 

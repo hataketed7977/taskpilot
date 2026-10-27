@@ -199,7 +199,7 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
 }
 
 function ProjectSurface({ api, userId, workspaceId, project, onSettings }: { api: TaskPilotDesktopApi; userId: string; workspaceId: string; project: ProjectView; onSettings(): void }) {
-  return <BoardWorkspace key={project.projectId} api={api} userId={userId} workspaceId={workspaceId} project={project} onSettings={onSettings} />;
+  return <BoardWorkspace key={project.projectId} api={api} userId={userId} workspaceId={workspaceId} project={project} onSettings={onSettings} onLeaveProject={onSettings} />;
 }
 
 function EmptyProjects({ onCreate, onArchived }: { onCreate(): void; onArchived(): void }) {

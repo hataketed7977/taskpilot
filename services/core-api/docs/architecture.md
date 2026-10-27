@@ -61,8 +61,9 @@ The implemented application is deliberately limited to:
   Workspace with OWNER membership, and one ordinary default Project with OWNER
   membership plus a localized ordinary Board and initial Column;
 - authenticated Workspace discovery plus Project and Project Work operations:
-  Project create/edit/archive/restore/delete, multiple Boards, Columns, basic
-  OPEN Work Items, Board Placements, and Card moves, all backed by server-side
+  Project create/edit/archive/restore/delete, multiple Boards including empty-Board
+  permanent deletion, Columns, basic Work Items without a state capability, Board Placements, and Card
+  moves, all backed by server-side
   OWNER authorization, request-id idempotency, and optimistic version checks;
 - a fail-closed Spring Security chain that permits only explicit anonymous auth
   endpoints and Actuator probes, authenticates Desktop account, Workspace, and
@@ -310,10 +311,11 @@ canonical persisted form.
 ## Board Interaction
 
 **Current:** Project Work remains inside the `project` capability and PostgreSQL
-schema. A Project owns ordinary Boards and basic OPEN Work Items; a Board owns at
+schema. A Project owns ordinary Boards and basic Work Items without a state capability; a Board owns at
 least one ordered Column and Board-local Placements. Cards reuse `WorkItemId` and
 join canonical Work Item content at read time rather than persisting a Card
-copy. The same Work Item may have independent Placements in multiple Boards.
+copy. The same Work Item may have independent Placements in multiple Boards,
+and a Project may own zero Boards.
 
 Board, Column, Work Item, and Placement mutations execute in local PostgreSQL
 transactions after Workspace/Project OWNER and composite scope checks. Creation
@@ -321,10 +323,23 @@ uses actor-plus-Project request IDs and payload fingerprints. Board layout write
 lock the Board and use Board/resource versions; integer positions are normalized
 under deferrable unique constraints. A Card move updates only the selected
 Placement and returns the authoritative Board snapshot. It does not change Work
-Item lifecycle or invoke Workflow/Agent behavior.
+Item content or invoke Workflow/Agent behavior. Empty-Board permanent deletion
+locks and revalidates Project OWNER, scope, Board version, and exact current name;
+it rejects any Placement, deletes Columns before the Board, preserves Work Items,
+and rolls back when an unknown protected dependency restricts deletion.
+
+Current Work Item responses expose identity, Project scope, content, version, and
+created/updated timestamps; Cards expose canonical identity/content and separate
+Work Item/Placement versions and position. Neither has `lifecycle` or `status`.
+The pre-release `V1__initialize_taskpilot.sql` baseline has no placeholder state
+column/check. This baseline rewrite is for disposable local development only;
+released or non-disposable databases require a separately approved migration.
+Local startup may use only the checkout-owned loopback recovery documented in
+[the root README](../../../README.md#local-development); never Flyway repair or
+unowned-volume deletion.
 
 **Target:** Workflow-derived Board views, action mappings, Swimlanes, WIP policy,
-custom fields, and independent Board/Work Item deletion are not Current.
+custom fields, and Work Item deletion are not Current.
 
 ## Persistence
 
@@ -364,7 +379,7 @@ class hierarchy.
 
 The Current Desktop API exposes the authenticated User's PERSONAL Workspace,
 authorized Project operations, and explicit Project Work operations for Board
-list/create/read/edit, Column create/edit/reorder/delete, basic Work Item
+list/create/read/edit/permanent-delete, Column create/edit/reorder/delete, basic Work Item
 create/read/edit, and Placement move. Project pages are
 ordered by `(createdAt, projectId)` and use an opaque Base64URL cursor whose
 encoding is an internal server contract; clients must not parse it. The cursor
@@ -396,8 +411,13 @@ versions; retries that already reached the target state return the unchanged
 view. Permanent deletion locks and revalidates the scoped Project, version, and
 exact current name, explicitly deletes Placement → Column → Board → Work Item →
 Membership → Project, preserves the PERSONAL Workspace, and maps unknown
-protected dependencies to `PROJECT_DELETE_RESTRICTED`. All current and future Project FKs default to
-`RESTRICT`; no generic cascade is approved. Runtime OpenAPI publication and Desktop Main/Preload consumption for these
+protected dependencies to `PROJECT_DELETE_RESTRICTED`. Empty-Board deletion
+uses its own irreversible POST contract, preserves Project-owned Work Items, and
+maps stale version, exact-name mismatch, existing Placement, and protected
+dependency conflicts to `BOARD_VERSION_CONFLICT`,
+`BOARD_NAME_CONFIRMATION_MISMATCH`, `BOARD_NOT_EMPTY`, and
+`BOARD_DELETE_RESTRICTED`; each is HTTP `409`. All current and future Project FKs
+default to `RESTRICT`; no generic cascade is approved. Runtime OpenAPI publication and Desktop Main/Preload consumption for these
 Workspace/Project operations are Current. TEAM behavior remains Target.
 
 ## Query and Read Models

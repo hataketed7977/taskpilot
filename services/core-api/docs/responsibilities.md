@@ -21,8 +21,8 @@ Workspace OWNER persistence, discovery, and authorization. Access also owns the 
 locale allowlist, exact `(locale, legalBundleVersion, termsVersion,
 privacyVersion)` validation, atomic acceptance persistence, and server-generated
 `acceptedAt`; it does not own Desktop language preference or general server-side
-i18n. Project currently owns ordinary Boards, ordered Columns, basic OPEN Work
-Items, Board Placements, OWNER-authorized layout moves, and their Desktop API.
+i18n. Project currently owns ordinary Boards, ordered Columns, basic Work
+Items without a state capability, Board Placements, OWNER-authorized layout moves, and their Desktop API.
 Cards reuse `WorkItemId`; they are not persisted business records. The GitHub adapter performs only
 authorization/token/authenticated-user exchange outside database transactions
 and returns a normalized durable identity; it does not persist Provider tokens.
@@ -137,8 +137,9 @@ shape per concept.
 
 ### Work management
 
-- **Current:** create and edit basic OPEN Work Items; create/edit Boards and
-  Columns; reorder/delete eligible Columns; create and move Board Placements.
+- **Current:** create and edit basic Work Items without a state capability; create/edit Boards and
+  Columns; reorder/delete eligible Columns; permanently delete an empty Board
+  while preserving Work Items; create and move Board Placements.
 - **Target:** complete, cancel, and explicitly reopen a Work Item; publish a Work
   Item Type Version and explicitly migrate compatible typed Work Items.
 - Assign a human or select/override an Agent Slot binding.
@@ -214,9 +215,14 @@ are idempotent and observable.
 
 **Current:** Project Work owns ordinary Board/Column definitions, basic Work
 Items, Board Placements, and joined Card queries. `(boardId, workItemId)` is the
-Board-local uniqueness boundary; Work Item content remains canonical. Card move
-is a versioned layout mutation only and cannot alter lifecycle, another Board,
-or start Workflow/Agent execution.
+Board-local uniqueness boundary; Work Item content remains canonical. Current
+Work Item/Card DTOs, SQL queries, and runtime OpenAPI own a strict no-state
+response shape, with no optional/deprecated lifecycle/status compatibility field. Card move
+is a versioned layout mutation only and cannot alter canonical content, another Board,
+or start Workflow/Agent execution. Project Work also owns empty-Board permanent
+deletion: it reauthorizes Project OWNER, validates current version and exact name,
+rejects any Placement, deletes Columns before the Board, preserves Work Items,
+and translates protected dependencies without partial deletion.
 
 **Target:** Swimlanes, workflow/execution summaries, WIP policies, and action
 mappings remain unimplemented. A later Workflow Change must define any mapping

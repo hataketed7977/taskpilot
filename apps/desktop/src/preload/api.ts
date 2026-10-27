@@ -35,6 +35,7 @@ export function createTaskPilotDesktopApi(invoke: DesktopInvoke, subscribe: Sess
       open: input => call(CHANNELS.openBoard, input),
       create: input => call(CHANNELS.createBoard, input),
       edit: input => call(CHANNELS.editBoard, input),
+      permanentlyDelete: input => call(CHANNELS.permanentlyDeleteBoard, input),
       createColumn: input => call(CHANNELS.createColumn, input),
       editColumn: input => call(CHANNELS.editColumn, input),
       reorderColumns: input => call(CHANNELS.reorderColumns, input),

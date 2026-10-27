@@ -28,6 +28,15 @@ describe.each([
 });
 
 describe('JsonRecentBoardStore', () => {
+  it('serializes a clear after an earlier save so a deleted Board cannot be restored', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'taskpilot-board-order-'));
+    const store = new JsonRecentBoardStore(join(directory, 'recent.json'));
+    const save = store.save('production', userId, workspaceId, projectId, boardId);
+    const clear = store.clear('production', userId, workspaceId, projectId);
+    await Promise.all([save, clear]);
+    await expect(store.load('production', userId, workspaceId, projectId)).resolves.toBeUndefined();
+  });
+
   it('recovers from an invalid document and persists a versioned document', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'taskpilot-board-invalid-'));
     const path = join(directory, 'recent.json');

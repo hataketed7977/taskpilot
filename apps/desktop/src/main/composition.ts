@@ -97,6 +97,7 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
     open: input => projectWork.open(input),
     create: input => projectWork.create(input),
     edit: input => projectWork.edit(input),
+    permanentlyDelete: input => projectWork.permanentlyDeleteBoard(input),
     createColumn: input => projectWork.createColumn(input),
     editColumn: input => projectWork.editColumn(input),
     reorderColumns: input => projectWork.reorderColumns(input),

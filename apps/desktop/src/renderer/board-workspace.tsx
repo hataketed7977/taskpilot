@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
   type DragEvent,
@@ -22,27 +23,32 @@ import type {
   ProjectView,
   TaskPilotDesktopApi,
 } from "../shared/contracts";
-import { Select } from "./components/select";
+import {
+  initialWorkItemDetailState,
+  transitionWorkItemDetail,
+} from "./work-item-detail-state";
 import { useLocale } from "./i18n/locale-state";
 
 type BoardState =
   | { kind: "loading" }
   | { kind: "error" }
+  | { kind: "delete-result-unknown" }
+  | { kind: "delete-committed-refresh-failed" }
   | { kind: "ready"; home: BoardHomeView; key: BoardResponseKey };
 type BoardDialog =
   | { kind: "create-board" }
   | { kind: "edit-board"; board: BoardView }
+  | { kind: "delete-board"; board: BoardView }
   | { kind: "create-column"; board: BoardView }
   | { kind: "edit-column"; board: BoardView; column: BoardColumnView }
   | { kind: "create-card"; board: BoardView; column: BoardColumnView }
-  | {
-      kind: "edit-card";
-      board: BoardView;
-      column: BoardColumnView;
-      card: CardView;
-    }
   | undefined;
-type CodedError = { recovery?: string };
+type WorkItemDetailTarget = {
+  boardId: string;
+  columnId: string;
+  workItemId: string;
+};
+type CodedError = { code?: string; recovery?: string };
 
 type BoardWorkspaceProps = {
   api: TaskPilotDesktopApi;
@@ -50,6 +56,7 @@ type BoardWorkspaceProps = {
   workspaceId: string;
   project: ProjectView;
   onSettings(): void;
+  onLeaveProject(): void;
 };
 
 export function BoardWorkspace({
@@ -58,14 +65,20 @@ export function BoardWorkspace({
   workspaceId,
   project,
   onSettings,
+  onLeaveProject,
 }: BoardWorkspaceProps) {
   const { t } = useTranslation();
   const { locale } = useLocale();
   const [state, setState] = useState<BoardState>({ kind: "loading" });
   const [dialog, setDialog] = useState<BoardDialog>();
+  const [workItemDetail, setWorkItemDetail] = useState<WorkItemDetailTarget>();
   const [announcement, setAnnouncement] = useState("");
   const [pendingMove, setPendingMove] = useState<string>();
   const [moveFailure, setMoveFailure] = useState<string>();
+  const [boardNotice, setBoardNotice] = useState<string>();
+  const [boardActionsOpen, setBoardActionsOpen] = useState(false);
+  const boardActionsTrigger = useRef<HTMLButtonElement>(null);
+  const boardDeleteAction = useRef<HTMLButtonElement>(null);
   const focusWorkItemId = useRef<string | undefined>(undefined);
   const requestSequence = useRef(0);
   const selectionSequence = useRef(0);
@@ -93,11 +106,18 @@ export function BoardWorkspace({
 
   const getSelection = useCallback(() => selectionSequence.current, []);
 
+  useEffect(() => {
+    if (boardActionsOpen) boardDeleteAction.current?.focus();
+  }, [boardActionsOpen]);
+
   const clearBoardTransientState = useCallback(() => {
     setDialog(undefined);
+    setWorkItemDetail(undefined);
     setAnnouncement("");
     setPendingMove(undefined);
     setMoveFailure(undefined);
+    setBoardNotice(undefined);
+    setBoardActionsOpen(false);
     focusWorkItemId.current = undefined;
   }, []);
 
@@ -156,6 +176,19 @@ export function BoardWorkspace({
       if (!accepts(key, board.boardId)) return false;
       const summary = toSummary(board);
       selectedBoardId.current = board.boardId;
+      if (
+        workItemDetail?.boardId === board.boardId &&
+        !findCard(board, workItemDetail.workItemId)
+      ) {
+        setWorkItemDetail(undefined);
+        requestAnimationFrame(() => {
+          const fallback =
+            document.querySelector<HTMLElement>(
+              '.board-switcher [role="tab"][aria-selected="true"]',
+            ) ?? document.querySelector<HTMLElement>(".board-add-card");
+          fallback?.focus();
+        });
+      }
       setState((previous) => {
         if (previous.kind !== "ready") return previous;
         const exists = previous.home.boards.some(
@@ -176,6 +209,22 @@ export function BoardWorkspace({
           },
         };
       });
+      return true;
+    },
+    [accepts, workItemDetail],
+  );
+
+  const commitHome = useCallback(
+    (home: BoardHomeView, key: BoardResponseKey, selection: number) => {
+      if (selection !== selectionSequence.current) return false;
+      if (!accepts(key, home.currentBoard?.boardId)) return false;
+      selectedBoardId.current = home.currentBoard?.boardId;
+      if (home.currentBoard) {
+        const generation = key.boardGeneration;
+        if (generation !== undefined)
+          boardGenerations.current.set(home.currentBoard.boardId, generation);
+      }
+      setState({ kind: "ready", home, key });
       return true;
     },
     [accepts],
@@ -322,6 +371,54 @@ export function BoardWorkspace({
       </div>
     );
   }
+  if (
+    state.kind === "delete-result-unknown" ||
+    state.kind === "delete-committed-refresh-failed"
+  ) {
+    const unknown = state.kind === "delete-result-unknown";
+    return (
+      <div className="board-state board-state--critical" role="alert">
+        <BoardGlyph />
+        <h2>
+          {t(
+            unknown
+              ? "board.delete.resultUnknownTitle"
+              : "board.delete.committedRefreshTitle",
+          )}
+        </h2>
+        <p>
+          {t(
+            unknown
+              ? "board.delete.resultUnknownDetail"
+              : "board.delete.committedRefreshDetail",
+          )}
+        </p>
+        <div className="board-state__actions">
+          <button
+            type="button"
+            className="project-button project-button--primary"
+            onClick={() => void resolve()}
+          >
+            {t(
+              unknown
+                ? "board.delete.retryReconciliation"
+                : "board.delete.retryRefresh",
+            )}
+          </button>
+          {unknown ? (
+            <button
+              type="button"
+              className="project-button"
+              onClick={onLeaveProject}
+            >
+              {t("board.delete.leaveProject")}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   if (state.kind === "error") {
     return (
       <div className="board-state board-state--error" role="alert">
@@ -380,26 +477,84 @@ export function BoardWorkspace({
         </div>
         <div className="board-toolbar__actions">
           {board ? (
+            <>
+              <button
+                type="button"
+                className="icon-action"
+                aria-label={t("board.editAction")}
+                title={t("board.editAction")}
+                onClick={() => setDialog({ kind: "edit-board", board })}
+              >
+                <EditIcon />
+              </button>
+              <div className="board-actions">
+                <button
+                  ref={boardActionsTrigger}
+                  type="button"
+                  className="icon-action board-actions__trigger"
+                  aria-label={t("board.actions")}
+                  title={t("board.actions")}
+                  aria-haspopup="menu"
+                  aria-expanded={boardActionsOpen}
+                  onClick={() => setBoardActionsOpen((open) => !open)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    setBoardActionsOpen((open) => !open);
+                  }}
+                >
+                  <MoreIcon />
+                </button>
+                {boardActionsOpen ? (
+                  <div className="board-actions__menu" role="menu">
+                    <button
+                      ref={boardDeleteAction}
+                      type="button"
+                      role="menuitem"
+                      className="board-actions__danger"
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setBoardActionsOpen(false);
+                          boardActionsTrigger.current?.focus();
+                          return;
+                        }
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        boardActionsTrigger.current?.focus();
+                        setBoardActionsOpen(false);
+                        setDialog({ kind: "delete-board", board });
+                      }}
+                      onClick={() => {
+                        boardActionsTrigger.current?.focus();
+                        setBoardActionsOpen(false);
+                        setDialog({ kind: "delete-board", board });
+                      }}
+                    >
+                      {t("board.delete.action")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+          {board ? (
             <button
               type="button"
-              className="icon-action"
-              aria-label={t("board.editAction")}
-              title={t("board.editAction")}
-              onClick={() => setDialog({ kind: "edit-board", board })}
+              className="project-button project-button--primary"
+              aria-label={t("board.createAction")}
+              onClick={() => setDialog({ kind: "create-board" })}
             >
-              <EditIcon />
+              + {t("board.createAction")}
             </button>
           ) : null}
-          <button
-            type="button"
-            className="project-button project-button--primary"
-            aria-label={t("board.createAction")}
-            onClick={() => setDialog({ kind: "create-board" })}
-          >
-            + {t("board.createAction")}
-          </button>
         </div>
       </div>
+      {boardNotice ? (
+        <div className="board-notice" role="alert">
+          {t(boardNotice)}
+        </div>
+      ) : null}
       {moveFailure ? (
         <div className="board-move-error" role="alert">
           <span>{t("board.moveFailed", { title: moveFailure })}</span>
@@ -422,6 +577,9 @@ export function BoardWorkspace({
           pendingMove={pendingMove}
           focusWorkItemId={focusWorkItemId}
           onDialog={setDialog}
+          onOpenWorkItem={(columnId, workItemId) =>
+            setWorkItemDetail({ boardId: board.boardId, columnId, workItemId })
+          }
           onMove={moveCard}
           getSelection={getSelection}
           onBoard={commitBoard}
@@ -446,7 +604,30 @@ export function BoardWorkspace({
       <p className="visually-hidden" aria-live="polite">
         {announcement}
       </p>
-      {dialog ? (
+      {dialog?.kind === "delete-board" ? (
+        <DeleteBoardDialog
+          board={dialog.board}
+          api={api}
+          workspaceId={workspaceId}
+          projectId={project.projectId}
+          getSelection={getSelection}
+          onClose={() => setDialog(undefined)}
+          onHome={(home, key, selection, outcome) => {
+            if (!commitHome(home, key, selection)) return;
+            setDialog(undefined);
+            if (outcome === "notDeleted")
+              setBoardNotice("board.delete.notDeleted");
+          }}
+          onResultUnknown={() => {
+            setDialog(undefined);
+            setState({ kind: "delete-result-unknown" });
+          }}
+          onCommittedRefreshFailure={() => {
+            setDialog(undefined);
+            setState({ kind: "delete-committed-refresh-failed" });
+          }}
+        />
+      ) : dialog ? (
         <BoardDialogView
           dialog={dialog}
           api={api}
@@ -459,13 +640,34 @@ export function BoardWorkspace({
             if (commitBoard(next, key, add, selection, add))
               setDialog(undefined);
           }}
-          onEditedWorkItem={(next, key, workItemId, selection) => {
-            focusWorkItemId.current = workItemId;
-            if (commitBoard(next, key, false, selection)) {
-              setDialog(undefined);
-            } else {
-              focusWorkItemId.current = undefined;
-            }
+        />
+      ) : workItemDetail &&
+        board &&
+        workItemDetail.boardId === board.boardId ? (
+        <WorkItemDetailDialog
+          target={workItemDetail}
+          board={board}
+          api={api}
+          workspaceId={workspaceId}
+          projectId={project.projectId}
+          getSelection={getSelection}
+          accepts={accepts}
+          onBoard={(next, key, selection) =>
+            commitBoard(next, key, false, selection)
+          }
+          onClose={() => {
+            const card = [...document.querySelectorAll<HTMLElement>("[data-work-item-id]")]
+              .find(
+                (element) =>
+                  element.dataset.workItemId === workItemDetail.workItemId,
+              )
+              ?.querySelector<HTMLElement>("button");
+            const fallback =
+              document.querySelector<HTMLElement>(
+                '.board-switcher [role="tab"][aria-selected="true"]',
+              ) ?? document.querySelector<HTMLElement>(".board-add-card");
+            (card ?? fallback)?.focus();
+            setWorkItemDetail(undefined);
           }}
         />
       ) : null}
@@ -479,6 +681,7 @@ function BoardCanvas({
   focusWorkItemId,
   getSelection,
   onDialog,
+  onOpenWorkItem,
   onMove,
   onBoard,
   api,
@@ -490,6 +693,7 @@ function BoardCanvas({
   focusWorkItemId: { current: string | undefined };
   getSelection(): number;
   onDialog(dialog: BoardDialog): void;
+  onOpenWorkItem(columnId: string, workItemId: string): void;
   onMove(
     card: CardView,
     sourceColumnId: string,
@@ -517,8 +721,12 @@ function BoardCanvas({
   const [settlingWorkItemId, setSettlingWorkItemId] = useState<string>();
   const canvas = useRef<HTMLElement>(null);
   const dragStartFrame = useRef<number | undefined>(undefined);
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const previousCardPositions = useRef<Map<string, DOMRect> | undefined>(undefined);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const previousCardPositions = useRef<Map<string, DOMRect> | undefined>(
+    undefined,
+  );
   const layoutAnimations = useRef(new Map<string, Animation>());
   const activeDropTarget = useRef<typeof dropTarget>(undefined);
 
@@ -542,7 +750,8 @@ function BoardCanvas({
     for (const element of boardCardsIn(canvas.current)) {
       const workItemId = element.dataset.workItemId;
       const previous = workItemId ? positions.get(workItemId) : undefined;
-      if (!workItemId || !previous || workItemId === draggedWorkItemId) continue;
+      if (!workItemId || !previous || workItemId === draggedWorkItemId)
+        continue;
 
       layoutAnimations.current.get(workItemId)?.cancel();
       const current = element.getBoundingClientRect();
@@ -684,7 +893,11 @@ function BoardCanvas({
         expectedBoardVersion: board.version,
         expectedColumnVersion: column.version,
       });
-      return api.boards.open({ workspaceId, projectId, boardId: board.boardId });
+      return api.boards.open({
+        workspaceId,
+        projectId,
+        boardId: board.boardId,
+      });
     });
   };
 
@@ -738,7 +951,9 @@ function BoardCanvas({
                     type="button"
                     className="icon-action"
                     disabled={busy !== undefined || index === 0}
-                    aria-label={t("board.moveColumnLeft", { name: column.name })}
+                    aria-label={t("board.moveColumnLeft", {
+                      name: column.name,
+                    })}
                     onClick={() => reorder(column.columnId, -1)}
                   >
                     ←
@@ -749,7 +964,9 @@ function BoardCanvas({
                     disabled={
                       busy !== undefined || index === board.columns.length - 1
                     }
-                    aria-label={t("board.moveColumnRight", { name: column.name })}
+                    aria-label={t("board.moveColumnRight", {
+                      name: column.name,
+                    })}
                     onClick={() => reorder(column.columnId, 1)}
                   >
                     →
@@ -841,7 +1058,7 @@ function BoardCanvas({
                           className="board-card__body"
                           aria-label={card.title}
                           onClick={() =>
-                            onDialog({ kind: "edit-card", board, column, card })
+                            onOpenWorkItem(column.columnId, card.workItemId)
                           }
                         >
                           <strong>{card.title}</strong>
@@ -857,7 +1074,9 @@ function BoardCanvas({
                   <div className="board-drop-slot" aria-hidden="true" />
                 ) : null}
                 {column.cards.length === 0 && !dropsAtEnd ? (
-                  <p className="board-column__empty">{t("board.emptyColumn")}</p>
+                  <p className="board-column__empty">
+                    {t("board.emptyColumn")}
+                  </p>
                 ) : null}
               </div>
               <button
@@ -898,9 +1117,8 @@ function BoardDialogView({
   getSelection,
   onClose,
   onBoard,
-  onEditedWorkItem,
 }: {
-  dialog: Exclude<BoardDialog, undefined>;
+  dialog: Exclude<BoardDialog, undefined | { kind: "delete-board" }>;
   api: TaskPilotDesktopApi;
   workspaceId: string;
   projectId: string;
@@ -913,16 +1131,9 @@ function BoardDialogView({
     add: boolean | undefined,
     selection: number,
   ): void;
-  onEditedWorkItem(
-    board: BoardView,
-    key: BoardResponseKey,
-    workItemId: string,
-    selection: number,
-  ): void;
 }) {
   const board = "board" in dialog ? dialog.board : undefined;
   const column = "column" in dialog ? dialog.column : undefined;
-  const card = "card" in dialog ? dialog.card : undefined;
   return (
     <EntityDialog
       kind={dialog.kind}
@@ -931,23 +1142,13 @@ function BoardDialogView({
           ? dialog.board.name
           : dialog.kind === "edit-column"
             ? dialog.column.name
-            : dialog.kind === "edit-card"
-              ? dialog.card.title
-              : ""
-      }
-      initialDescription={
-        dialog.kind === "edit-board"
-          ? dialog.board.description
-          : dialog.kind === "edit-card"
-            ? dialog.card.description
             : ""
       }
-      columns={dialog.kind === "edit-card" ? dialog.board.columns : undefined}
-      initialColumnId={
-        dialog.kind === "edit-card" ? dialog.column.columnId : undefined
+      initialDescription={
+        dialog.kind === "edit-board" ? dialog.board.description : ""
       }
       onClose={onClose}
-      onSubmit={async (name, description, requestId, targetColumnId) => {
+      onSubmit={async (name, description, requestId) => {
         const selection = getSelection();
         if (dialog.kind === "create-board") {
           const result = await api.boards.create({
@@ -1012,39 +1213,743 @@ function BoardDialogView({
           onBoard(result.value.board, result.key, false, selection);
           return;
         }
-        if (
-          dialog.kind === "edit-card" &&
-          board &&
-          column &&
-          card &&
-          targetColumnId
-        ) {
-          const result = await api.boards.editWorkItem({
-            workspaceId,
-            projectId,
-            boardId: board.boardId,
-            workItemId: card.workItemId,
-            currentColumnId: column.columnId,
-            targetColumnId,
-            ...(targetColumnId === column.columnId
-              ? {}
-              : {
-                  expectedBoardVersion: board.version,
-                  expectedPlacementVersion: card.placementVersion,
-                }),
-            expectedVersion: card.workItemVersion,
-            title: name,
-            description,
-          });
-          onEditedWorkItem(
-            result.value.board,
-            result.key,
-            card.workItemId,
-            selection,
-          );
-        }
       }}
     />
+  );
+}
+
+function WorkItemDetailDialog({
+  target,
+  board,
+  api,
+  workspaceId,
+  projectId,
+  getSelection,
+  accepts,
+  onBoard,
+  onClose,
+}: {
+  target: WorkItemDetailTarget;
+  board: BoardView;
+  api: TaskPilotDesktopApi;
+  workspaceId: string;
+  projectId: string;
+  getSelection(): number;
+  accepts(key: BoardResponseKey, boardId?: string): boolean;
+  onBoard(board: BoardView, key: BoardResponseKey, selection: number): boolean;
+  onClose(): void;
+}) {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
+  const [detail, dispatch] = useReducer(
+    transitionWorkItemDetail,
+    initialWorkItemDetailState,
+  );
+  const detailRef = useRef(detail);
+  const requestSequence = useRef(0);
+  const mounted = useRef(true);
+  const boardRef = useRef(board);
+  const saveInFlight = useRef(false);
+  const closeRequested = useRef(false);
+  const fieldTriggers = useRef<
+    Partial<Record<"title" | "description", HTMLButtonElement | null>>
+  >({});
+  const restoreFieldFocus = useRef<"title" | "description" | undefined>(undefined);
+  const decisionFocus = useRef<HTMLButtonElement>(null);
+  const fieldErrorId = useId();
+
+  useLayoutEffect(() => {
+    boardRef.current = board;
+  }, [board]);
+
+  useLayoutEffect(() => {
+    detailRef.current = detail;
+  }, [detail]);
+
+  useLayoutEffect(() => {
+    const field = restoreFieldFocus.current;
+    if ((detail.kind !== "read-only" && detail.kind !== "saved") || !field) return;
+    restoreFieldFocus.current = undefined;
+    fieldTriggers.current[field]?.focus();
+  }, [detail.kind]);
+
+  useLayoutEffect(() => {
+    if (detail.kind === "conflict") decisionFocus.current?.focus();
+  }, [detail.kind]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestSequence.current += 1;
+    };
+  }, []);
+
+  const load = useCallback(async () => {
+    const token = ++requestSequence.current;
+    const selection = getSelection();
+    dispatch({
+      type: "open",
+      token,
+      boardId: target.boardId,
+      workItemId: target.workItemId,
+    });
+    try {
+      const result = await api.boards.openWorkItem({
+        workspaceId,
+        projectId,
+        boardId: target.boardId,
+        workItemId: target.workItemId,
+      });
+      if (
+        !mounted.current ||
+        token !== requestSequence.current ||
+        selection !== getSelection() ||
+        board.boardId !== target.boardId ||
+        !accepts(result.key, target.boardId)
+      ) return;
+      const currentBoard = boardRef.current;
+      const column = currentBoard.columns.find(
+        (item) =>
+          item.columnId === target.columnId &&
+          item.cards.some((card) => card.workItemId === target.workItemId),
+      );
+      if (!column) {
+        dispatch({ type: "load-failed", token });
+        return;
+      }
+      dispatch({
+        type: "loaded",
+        token,
+        confirmed: {
+          workItem: result.value,
+          board: currentBoard,
+          columnId: column.columnId,
+        },
+      });
+    } catch (error) {
+      if (
+        mounted.current &&
+        token === requestSequence.current &&
+        selection === getSelection() &&
+        (error as CodedError).recovery !== "SIGN_IN"
+      ) dispatch({ type: "load-failed", token });
+    }
+  }, [accepts, api.boards, board.boardId, getSelection, projectId, target, workspaceId]);
+
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+
+  useEffect(() => {
+    if (detail.kind !== "saved") return;
+    const timer = window.setTimeout(() => dispatch({ type: "settle" }), 1600);
+    return () => window.clearTimeout(timer);
+  }, [detail]);
+
+  useEffect(() => {
+    if (detail.kind !== "saving" || saveInFlight.current) return;
+    saveInFlight.current = true;
+    const snapshot = detail;
+    const title = normalize(
+      snapshot.field === "title" ? snapshot.draft : snapshot.confirmed.workItem.title,
+    );
+    const description = normalize(
+      snapshot.field === "description"
+        ? snapshot.draft
+        : snapshot.confirmed.workItem.description,
+    );
+    const failValidation = (message: string) => {
+      saveInFlight.current = false;
+      dispatch({ type: "validation-failed", message });
+    };
+    if (!title) {
+      failValidation(t("board.workItemDetail.validation.titleRequired"));
+      return;
+    }
+    if ([...title].length > 300) {
+      failValidation(t("board.workItemDetail.validation.titleTooLong"));
+      return;
+    }
+    if ([...description].length > 10_000) {
+      failValidation(t("board.workItemDetail.validation.descriptionTooLong"));
+      return;
+    }
+    const targetColumnId = snapshot.confirmed.columnId;
+    const placement = findCard(
+      snapshot.confirmed.board,
+      snapshot.confirmed.workItem.workItemId,
+    );
+    if (!placement) {
+      saveInFlight.current = false;
+      dispatch({
+        type: "save-failed",
+        message: t(`board.workItemDetail.saveError.${snapshot.field}`),
+      });
+      return;
+    }
+    const selection = getSelection();
+    void api.boards.editWorkItem({
+      workspaceId,
+      projectId,
+      boardId: snapshot.confirmed.board.boardId,
+      workItemId: snapshot.confirmed.workItem.workItemId,
+      currentColumnId: snapshot.confirmed.columnId,
+      targetColumnId,
+      ...(targetColumnId === snapshot.confirmed.columnId
+        ? {}
+        : {
+            expectedBoardVersion: snapshot.confirmed.board.version,
+            expectedPlacementVersion: placement.card.placementVersion,
+          }),
+      expectedVersion: snapshot.confirmed.workItem.version,
+      title,
+      description,
+    }).then((result) => {
+      if (!mounted.current || selection !== getSelection()) return;
+      if (!onBoard(result.value.board, result.key, selection)) {
+        saveInFlight.current = false;
+        dispatch({
+          type: "save-failed",
+          message: t(`board.workItemDetail.saveError.${snapshot.field}`),
+        });
+        return;
+      }
+      saveInFlight.current = false;
+      dispatch({
+        type: "saved",
+        confirmed: {
+          workItem: result.value.workItem,
+          board: result.value.board,
+          columnId: targetColumnId,
+        },
+      });
+    }).catch(async (error: CodedError) => {
+      if (!mounted.current || selection !== getSelection() || error.recovery === "SIGN_IN") return;
+      if (isWorkItemConflict(error.code)) {
+        try {
+          const [workItemResult, boardResult] = await Promise.all([
+            api.boards.openWorkItem({
+              workspaceId,
+              projectId,
+              boardId: snapshot.confirmed.board.boardId,
+              workItemId: snapshot.confirmed.workItem.workItemId,
+            }),
+            api.boards.open({
+              workspaceId,
+              projectId,
+              boardId: snapshot.confirmed.board.boardId,
+            }),
+          ]);
+          if (!mounted.current || selection !== getSelection()) return;
+          if (
+            !accepts(workItemResult.key, snapshot.confirmed.board.boardId) ||
+            !accepts(boardResult.key, snapshot.confirmed.board.boardId)
+          ) throw new Error("conflict refresh superseded");
+          const latestPlacement = findCard(
+            boardResult.value,
+            snapshot.confirmed.workItem.workItemId,
+          );
+          if (!latestPlacement) throw new Error("placement unavailable");
+          if (!onBoard(boardResult.value, boardResult.key, selection)) {
+            throw new Error("conflict board superseded");
+          }
+          saveInFlight.current = false;
+          dispatch({
+            type: "conflict",
+            confirmed: {
+              workItem: workItemResult.value,
+              board: boardResult.value,
+              columnId: latestPlacement.column.columnId,
+            },
+          });
+          return;
+        } catch {
+          // Preserve the draft and fall through to field-local recovery.
+        }
+      }
+      saveInFlight.current = false;
+      dispatch({
+        type: "save-failed",
+        message: t(`board.workItemDetail.saveError.${snapshot.field}`),
+      });
+    });
+  }, [accepts, api.boards, detail, getSelection, onBoard, projectId, t, workspaceId]);
+
+  const close = () => {
+    closeRequested.current = true;
+    requestSequence.current += 1;
+    dispatch({ type: "request-close" });
+  };
+
+  useEffect(() => {
+    if (detail.kind !== "closed" || !closeRequested.current) return;
+    closeRequested.current = false;
+    onClose();
+  }, [detail.kind, onClose]);
+
+  const confirmed =
+    detail.kind === "read-only" ||
+    detail.kind === "editing" ||
+    detail.kind === "saving" ||
+    detail.kind === "conflict" ||
+    detail.kind === "saved"
+      ? detail.confirmed
+      : undefined;
+  const fieldActive =
+    detail.kind === "editing" ||
+    detail.kind === "saving" ||
+    detail.kind === "conflict";
+  const activeState = fieldActive ? detail : undefined;
+  const activeField = activeState?.field;
+  const pending = detail.kind === "saving";
+  const fieldError = detail.kind === "editing" ? detail.error : undefined;
+
+  const descriptionAreaRef = useRef<HTMLTextAreaElement>(null);
+  const descriptionDraft = activeState?.draft ?? "";
+  useLayoutEffect(() => {
+    const area = descriptionAreaRef.current;
+    if (!area) return;
+    area.style.height = "auto";
+    area.style.height = `${area.scrollHeight}px`;
+  }, [activeField, descriptionDraft, detail.kind]);
+
+  const beginEdit = (field: "title" | "description") => {
+    restoreFieldFocus.current = field;
+    dispatch({ type: "edit", field });
+  };
+  const escapeField = (event: ReactKeyboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dispatch({ type: "escape" });
+  };
+  const blurField = (event: React.FocusEvent<HTMLElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    dispatch({ type: "blur" });
+  };
+  const useLatest = () => {
+    if (detail.kind !== "conflict") return;
+    dispatch({ type: "use-latest" });
+  };
+  const compositionEvents = {
+    onCompositionStart: () => dispatch({ type: "composition-start" }),
+    onCompositionEnd: () => dispatch({ type: "composition-end" }),
+  };
+
+  const statusText = pending
+    ? t("board.workItemDetail.saving")
+    : detail.kind === "saved"
+      ? t("board.workItemDetail.saved")
+      : "";
+
+  const feedbackNode = (field: "title" | "description") =>
+    (pending || detail.kind === "saved") && detail.field === field ? (
+      <span className="work-item-detail__save-status" role="status" aria-live="polite">
+        {statusText}
+      </span>
+    ) : null;
+
+  const attachTitleTrigger = useCallback((element: HTMLButtonElement | null) => {
+    fieldTriggers.current.title = element;
+  }, []);
+  const attachDescriptionTrigger = useCallback(
+    (element: HTMLButtonElement | null) => {
+      fieldTriggers.current.description = element;
+    },
+    [],
+  );
+
+
+  const titleContent =
+    confirmed && activeField !== "title" ? (
+      <button
+        type="button"
+        ref={attachTitleTrigger}
+        className="work-item-detail__field work-item-detail__title"
+        aria-label={t("board.workItemDetail.editTitle")}
+        onClick={() => beginEdit("title")}
+      >
+        <span className="work-item-detail__value">{confirmed.workItem.title}</span>
+      </button>
+    ) : undefined;
+
+  const titleEditor =
+    confirmed && activeField === "title" ? (
+      <input
+        type="text"
+        className="work-item-detail__title-input"
+        autoFocus
+        name="workItemTitle"
+        autoComplete="off"
+        aria-label={t("board.workItemDetail.titleLabel")}
+        aria-invalid={Boolean(fieldError)}
+        aria-describedby={fieldError ? fieldErrorId : undefined}
+        value={activeState?.draft ?? ""}
+        readOnly={pending}
+        onChange={(event) => dispatch({ type: "draft", value: event.target.value })}
+        onBlur={blurField}
+        {...compositionEvents}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Escape") escapeField(event);
+          else if (event.key === "Enter") {
+            event.preventDefault();
+            dispatch({ type: "submit" });
+          }
+        }}
+      />
+    ) : undefined;
+
+  const descriptionLabel = t("board.workItemDetail.descriptionLabel");
+  const descriptionEditor = activeField === "description";
+  const descriptionNode = confirmed ? (
+    <div className="work-item-detail__surface">
+      {descriptionEditor ? (
+        <textarea
+          ref={descriptionAreaRef}
+          className="work-item-detail__textarea"
+          rows={1}
+          autoFocus
+          name="workItemDescription"
+          autoComplete="off"
+          aria-label={descriptionLabel}
+          aria-invalid={Boolean(fieldError)}
+          aria-describedby={fieldError ? fieldErrorId : undefined}
+          value={activeState?.draft ?? ""}
+          readOnly={pending}
+          onChange={(event) => dispatch({ type: "draft", value: event.target.value })}
+          onBlur={blurField}
+          {...compositionEvents}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") escapeField(event);
+            else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+              event.preventDefault();
+              dispatch({ type: "submit" });
+            }
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          ref={attachDescriptionTrigger}
+          className={`work-item-detail__field work-item-detail__description${
+            confirmed.workItem.description ? "" : " work-item-detail__description--empty"
+          }`}
+          aria-label={t("board.workItemDetail.editDescription")}
+          onClick={() => beginEdit("description")}
+        >
+          <span className="work-item-detail__value">
+            {confirmed.workItem.description || t("board.workItemDetail.emptyDescription")}
+          </span>
+        </button>
+      )}
+    </div>
+  ) : null;
+
+
+
+  const headingTitle =
+    confirmed?.workItem.title ??
+    findCard(board, target.workItemId)?.card.title ??
+    t("board.workItemDetail.loading");
+
+  const footer = confirmed ? (
+    <footer className="work-item-detail__audit">
+      <dl className="work-item-detail__metadata">
+        <div>
+          <dt>{t("board.workItemDetail.createdAtLabel")}</dt>
+          <dd>{formatAuditTime(confirmed.workItem.createdAt, locale)}</dd>
+        </div>
+        <div>
+          <dt>{t("board.workItemDetail.updatedAtLabel")}</dt>
+          <dd>{formatAuditTime(confirmed.workItem.updatedAt, locale)}</dd>
+        </div>
+      </dl>
+    </footer>
+  ) : undefined;
+
+  return (
+    <BoardModal
+      title={headingTitle}
+      pending={false}
+      onClose={close}
+      sheet
+      titleContent={titleContent}
+      titleEditor={titleEditor}
+      titleFeedback={
+        <div className="work-item-detail__feedback">{feedbackNode("title")}</div>
+      }
+      footer={footer}
+    >
+      {detail.kind === "loading" || detail.kind === "closed" ? (
+        <p className="work-item-detail__status">{t("board.workItemDetail.loading")}</p>
+      ) : detail.kind === "error" ? (
+        <div className="work-item-detail__status">
+          <p className="project-error" role="alert">
+            {t("board.workItemDetail.loadError")}
+          </p>
+          <button type="button" className="project-button" onClick={() => void load()}>
+            {t("common.retry")}
+          </button>
+        </div>
+      ) : confirmed ? (
+        <div className="work-item-detail">
+          <div className="work-item-detail__content">
+            {fieldError ? (
+              <FieldRecovery
+                error={fieldError}
+                errorId={fieldErrorId}
+                onRetry={() => dispatch({ type: "retry" })}
+              />
+            ) : null}
+            <section className="work-item-detail__row work-item-detail__row--description">
+              <div className="work-item-detail__row-heading">
+                <span className="work-item-detail__label">{descriptionLabel}</span>
+                <div className="work-item-detail__feedback">
+                  {feedbackNode("description")}
+                </div>
+              </div>
+              {descriptionNode}
+            </section>
+            {detail.kind === "conflict" ? (
+              <div
+                className="work-item-detail__gate"
+                role="group"
+                aria-label={t(`board.workItemDetail.conflict.${detail.field}.title`)}
+              >
+                <p>
+                  {t("board.workItemDetail.conflict.latest", {
+                    value:
+                      detail.field === "title"
+                        ? detail.confirmed.workItem.title
+                        : detail.confirmed.workItem.description,
+                  })}
+                </p>
+                <p>
+                  {t("board.workItemDetail.conflict.draft", {
+                    value: detail.draft,
+                  })}
+                </p>
+                <div className="work-item-detail__recovery-actions">
+                  <button
+                    type="button"
+                    ref={decisionFocus}
+                    className="project-button"
+                    onClick={useLatest}
+                  >
+                    {t("board.workItemDetail.conflict.useLatest")}
+                  </button>
+                  <button
+                    type="button"
+                    className="project-button project-button--primary"
+                    onClick={() => dispatch({ type: "retry" })}
+                  >
+                    {t("board.workItemDetail.conflict.retry")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </BoardModal>
+  );
+}
+
+function formatAuditTime(value: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function findCard(board: BoardView, workItemId: string) {
+  for (const column of board.columns) {
+    const card = column.cards.find((item) => item.workItemId === workItemId);
+    if (card) return { column, card };
+  }
+  return undefined;
+}
+
+function isWorkItemConflict(code?: string) {
+  return (
+    code === "RESOURCE_VERSION_CONFLICT" ||
+    code === "BOARD_VERSION_CONFLICT" ||
+    code === "PLACEMENT_CONFLICT"
+  );
+}
+
+function FieldRecovery({
+  error,
+  errorId,
+  onRetry,
+}: {
+  error?: string;
+  errorId: string;
+  onRetry(): void;
+}) {
+  const { t } = useTranslation();
+  if (!error) return null;
+  return (
+    <div className="work-item-detail__field-error">
+      <p id={errorId} className="project-error" role="alert">{error}</p>
+      <button type="button" className="project-button" onClick={onRetry}>
+        {t("common.retry")}
+      </button>
+    </div>
+  );
+}
+
+function DeleteBoardDialog({
+  board,
+  api,
+  workspaceId,
+  projectId,
+  getSelection,
+  onClose,
+  onHome,
+  onResultUnknown,
+  onCommittedRefreshFailure,
+}: {
+  board: BoardView;
+  api: TaskPilotDesktopApi;
+  workspaceId: string;
+  projectId: string;
+  getSelection(): number;
+  onClose(): void;
+  onHome(
+    home: BoardHomeView,
+    key: BoardResponseKey,
+    selection: number,
+    outcome: "deleted" | "notDeleted",
+  ): void;
+  onResultUnknown(): void;
+  onCommittedRefreshFailure(): void;
+}) {
+  const { t } = useTranslation();
+  const [confirmation, setConfirmation] = useState("");
+  const [pending, setPending] = useState(false);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const [errorCode, setErrorCode] = useState<string>();
+  const dirty = confirmation.length > 0;
+  const requestClose = () => {
+    if (pending) return;
+    if (dirty) setDiscardPrompt(true);
+    else onClose();
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (pending || confirmation !== board.name) return;
+    const selection = getSelection();
+    setPending(true);
+    setErrorCode(undefined);
+    try {
+      const result = await api.boards.permanentlyDelete({
+        workspaceId,
+        projectId,
+        boardId: board.boardId,
+        expectedVersion: board.version,
+        confirmationName: confirmation,
+      });
+      onHome(result.value.home, result.key, selection, result.value.outcome);
+    } catch (error) {
+      const code = (error as CodedError).code;
+      if (code === "BOARD_DELETE_RESULT_UNKNOWN") {
+        onResultUnknown();
+        return;
+      }
+      if (code === "BOARD_DELETE_COMMITTED_REFRESH_FAILED") {
+        onCommittedRefreshFailure();
+        return;
+      }
+      setErrorCode(code ?? "BOARD_DELETE_FAILED");
+    } finally {
+      setPending(false);
+    }
+  };
+  if (discardPrompt) {
+    return (
+      <BoardModal
+        title={t("board.delete.discardTitle")}
+        pending={false}
+        danger
+        onClose={() => setDiscardPrompt(false)}
+      >
+        <p className="dialog-copy">{t("board.delete.discardDetail")}</p>
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="project-button"
+            autoFocus
+            onClick={() => setDiscardPrompt(false)}
+          >
+            {t("board.delete.continueConfirmation")}
+          </button>
+          <button
+            type="button"
+            className="project-button project-button--danger"
+            onClick={onClose}
+          >
+            {t("board.delete.discardAndClose")}
+          </button>
+        </div>
+      </BoardModal>
+    );
+  }
+  return (
+    <BoardModal
+      title={t("board.delete.title", { name: board.name })}
+      pending={pending}
+      danger
+      onClose={requestClose}
+    >
+      <div className="board-delete-copy">
+        <p>{t("board.delete.irreversible")}</p>
+        <ul>
+          <li>{t("board.delete.emptyOnly")}</li>
+          <li>{t("board.delete.preserveWorkItems")}</li>
+        </ul>
+      </div>
+      <form
+        aria-describedby={errorCode ? "board-delete-error" : undefined}
+        onSubmit={(event) => void submit(event)}
+      >
+        <label className="project-field">
+          <span>{t("board.delete.confirmation", { name: board.name })}</span>
+          <input
+            name="boardNameConfirmation"
+            autoComplete="off"
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+          />
+        </label>
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="project-button"
+            disabled={pending}
+            onClick={requestClose}
+          >
+            {t("project.cancel")}
+          </button>
+          <button
+            type="submit"
+            className="project-button project-button--danger"
+            disabled={pending || confirmation !== board.name}
+          >
+            {pending ? t("board.delete.deleting") : t("board.delete.submit")}
+          </button>
+        </div>
+        {errorCode ? (
+          <p id="board-delete-error" className="project-error" role="alert">
+            {t(`board.delete.errors.${errorCode}`, {
+              defaultValue: t("board.delete.errors.BOARD_DELETE_FAILED"),
+            })}
+          </p>
+        ) : null}
+      </form>
+    </BoardModal>
   );
 }
 
@@ -1052,16 +1957,12 @@ function EntityDialog({
   kind,
   initialName,
   initialDescription,
-  columns,
-  initialColumnId,
   onClose,
   onSubmit,
 }: {
-  kind: Exclude<BoardDialog, undefined>["kind"];
+  kind: Exclude<BoardDialog, undefined | { kind: "delete-board" }>["kind"];
   initialName: string;
   initialDescription: string;
-  columns?: BoardColumnView[];
-  initialColumnId?: string;
   onClose(): void;
   onSubmit(
     name: string,
@@ -1071,62 +1972,45 @@ function EntityDialog({
   ): Promise<void>;
 }) {
   const { t } = useTranslation();
-  const columnLabelId = useId();
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
-  const [columnId, setColumnId] = useState(initialColumnId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
   const request = useRef<{ fingerprint: string; id: string } | undefined>(
     undefined,
   );
   const supportsDescription =
-    kind === "create-board" ||
-    kind === "edit-board" ||
-    kind === "create-card" ||
-    kind === "edit-card";
+    kind === "create-board" || kind === "edit-board" || kind === "create-card";
   const normalizedName = normalize(name);
   const normalizedDescription = normalize(description);
   const limits =
     kind === "create-column" || kind === "edit-column"
       ? { name: 80, description: 0 }
-      : kind === "create-card" || kind === "edit-card"
+      : kind === "create-card"
         ? { name: 300, description: 10_000 }
         : { name: 120, description: 2_000 };
   const invalid =
     !normalizedName ||
     [...normalizedName].length > limits.name ||
-    [...normalizedDescription].length > limits.description ||
-    (kind === "edit-card" && !columnId);
+    [...normalizedDescription].length > limits.description;
   const nameField =
     kind === "create-column" || kind === "edit-column"
       ? "column-name"
-      : kind === "create-card" || kind === "edit-card"
+      : kind === "create-card"
         ? "work-item-title"
         : "board-name";
   const descriptionField =
-    kind === "create-card" || kind === "edit-card"
-      ? "work-item-description"
-      : "board-description";
+    kind === "create-card" ? "work-item-description" : "board-description";
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (invalid || pending) return;
-    const fingerprint = JSON.stringify([
-      normalizedName,
-      normalizedDescription,
-      columnId,
-    ]);
+    const fingerprint = JSON.stringify([normalizedName, normalizedDescription]);
     if (request.current?.fingerprint !== fingerprint)
       request.current = { fingerprint, id: crypto.randomUUID() };
     setPending(true);
     setError(false);
     try {
-      await onSubmit(
-        normalizedName,
-        normalizedDescription,
-        request.current.id,
-        columnId,
-      );
+      await onSubmit(normalizedName, normalizedDescription, request.current.id);
     } catch {
       setError(true);
     } finally {
@@ -1162,21 +2046,6 @@ function EntityDialog({
             />
           </label>
         ) : null}
-        {kind === "edit-card" && columns ? (
-          <div className="project-field">
-            <span id={columnLabelId}>{t("board.column")}</span>
-            <Select
-              labelledBy={columnLabelId}
-              value={columnId ?? ""}
-              options={columns.map((item) => ({
-                value: item.columnId,
-                label: item.name,
-              }))}
-              onValueChange={setColumnId}
-              disabled={pending}
-            />
-          </div>
-        ) : null}
         <div className="dialog-actions">
           <button
             type="button"
@@ -1208,26 +2077,40 @@ function BoardModal({
   title,
   children,
   pending,
+  danger = false,
+  sheet = false,
+  titleContent,
+  titleEditor,
+  titleFeedback,
+  footer,
   onClose,
 }: {
   title: string;
   children: ReactNode;
   pending: boolean;
+  danger?: boolean;
+  sheet?: boolean;
+  titleContent?: ReactNode;
+  titleEditor?: ReactNode;
+  titleFeedback?: ReactNode;
+  footer?: ReactNode;
   onClose(): void;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
   const dialog = useRef<HTMLElement>(null);
+  const titleElement = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const returnTo =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : undefined;
     const element = dialog.current;
-    const initial =
-      element?.querySelector<HTMLElement>(
-        "input:not([disabled]),textarea:not([disabled]),select:not([disabled])",
-      ) ?? element?.querySelector<HTMLElement>("button:not([disabled])");
+    const initial = sheet
+      ? titleElement.current
+      : element?.querySelector<HTMLElement>(
+          "input:not([disabled]),textarea:not([disabled]),select:not([disabled])",
+        ) ?? element?.querySelector<HTMLElement>("button:not([disabled])");
     initial?.focus();
     return () => {
       const active = document.activeElement;
@@ -1237,7 +2120,7 @@ function BoardModal({
       )
         returnTo.focus();
     };
-  }, []);
+  }, [sheet]);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !pending) onClose();
@@ -1249,7 +2132,10 @@ function BoardModal({
       ];
       const first = items[0];
       const last = items.at(-1);
-      if (event.shiftKey && document.activeElement === first) {
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === titleElement.current)
+      ) {
         event.preventDefault();
         last?.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -1269,13 +2155,24 @@ function BoardModal({
     >
       <section
         ref={dialog}
-        className="project-dialog board-dialog"
+        className={`project-dialog board-dialog${danger ? " project-dialog--danger" : ""}${sheet ? " work-item-sheet" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
       >
         <header>
-          <h2 id={titleId}>{title}</h2>
+          <div className="board-dialog__heading">
+            <h2
+              ref={titleElement}
+              id={titleId}
+              className={titleEditor ? "visually-hidden" : undefined}
+              tabIndex={sheet ? -1 : undefined}
+            >
+              {titleContent ?? title}
+            </h2>
+            {titleEditor}
+            {titleFeedback}
+          </div>
           <button
             type="button"
             className="icon-action"
@@ -1287,6 +2184,7 @@ function BoardModal({
           </button>
         </header>
         {children}
+        {footer}
       </section>
     </div>
   );
@@ -1405,7 +2303,9 @@ function isOriginalCardPosition(
   const insertionIndex = beforeWorkItemId
     ? remaining.findIndex((card) => card.workItemId === beforeWorkItemId)
     : remaining.length;
-  return (insertionIndex < 0 ? remaining.length : insertionIndex) === sourceIndex;
+  return (
+    (insertionIndex < 0 ? remaining.length : insertionIndex) === sourceIndex
+  );
 }
 
 function previewMove(
@@ -1460,6 +2360,15 @@ function BoardGlyph() {
   return (
     <svg className="board-glyph" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 5.5h16v13H4zM9 5.5v13m6-13v13" />
+    </svg>
+  );
+}
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="3" cy="8" r="1" />
+      <circle cx="8" cy="8" r="1" />
+      <circle cx="13" cy="8" r="1" />
     </svg>
   );
 }

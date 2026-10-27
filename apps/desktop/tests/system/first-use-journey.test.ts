@@ -1,16 +1,34 @@
+/** @vitest-environment jsdom */
+import { createElement } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { BoardWorkspace } from '../../src/renderer/board-workspace.js';
+import { LocaleProvider } from '../../src/renderer/i18n/locale-context.js';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { FixedHttpTransport } from '../../src/main/api/transport.js';
-import { MemoryFederatedAuthRecoveryStore } from '../../src/main/auth/auth-recovery-store.js';
 import type { ExternalBrowser } from '../../src/main/auth/federated-auth-coordinator.js';
-import { createDesktopComposition, type DesktopComposition } from '../../src/main/composition.js';
-import { MemoryCredentialStore, type CredentialStore } from '../../src/main/credentials/credential-store.js';
-import { registerDesktopHandlers } from '../../src/main/ipc.js';
-import { LoopbackReceiver } from '../../src/main/auth/loopback-receiver.js';
-import { MemoryRecentBoardStore, type RecentBoardStore } from '../../src/main/projects/recent-board-store.js';
-import { MemoryRecentProjectStore, type RecentProjectStore } from '../../src/main/projects/recent-project-store.js';
-import { createTaskPilotDesktopApi } from '../../src/preload/api.js';
+import type { DesktopComposition } from '../../src/main/composition.js';
+import type { CredentialStore } from '../../src/main/credentials/credential-store.js';
+import type { RecentBoardStore } from '../../src/main/projects/recent-board-store.js';
+import type { RecentProjectStore } from '../../src/main/projects/recent-project-store.js';
 import type { FederatedAuthFlowView, TaskPilotDesktopApi } from '../../src/shared/contracts.js';
+
+// Execute the privileged seams emitted by build:main, not Vitest-transformed
+// source. The Renderer is intentionally source-mounted; browser/native evidence
+// remains a separate Cypress/release gate.
+// The jsdom module URL is HTTP; resolve emitted modules from the desktop
+// runner's working directory instead of resolving against import.meta.url.
+const compiledModule = (path: string) => pathToFileURL(resolve('dist', path)).href;
+const { FixedHttpTransport } = await import(compiledModule('main/api/transport.js')) as typeof import('../../src/main/api/transport.js');
+const { MemoryFederatedAuthRecoveryStore } = await import(compiledModule('main/auth/auth-recovery-store.js')) as typeof import('../../src/main/auth/auth-recovery-store.js');
+const { createDesktopComposition } = await import(compiledModule('main/composition.js')) as typeof import('../../src/main/composition.js');
+const { MemoryCredentialStore } = await import(compiledModule('main/credentials/credential-store.js')) as typeof import('../../src/main/credentials/credential-store.js');
+const { registerDesktopHandlers } = await import(compiledModule('main/ipc.js')) as typeof import('../../src/main/ipc.js');
+const { LoopbackReceiver } = await import(compiledModule('main/auth/loopback-receiver.js')) as typeof import('../../src/main/auth/loopback-receiver.js');
+const { MemoryRecentBoardStore } = await import(compiledModule('main/projects/recent-board-store.js')) as typeof import('../../src/main/projects/recent-board-store.js');
+const { MemoryRecentProjectStore } = await import(compiledModule('main/projects/recent-project-store.js')) as typeof import('../../src/main/projects/recent-project-store.js');
+const { createTaskPilotDesktopApi } = await import(compiledModule('preload/api.js')) as typeof import('../../src/preload/api.js');
 
 const baseUrl = process.env.TASKPILOT_SYSTEM_BASE_URL;
 const trustedEvent = { sender: { id: 71 }, senderFrame: { url: 'file:///taskpilot/index.html', parent: null } };
@@ -158,6 +176,33 @@ describe('Desktop first-use system journey', () => {
         name: 'Board',
         columns: [{ name: 'To do', cards: [] }],
       });
+      const initialBoard = initialBoardHome.value.currentBoard;
+      if (!initialBoard) throw new Error('Default Board was not selected');
+
+      const deletedOnlyBoard = await current.api.boards.permanentlyDelete({
+        workspaceId,
+        projectId: defaultProject.projectId,
+        boardId: initialBoard.boardId,
+        expectedVersion: initialBoard.version,
+        confirmationName: initialBoard.name,
+      });
+      expect(deletedOnlyBoard.value).toEqual({
+        outcome: 'deleted',
+        home: { boards: [] },
+      });
+
+      const recreatedBoard = await current.api.boards.create({
+        workspaceId,
+        projectId: defaultProject.projectId,
+        requestId: randomUUID(),
+        name: 'Recreated board',
+        description: 'Created after the zero-Board state',
+        locale: 'en',
+      });
+      expect(recreatedBoard.value).toMatchObject({
+        name: 'Recreated board',
+        columns: [{ name: 'To do', cards: [] }],
+      });
 
       const secondBoard = await current.api.boards.create({
         workspaceId,
@@ -195,9 +240,63 @@ describe('Desktop first-use system journey', () => {
         expectedPlacementVersion: 0,
         targetColumnId: withReviewColumn.value.columns.find(column => column.name === 'In review')!.columnId,
       });
-      expect(movedBoard.value.columns.find(column => column.name === 'In review')?.cards).toEqual([
+      const reviewColumn = movedBoard.value.columns.find(column => column.name === 'In review');
+      expect(reviewColumn?.cards).toEqual([
         expect.objectContaining({ workItemId: createdWorkItem.value.workItem.workItemId, title: 'Verify release' }),
       ]);
+      if (!reviewColumn) throw new Error('Review Column was not returned after the move');
+
+      const authoritativeDetail = await current.api.boards.openWorkItem({
+        workspaceId,
+        projectId: defaultProject.projectId,
+        boardId: secondBoard.value.boardId,
+        workItemId: createdWorkItem.value.workItem.workItemId,
+      });
+      expect(authoritativeDetail.value).toMatchObject({
+        title: 'Verify release',
+        description: 'Created through compiled Main, IPC and Preload',
+      });
+
+      expect(Object.keys(authoritativeDetail.value).sort()).toEqual(
+        ['workItemId', 'projectId', 'title', 'description', 'version', 'createdAt', 'updatedAt'].sort(),
+      );
+      expect(Object.keys(reviewColumn.cards[0]).sort()).toEqual(
+        ['workItemId', 'title', 'description', 'workItemVersion', 'placementVersion', 'position'].sort(),
+      );
+      // Mount the real Renderer against the same Main/IPC/Preload/Core API seam.
+      // Enter invokes the field's implicit-save trigger; portal geometry remains Cypress-owned.
+      window.localStorage.clear();
+      render(createElement(LocaleProvider, { initialLanguages: ['en'], children:
+        createElement(BoardWorkspace, {
+          api: current.api,
+          userId: firstHome.key.userId,
+          workspaceId,
+          project: defaultProject,
+          onSettings: () => undefined,
+          onLeaveProject: () => undefined,
+        }),
+      }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Verify release' }));
+      await screen.findByRole('button', { name: 'Edit title' });
+      const sheet = within(screen.getByRole('dialog', { name: 'Verify release' }));
+      expect(sheet.getByRole('heading', { name: 'Verify release' })).toBeTruthy();
+      fireEvent.click(sheet.getByRole('button', { name: 'Edit title' }));
+      const titleInput = sheet.getByRole('textbox', { name: 'Title' });
+      fireEvent.change(titleInput, { target: { value: 'Verify release candidate' } });
+      fireEvent.keyDown(titleInput, { key: 'Enter' });
+      await waitFor(() => expect(screen.getByRole('dialog', { name: 'Verify release candidate' })).toBeTruthy());
+      await screen.findByText('Saved');
+      cleanup();
+      const savedDetail = await current.api.boards.openWorkItem({
+        workspaceId, projectId: defaultProject.projectId,
+        boardId: secondBoard.value.boardId,
+        workItemId: authoritativeDetail.value.workItemId,
+      });
+      expect(savedDetail.value).toMatchObject({
+        title: 'Verify release candidate',
+        description: authoritativeDetail.value.description,
+        version: authoritativeDetail.value.version + 1,
+      });
 
       const created = await current.api.projects.create({
         workspaceId,
@@ -268,6 +367,7 @@ describe('Desktop first-use system journey', () => {
       const retired = await fetch(`${baseUrl}/desktop/v1/auth/login/code`);
       expect(retired.status).toBe(404);
     } finally {
+      cleanup();
       current.dispose();
       await current.composition.federatedAuth.close().catch(() => undefined);
       await current.api.auth.logout().catch(() => undefined);

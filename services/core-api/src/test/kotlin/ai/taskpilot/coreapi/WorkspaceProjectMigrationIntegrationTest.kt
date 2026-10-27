@@ -49,6 +49,32 @@ class WorkspaceProjectMigrationIntegrationTest {
     }
 
     @Test
+    fun `work item baseline has content and audit facts without placeholder state`() {
+        val columns =
+            jdbc
+                .queryForList(
+                    "SELECT column_name FROM information_schema.columns " +
+                        "WHERE table_schema = 'project' AND table_name = 'work_items'",
+                    String::class.java,
+                ).toSet()
+        assertEquals(
+            setOf(
+                "id",
+                "project_id",
+                "title",
+                "description",
+                "version",
+                "created_by_user_id",
+                "create_request_id",
+                "create_request_fingerprint",
+                "created_at",
+                "updated_at",
+            ),
+            columns,
+        )
+    }
+
+    @Test
     fun `project work tables use uuid primary keys`() {
         val columns =
             jdbc.queryForList(
@@ -103,7 +129,7 @@ class WorkspaceProjectMigrationIntegrationTest {
         assertConstraint(constraints, "ck_board_columns__version_non_negative", "CHECK ((version >= 0))")
         assertConstraint(constraints, "ck_work_items__title_not_blank", "CHECK ((btrim((title)::text) <> ''::text))")
         assertConstraint(constraints, "ck_work_items__description_length", "char_length(description) <= 10000")
-        assertConstraint(constraints, "ck_work_items__lifecycle_supported", "lifecycle")
+        assertEquals(false, constraints.containsKey("ck_work_items__lifecycle_supported"))
         assertConstraint(constraints, "ck_work_items__version_non_negative", "CHECK ((version >= 0))")
         assertConstraint(constraints, "ck_board_placements__position_non_negative", "CHECK ((\"position\" >= 0))")
         assertConstraint(constraints, "ck_board_placements__version_non_negative", "CHECK ((version >= 0))")

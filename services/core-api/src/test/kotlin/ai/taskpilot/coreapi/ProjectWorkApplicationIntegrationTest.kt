@@ -1,5 +1,8 @@
 package ai.taskpilot.coreapi
 
+import ai.taskpilot.coreapi.project.BoardDeleteRestricted
+import ai.taskpilot.coreapi.project.BoardNameConfirmationMismatch
+import ai.taskpilot.coreapi.project.BoardNotEmptyConflict
 import ai.taskpilot.coreapi.project.BoardVersionConflict
 import ai.taskpilot.coreapi.project.BoardView
 import ai.taskpilot.coreapi.project.ColumnNotEmptyConflict
@@ -7,6 +10,7 @@ import ai.taskpilot.coreapi.project.CreateBoardCommand
 import ai.taskpilot.coreapi.project.CreateColumnCommand
 import ai.taskpilot.coreapi.project.CreateProjectCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemCommand
+import ai.taskpilot.coreapi.project.DeleteBoardCommand
 import ai.taskpilot.coreapi.project.DeleteColumnCommand
 import ai.taskpilot.coreapi.project.DeleteProjectCommand
 import ai.taskpilot.coreapi.project.EditBoardCommand
@@ -271,7 +275,12 @@ class ProjectWorkApplicationIntegrationTest {
                     " Detail ",
                 ),
             )
-        assertEquals("OPEN", created.workItem.lifecycle)
+        assertEquals(
+            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt"),
+            created.workItem.javaClass.declaredFields
+                .map { it.name }
+                .toSet(),
+        )
         assertEquals(2, created.board.version)
         val replay =
             work.createWorkItem(
@@ -329,7 +338,7 @@ class ProjectWorkApplicationIntegrationTest {
                 .cards
                 .map { it.workItemId },
         )
-        assertEquals("OPEN", work.workItem(f.owner, f.workspace, f.project, created.workItem.workItemId).lifecycle)
+        assertEquals("Task", work.workItem(f.owner, f.workspace, f.project, created.workItem.workItemId).title)
         val edited =
             work.editWorkItem(
                 EditWorkItemCommand(
@@ -941,6 +950,137 @@ class ProjectWorkApplicationIntegrationTest {
         assertEquals(composed, column.columns.last().name)
         assertEquals(composed, item.workItem.title)
         assertEquals(composed, item.workItem.description)
+    }
+
+    @Test fun `empty board permanent deletion removes columns and preserves project work items`() {
+        val f = fixtureProject()
+        val itemResult =
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    f.board.columns
+                        .single()
+                        .columnId,
+                    UUID.randomUUID(),
+                    0,
+                    "Keep me",
+                    null,
+                ),
+            )
+        val item = itemResult.workItem
+        val removable =
+            work.createBoard(
+                CreateBoardCommand(f.owner, f.workspace, f.project, UUID.randomUUID(), "Removable", null, "en"),
+            )
+        work.createColumn(
+            CreateColumnCommand(f.owner, f.workspace, f.project, removable.boardId, UUID.randomUUID(), 0, "Done"),
+        )
+        val withThreeColumns =
+            work.createColumn(
+                CreateColumnCommand(f.owner, f.workspace, f.project, removable.boardId, UUID.randomUUID(), 1, "Archive"),
+            )
+
+        work.permanentlyDeleteBoard(
+            DeleteBoardCommand(f.owner, f.workspace, f.project, removable.boardId, withThreeColumns.version, "Removable"),
+        )
+
+        assertEquals(listOf(f.board.boardId), work.listBoards(f.owner, f.workspace, f.project).map { it.boardId })
+        assertEquals(item.workItemId, work.workItem(f.owner, f.workspace, f.project, item.workItemId).workItemId)
+        assertEquals(
+            0,
+            jdbc.queryForObject(
+                "SELECT count(*) FROM project.board_columns WHERE project_id = ? AND board_id = ?",
+                Int::class.java,
+                f.project,
+                removable.boardId,
+            ),
+        )
+    }
+
+    @Test fun `board permanent deletion rejects non empty stale mismatched and cross scope requests atomically`() {
+        val f = fixtureProject()
+        val item =
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    f.board.columns
+                        .single()
+                        .columnId,
+                    UUID.randomUUID(),
+                    0,
+                    "Placed",
+                    null,
+                ),
+            )
+        assertFailsWith<BoardNotEmptyConflict> {
+            work.permanentlyDeleteBoard(
+                DeleteBoardCommand(f.owner, f.workspace, f.project, f.board.boardId, item.board.version, "Board"),
+            )
+        }
+
+        val empty =
+            work.createBoard(CreateBoardCommand(f.owner, f.workspace, f.project, UUID.randomUUID(), "Empty", null, "en"))
+        assertFailsWith<BoardVersionConflict> {
+            work.permanentlyDeleteBoard(DeleteBoardCommand(f.owner, f.workspace, f.project, empty.boardId, 1, "Empty"))
+        }
+        assertFailsWith<BoardNameConfirmationMismatch> {
+            work.permanentlyDeleteBoard(DeleteBoardCommand(f.owner, f.workspace, f.project, empty.boardId, 0, " empty "))
+        }
+
+        val other = fixtureProject()
+        assertFailsWith<ProjectWorkNotFound> {
+            work.permanentlyDeleteBoard(DeleteBoardCommand(f.owner, f.workspace, f.project, other.board.boardId, 0, "Project board"))
+        }
+        assertFailsWith<ProjectWorkNotFound> {
+            work.permanentlyDeleteBoard(DeleteBoardCommand(other.owner, f.workspace, f.project, empty.boardId, 0, "Empty"))
+        }
+
+        assertEquals(
+            2,
+            jdbc.queryForObject("SELECT count(*) FROM project.boards WHERE project_id = ?", Int::class.java, f.project),
+        )
+        assertEquals(
+            2,
+            jdbc.queryForObject("SELECT count(*) FROM project.board_columns WHERE project_id = ?", Int::class.java, f.project),
+        )
+        assertEquals(
+            1,
+            jdbc.queryForObject("SELECT count(*) FROM project.board_placements WHERE project_id = ?", Int::class.java, f.project),
+        )
+    }
+
+    @Test fun `board permanent deletion maps protected dependencies and rolls back column deletion`() {
+        val f = fixtureProject()
+        val empty =
+            work.createBoard(CreateBoardCommand(f.owner, f.workspace, f.project, UUID.randomUUID(), "Protected", null, "en"))
+        jdbc.execute(
+            """
+            CREATE TABLE project.board_delete_test_guards (
+                board_id UUID PRIMARY KEY REFERENCES project.boards(id) ON DELETE RESTRICT
+            )
+            """.trimIndent(),
+        )
+        try {
+            jdbc.update("INSERT INTO project.board_delete_test_guards (board_id) VALUES (?)", empty.boardId)
+
+            assertFailsWith<BoardDeleteRestricted> {
+                work.permanentlyDeleteBoard(DeleteBoardCommand(f.owner, f.workspace, f.project, empty.boardId, 0, "Protected"))
+            }
+
+            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM project.boards WHERE id = ?", Int::class.java, empty.boardId))
+            assertEquals(
+                1,
+                jdbc.queryForObject("SELECT count(*) FROM project.board_columns WHERE board_id = ?", Int::class.java, empty.boardId),
+            )
+        } finally {
+            jdbc.execute("DROP TABLE project.board_delete_test_guards")
+        }
     }
 
     @Test fun `cross scope ids are not found and project deletion removes approved subtree`() {

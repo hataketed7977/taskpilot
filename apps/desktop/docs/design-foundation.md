@@ -38,8 +38,9 @@ secure Desktop shell
 ```
 
 `TEAM`, members, Workflow/Agent execution, Swimlanes, custom fields, independent
-Board/Work Item deletion, local directory binding, terminals, Diff, and activity
-metrics remain Target. The shell stays extensible without
+Work Item deletion, local directory binding, terminals, Diff, and activity
+metrics remain Target. Empty Board permanent deletion is Current and remains
+separate from Work Item deletion. The shell stays extensible without
 showing disabled promises or fabricated data for those later capabilities.
 
 ### Audience and primary job
@@ -308,8 +309,74 @@ page-level horizontal overflow.
 
 Cards are compact Work Item projections, not decorative metric tiles. User
 names, Board/Column names, titles, and descriptions are never translated.
-Creating a Board selects it; dialogs use the first meaningful field, preserve
-input on validation errors, and return focus. Card move supports pointer drag;
+Creating a Board selects it; deleting the selected empty Board adopts the
+authoritative earliest remaining Board or the truthful zero-Board state with one
+primary create action. The Board-local overflow exposes permanent deletion as a
+danger action without introducing a second settings page. Its confirmation
+states that the action is irreversible, only an empty Board qualifies, Columns
+are removed, and Project-owned Work Items remain; it requires the exact current
+Board name, prevents duplicate submission, and returns focus to the stable Board
+action trigger. A dirty confirmation requires explicit discard. When the result
+is unknown, the work surface exposes only reconciliation retry or leaving the
+Project; a committed deletion followed by refresh failure is labeled separately.
+Dialogs use the first meaningful field, preserve input on validation errors, and
+return focus.
+
+Activating a Card opens an overlay only after authoritative Work Item detail has
+loaded; the Card itself is location context, not a detail snapshot. The initial
+view is a read-only Focused Work Sheet: the actual Work Item title is the unique,
+single-line Dialog heading (26px/700), description is the full-width multiline
+body (14px/1.6), and created/updated times share a muted audit footer (11px).
+There is no generic detail heading, duplicate title field, current-Board block,
+Placement/Column property row, or Work Item state. The Board canvas expresses
+location, and Board drag remains the movement entry point.
+
+The sheet uses a viewport-responsive stable work surface. At a standard desktop
+window it is approximately `760 × 480px`; width and height both contract to
+viewport-safe margins in smaller windows. Its header/close control and audit
+footer stay pinned, the description body absorbs ordinary free space, and only
+the middle content region scrolls when content is long. Entering or leaving edit mode, pending saves, saved feedback, validation
+errors, temporary failures, and conflicts never resize or recenter the shell
+unless the state introduces a genuine new content footprint. Opening the sheet
+moves semantic focus to its unique heading without visually selecting an editable
+field.
+
+Static fields remain flat rather than permanent outlined cards or selected
+surfaces. Pointer hover may reveal a low-contrast local surface, while keyboard
+`focus-visible` and active editors use a soft action-colored boundary and ring;
+neither state adds elevation or turns the whole row into a card. Each editable
+field is a named, focusable trigger rendered in one layout slot shared by its
+read and edit surfaces. The title trigger and input use the entire width left of
+the close control, retain an approximately 16px gap, share single-line metrics,
+structural box model, and actual text origin, and truncate long read values with
+an ellipsis while preserving the full value for editing and accessibility. Title
+editing uses the same reserved full-width field boundary and caret as the read state, matching the description editor while preserving a stable text origin. The description trigger and textarea span the content width and share
+the same flexible multiline body, with an approximately `128px` minimum. Both read and edit text begin at the same left-top padded origin, so the
+surface behaves like a normal writing area rather than vertically centering short
+content; the body expands within the stable desktop sheet and contracts safely
+with the viewport. The “描述”/“Description” label stays mounted in every mode.
+
+Only one field becomes editable at a time, with local draft and error treatment;
+the other field stays readable. Pending state keeps the editor and draft mounted
+and shows saving feedback until the authoritative result arrives, and IME
+composition Enter never submits. The interaction follows one Quiet Precision
+direction: hover/focus reveals the editable affordance without introducing a
+permanent action bar, decorative gradient, or second design system. Title saves
+with `Enter` or true focus exit; description keeps ordinary `Enter` for newlines
+and saves on true focus exit or `Ctrl/Cmd+Enter`. A field `Escape` discards only
+its unsubmitted draft. Switching fields or dismissing the detail saves a dirty
+field once, then continues only after success. Lightweight saving/saved text
+renders only when meaningful, adjacent to the affected field without a permanent
+blank row or layout shift, and settles without spatial animation. Validation,
+temporary failure, and conflict alone reveal compact recovery actions. Closing
+read-only detail returns focus to the originating Card. If an authoritative
+update removes that Card, focus falls back to the selected Board control.
+Conflict presentation keeps the local draft visibly distinct from the reloaded
+authoritative value and requires retry or discard; it never implies automatic
+merge or success. These interaction states are transient UI state, not a Current
+Work Item business lifecycle.
+
+Card move supports pointer drag;
 the pointer's closest Card edge selects an exact insertion position, while one
 Card-height slot replaces the source Card in layout while one lifted drag preview
 follows the pointer. Surrounding Cards yield through a short, interruptible FLIP
@@ -333,10 +400,17 @@ hiding the slot, outline, or other state changes.
 - **Archived Projects:** a main-pane list, reached from the navigation, with a
   Restore action per row. Restoration returns the Project to the ACTIVE list
   without silently changing the current Project.
-- **Danger Zone:** permanent deletion is available only from settings. A modal
-  repeats the current Project and personal-space context, requires the exact
-  current name, and submits that name plus the displayed version. Success
-  removes the Project and selects another ACTIVE Project or the empty state.
+- **Project Danger Zone:** Project permanent deletion is available only from
+  Project settings. A modal repeats the current Project and personal-space
+  context, requires the exact current name, and submits that name plus the
+  displayed version. Success removes the Project and selects another ACTIVE
+  Project or the empty state.
+- **Board danger action:** empty Board permanent deletion is available from the
+  selected Board's overflow. Its exact-name Dialog uses the shared danger style,
+  keeps mutation controls disabled while pending, and never suggests that Work
+  Items are deleted. Success adopts Main's authoritative Board home, including
+  the zero-Board state; uncertain results replace the mutable Board surface with
+  reconciliation-only recovery.
 - **Account menu:** shows the real avatar/name, locale selector, and logout. It
   contains no profile-storage explanations or future provider inventory.
 

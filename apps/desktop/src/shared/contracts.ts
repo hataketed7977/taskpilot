@@ -82,7 +82,6 @@ export interface CardView {
   workItemId: string;
   title: string;
   description: string;
-  lifecycle: 'OPEN';
   workItemVersion: number;
   placementVersion: number;
   position: number;
@@ -102,7 +101,6 @@ export interface WorkItemView {
   projectId: string;
   title: string;
   description: string;
-  lifecycle: 'OPEN';
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -120,12 +118,16 @@ export interface BoardLocationInput extends ProjectLocationInput { boardId: stri
 export type BoardProjectInput = ProjectLocationInput;
 export interface CreateBoardInput extends ProjectLocationInput { requestId: string; name: string; description?: string; locale: 'zh-CN' | 'en' }
 export interface EditBoardInput extends BoardLocationInput { expectedVersion: number; name: string; description?: string }
+export interface DeleteBoardInput extends BoardLocationInput { expectedVersion: number; confirmationName: string }
+export type DeleteBoardOutcome =
+  | { outcome: 'deleted'; home: BoardHomeView }
+  | { outcome: 'notDeleted'; home: BoardHomeView };
 export interface CreateColumnInput extends BoardLocationInput { requestId: string; expectedBoardVersion: number; name: string }
 export interface EditColumnInput extends BoardLocationInput { columnId: string; expectedBoardVersion: number; expectedColumnVersion: number; name: string }
 export interface ReorderColumnsInput extends BoardLocationInput { expectedBoardVersion: number; columnIds: string[] }
 export interface DeleteColumnInput extends BoardLocationInput { columnId: string; expectedBoardVersion: number; expectedColumnVersion: number }
 export interface CreateWorkItemInput extends BoardLocationInput { columnId: string; requestId: string; expectedBoardVersion: number; title: string; description?: string }
-export interface WorkItemLocationInput extends ProjectLocationInput { workItemId: string }
+export interface WorkItemLocationInput extends BoardLocationInput { workItemId: string }
 export interface EditWorkItemInput extends WorkItemLocationInput {
   boardId: string;
   currentColumnId: string;
@@ -167,6 +169,7 @@ export interface BoardCapabilities {
   open(input: BoardLocationInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;
   create(input: CreateBoardInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;
   edit(input: EditBoardInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;
+  permanentlyDelete(input: DeleteBoardInput): Promise<KeyedResponse<DeleteBoardOutcome, BoardResponseKey>>;
   createColumn(input: CreateColumnInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;
   editColumn(input: EditColumnInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;
   reorderColumns(input: ReorderColumnsInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;

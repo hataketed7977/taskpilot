@@ -208,7 +208,6 @@ CREATE TABLE project.work_items (
     project_id UUID NOT NULL,
     title VARCHAR(300) NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    lifecycle VARCHAR(32) NOT NULL,
     version BIGINT NOT NULL,
     created_by_user_id UUID NOT NULL,
     create_request_id UUID NOT NULL,
@@ -225,7 +224,6 @@ CREATE TABLE project.work_items (
         UNIQUE (project_id, created_by_user_id, create_request_id),
     CONSTRAINT ck_work_items__title_not_blank CHECK (btrim(title) <> ''),
     CONSTRAINT ck_work_items__description_length CHECK (char_length(description) <= 10000),
-    CONSTRAINT ck_work_items__lifecycle_supported CHECK (lifecycle = 'OPEN'),
     CONSTRAINT ck_work_items__version_non_negative CHECK (version >= 0),
     CONSTRAINT ck_work_items__request_fingerprint_not_blank CHECK (btrim(create_request_fingerprint) <> '')
 );

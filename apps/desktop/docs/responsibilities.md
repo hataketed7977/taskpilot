@@ -109,19 +109,37 @@
 The Current implementation slice includes system-browser GitHub authentication,
 first-registration/legal review, OS-credential-backed session lifecycle, the
 Project shell, and the Project's direct Board home. Renderer owns ACTIVE Project
-and Board switching, Project lifecycle actions, Board create/edit, Column
-create/edit/reorder/delete, basic Work Item create/edit, pointer drag plus
+and Board switching, Project lifecycle actions, Board
+create/edit/permanent-delete, Column create/edit/reorder/delete, Work Item
+creation, and authoritative read-only Work Item detail. Renderer owns the
+Focused Work Sheet's single-line title, full-width multiline description, audit
+footer, and flat read surfaces. Its shell is content-adaptive and viewport-bounded,
+with a pinned header/close and footer plus one middle scroll owner when needed.
+Renderer keeps persistent description labeling, equal read/edit layout slots,
+conditional adjacent live feedback, and transient detail/loading/error/read-only
+state. At most one title or description editor is active, including its draft,
+validation, one in-flight implicit save that keeps the editor/draft mounted,
+pending close/switch intent, transient saved feedback, field-local recovery, IME
+composition guard, and conflict choices. Placement has no detail row or editor;
+the Board canvas and Card movement own its presentation and interaction. These
+are Desktop UI states, not a new Work Item business lifecycle. Pointer drag plus
 keyboard-equivalent Card movement, truthful loading/error/empty states, and
-reachable account/language/logout controls. Main owns allowlisted
+reachable account/language/logout controls also remain Renderer concerns. Main
+owns allowlisted
 Workspace/Project/Project Work HTTP operations, typed validation, bootstrap and
 recent Project/Board fallback, non-authoritative environment/User-scoped device
-preferences, session/Project/Board response-key fencing, and mutation-vs-read
-generations. Preload exposes only narrow typed capabilities; Renderer receives
-no bearer, URL, `fetch`, or generic IPC.
+preferences, Board deletion commit/refresh orchestration and response-lost reconciliation,
+session/Project/Board response-key fencing, scoped deletion tombstones/isolation, operation-start
+eligibility, and mutation-vs-read generations. It obtains authoritative Work
+Item detail through strict no-state Work Item/Card parsers (legacy lifecycle/status
+fields are rejected), saves against the latest confirmed Work Item baseline,
+preserves confirmed Board/Column Placement context for content saves, and reloads
+authoritative Work Item and Board state after a conflict. Preload exposes only narrow typed
+capabilities; Renderer receives no bearer, URL, `fetch`, or generic IPC.
 
 TEAM Workspace behavior and membership management are not exposed. The current
 slice does not start Agent Runtime. Later Target UI may include Workflow/Agent
-integration, Swimlanes, custom fields, independent Board/Work Item deletion,
+integration, Swimlanes, custom fields, independent Work Item deletion,
 Run monitoring, approval prompts, logs, Diff review, and artifact access. This inventory is not an implementation claim or permission to
 create all pages in one change.
 

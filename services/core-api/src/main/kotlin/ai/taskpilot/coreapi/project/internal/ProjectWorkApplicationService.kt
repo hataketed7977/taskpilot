@@ -1,6 +1,9 @@
 package ai.taskpilot.coreapi.project.internal
 
 import ai.taskpilot.coreapi.project.BoardColumnView
+import ai.taskpilot.coreapi.project.BoardDeleteRestricted
+import ai.taskpilot.coreapi.project.BoardNameConfirmationMismatch
+import ai.taskpilot.coreapi.project.BoardNotEmptyConflict
 import ai.taskpilot.coreapi.project.BoardSummary
 import ai.taskpilot.coreapi.project.BoardVersionConflict
 import ai.taskpilot.coreapi.project.BoardView
@@ -10,6 +13,7 @@ import ai.taskpilot.coreapi.project.CreateBoardCommand
 import ai.taskpilot.coreapi.project.CreateColumnCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemResult
+import ai.taskpilot.coreapi.project.DeleteBoardCommand
 import ai.taskpilot.coreapi.project.DeleteColumnCommand
 import ai.taskpilot.coreapi.project.EditBoardCommand
 import ai.taskpilot.coreapi.project.EditColumnCommand
@@ -25,6 +29,7 @@ import ai.taskpilot.coreapi.project.ProjectWorkUseCases
 import ai.taskpilot.coreapi.project.ProjectWorkValidationFailed
 import ai.taskpilot.coreapi.project.ReorderColumnsCommand
 import ai.taskpilot.coreapi.project.WorkItemView
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
@@ -282,6 +287,33 @@ class ProjectWorkApplicationService(
         }
     }
 
+    override fun permanentlyDeleteBoard(command: DeleteBoardCommand) {
+        validateExpected(command.expectedVersion, "expectedVersion")
+        inTransaction {
+            requireProjectOwner(command.actorUserId, command.workspaceId, command.projectId)
+            val locked = lockBoardForDeletion(command.projectId, command.boardId)
+            if (locked.version != command.expectedVersion) throw BoardVersionConflict()
+            if (locked.name != command.confirmationName) throw BoardNameConfirmationMismatch()
+            if (placementCount(command.projectId, command.boardId) != 0) throw BoardNotEmptyConflict()
+            try {
+                jdbc.update(
+                    "DELETE FROM project.board_columns WHERE project_id = ? AND board_id = ?",
+                    command.projectId,
+                    command.boardId,
+                )
+                val deleted =
+                    jdbc.update(
+                        "DELETE FROM project.boards WHERE project_id = ? AND id = ?",
+                        command.projectId,
+                        command.boardId,
+                    )
+                if (deleted != 1) throw ProjectWorkNotFound()
+            } catch (failure: DataIntegrityViolationException) {
+                throw BoardDeleteRestricted().apply { addSuppressed(failure) }
+            }
+        }
+    }
+
     override fun createWorkItem(command: CreateWorkItemCommand): CreateWorkItemResult {
         validateExpected(command.expectedBoardVersion, "expectedBoardVersion")
         val input = normalizeWorkItem(command.title, command.description)
@@ -328,9 +360,9 @@ class ProjectWorkApplicationService(
         jdbc.update(
             """
             INSERT INTO project.work_items (
-                id, project_id, title, description, lifecycle, version, created_by_user_id,
+                id, project_id, title, description, version, created_by_user_id,
                 create_request_id, create_request_fingerprint, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'OPEN', 0, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
             """.trimIndent(),
             workItemId,
             command.projectId,
@@ -496,6 +528,32 @@ class ProjectWorkApplicationService(
             ).singleOrNull()
             ?: throw ProjectWorkNotFound()
 
+    private fun lockBoardForDeletion(
+        projectId: UUID,
+        boardId: UUID,
+    ): LockedBoard =
+        jdbc
+            .query(
+                "SELECT version, name FROM project.boards WHERE id = ? AND project_id = ? FOR UPDATE",
+                { rows, _ -> LockedBoard(rows.getLong("version"), rows.getString("name")) },
+                boardId,
+                projectId,
+            ).singleOrNull()
+            ?: throw ProjectWorkNotFound()
+
+    private fun placementCount(
+        projectId: UUID,
+        boardId: UUID,
+    ): Int =
+        requireNotNull(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM project.board_placements WHERE project_id = ? AND board_id = ?",
+                Int::class.java,
+                projectId,
+                boardId,
+            ),
+        )
+
     private fun loadBoard(
         projectId: UUID,
         boardId: UUID,
@@ -546,7 +604,7 @@ class ProjectWorkApplicationService(
         columnId: UUID,
     ): List<CardView> =
         jdbc.query(
-            """SELECT w.id, w.title, w.description, w.lifecycle, w.version AS work_item_version,
+            """SELECT w.id, w.title, w.description, w.version AS work_item_version,
                   p.version AS placement_version, p.position
            FROM project.board_placements p
            JOIN project.work_items w ON w.project_id = p.project_id AND w.id = p.work_item_id
@@ -560,7 +618,6 @@ class ProjectWorkApplicationService(
                     r.uuid("id"),
                     r.getString("title"),
                     r.getString("description"),
-                    r.getString("lifecycle"),
                     r.getLong("work_item_version"),
                     r.getLong("placement_version"),
                     r.getLong("position"),
@@ -577,7 +634,7 @@ class ProjectWorkApplicationService(
     ): WorkItemView? =
         jdbc
             .query(
-                """SELECT id, project_id, title, description, lifecycle, version, created_at, updated_at
+                """SELECT id, project_id, title, description, version, created_at, updated_at
            FROM project.work_items WHERE id = ? AND project_id = ?""",
                 {
                     r,
@@ -588,7 +645,6 @@ class ProjectWorkApplicationService(
                         r.uuid("project_id"),
                         r.getString("title"),
                         r.getString("description"),
-                        r.getString("lifecycle"),
                         r.getLong("version"),
                         r.instant("created_at"),
                         r.instant("updated_at"),
@@ -904,6 +960,11 @@ class ProjectWorkApplicationService(
         val name: String,
         val description: String,
         val locale: String?,
+    )
+
+    private data class LockedBoard(
+        val version: Long,
+        val name: String,
     )
 
     private data class WorkItemInput(

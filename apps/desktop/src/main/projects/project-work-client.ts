@@ -7,6 +7,7 @@ import type {
   CreateColumnInput,
   CreateWorkItemInput,
   CreateWorkItemResult,
+  DeleteBoardInput,
   DeleteColumnInput,
   EditBoardInput,
   EditColumnInput,
@@ -28,7 +29,7 @@ const boardSummary = z.object({
   createdAt: instant, updatedAt: instant,
 }).strict();
 const card = z.object({
-  workItemId: uuid, title: z.string(), description: z.string(), lifecycle: z.literal('OPEN'),
+  workItemId: uuid, title: z.string(), description: z.string(),
   workItemVersion: nonnegative, placementVersion: nonnegative, position: nonnegative,
 }).strict();
 const column = z.object({
@@ -37,7 +38,7 @@ const column = z.object({
 }).strict();
 const board = boardSummary.extend({ columns: z.array(column) }).strict();
 const workItem = z.object({
-  workItemId: uuid, projectId: uuid, title: z.string(), description: z.string(), lifecycle: z.literal('OPEN'),
+  workItemId: uuid, projectId: uuid, title: z.string(), description: z.string(),
   version: nonnegative, createdAt: instant, updatedAt: instant,
 }).strict();
 const createWorkItemResult = z.object({ workItem, board }).strict();
@@ -48,6 +49,7 @@ export interface ProjectWorkPort {
   getBoard(accessToken: string, input: BoardLocationInput): Promise<BoardView>;
   createBoard(accessToken: string, input: CreateBoardInput): Promise<BoardView>;
   editBoard(accessToken: string, input: EditBoardInput): Promise<BoardView>;
+  permanentlyDeleteBoard(accessToken: string, input: DeleteBoardInput): Promise<void>;
   createColumn(accessToken: string, input: CreateColumnInput): Promise<BoardView>;
   editColumn(accessToken: string, input: EditColumnInput): Promise<BoardView>;
   reorderColumns(accessToken: string, input: ReorderColumnsInput): Promise<BoardView>;
@@ -74,6 +76,15 @@ export class ProjectWorkClient implements ProjectWorkPort {
   async editBoard(accessToken: string, input: EditBoardInput) {
     const body = { expectedVersion: input.expectedVersion, name: input.name, description: input.description };
     return board.parse(await this.transport.request({ method: 'PATCH', path: this.board(input), body, accessToken }));
+  }
+  async permanentlyDeleteBoard(accessToken: string, input: DeleteBoardInput) {
+    await this.transport.request({
+      method: 'POST',
+      path: `${this.board(input)}/permanent-deletion`,
+      body: { expectedVersion: input.expectedVersion, confirmationName: input.confirmationName },
+      accessToken,
+      outcomeUnknownOnNetworkFailure: true,
+    });
   }
   async createColumn(accessToken: string, input: CreateColumnInput) {
     const body = { requestId: input.requestId, expectedBoardVersion: input.expectedBoardVersion, name: input.name };

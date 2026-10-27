@@ -149,6 +149,8 @@ private object DesktopOpenApiContracts {
                 responseContract("200", "BoardView", "400", "401", "404", "503"),
             operation("ProjectWorkController", "/boards/{boardId}", "PATCH") to
                 responseContract("200", "BoardView", "400", "401", "404", "409", "503"),
+            operation("ProjectWorkController", "/boards/{boardId}/permanent-deletion", "POST") to
+                responseContract("204", null, "400", "401", "404", "409", "503"),
             operation("ProjectWorkController", "/boards/{boardId}/columns", "POST") to
                 responseContract("201", "BoardView", "400", "401", "404", "409", "503"),
             operation("ProjectWorkController", "/boards/{boardId}/columns/{columnId}", "PATCH") to
@@ -202,6 +204,10 @@ private object DesktopOpenApiContracts {
             operation("ProjectWorkController", "/boards", "POST") to
                 "Creates a Project-scoped Board and its localized initial Column atomically as the Project OWNER. " +
                 "requestId is idempotent within actor and Project scope.",
+            operation("ProjectWorkController", "/boards/{boardId}/permanent-deletion", "POST") to
+                "Permanently and irreversibly deletes an empty Board as its Project OWNER. expectedVersion rejects " +
+                "concurrent changes, confirmationName must exactly match the current name, Work Items are preserved, " +
+                "and protected dependencies reject deletion.",
             operation("ProjectWorkController", "/boards/{boardId}/columns/{columnId}", "DELETE") to
                 "Deletes an empty non-last Column as the Project OWNER using Board and Column expected versions. " +
                 "Reload the authoritative Board after success.",
@@ -213,7 +219,7 @@ private object DesktopOpenApiContracts {
                 "A cross-Column edit validates Work Item, Board, and Placement expected versions and returns authoritative views.",
             operation("ProjectWorkController", "/boards/{boardId}/placements/{workItemId}/move", "POST") to
                 "Moves the Work Item Card using Board and Placement expected versions and returns the authoritative Board " +
-                "without changing Work Item lifecycle.",
+                "without changing canonical Work Item content or other Board placements.",
         )
 
     private fun responseContract(
