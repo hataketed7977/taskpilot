@@ -47,6 +47,7 @@ flowchart TD
 | Local Agent execution, workspace access, tools, process/PTY, journal, Diff/artifact, or Runtime tests | Root business model and architecture, then [`apps/agent-runtime/AGENTS.md`](../apps/agent-runtime/AGENTS.md) and its linked document |
 | Gateway route, identity normalization, provider-callback ingress, policy, filter, configuration, or tests | Root architecture, then [`services/gateway/AGENTS.md`](../services/gateway/AGENTS.md) and its linked document |
 | Core API persistence, API, workflow runtime, provider integration, execution evidence, or tests | Root business model and architecture, then [`services/core-api/AGENTS.md`](../services/core-api/AGENTS.md) and its linked document |
+| Mascot artwork: creating, regenerating, editing, or placing it anywhere | [`brand/mascot.md`](brand/mascot.md) |
 | Documentation ownership or navigation | This map and the root `AGENTS.md` documentation rules |
 
 ## Root Documents
@@ -57,6 +58,12 @@ flowchart TD
 | [`../README.md`](../README.md) | Current | Human-facing project orientation |
 | [`business-model.md`](business-model.md) | Target | Product vocabulary, identity and relationships, Event Storming scenarios, state machines, and MVP rules |
 | [`architecture.md`](architecture.md) | Target | System topology, cross-project boundaries, shared technical contracts, and architecture-wide quality policy |
+
+## Brand Documents
+
+| Document | Status | Owns |
+| --- | --- | --- |
+| [`brand/mascot.md`](brand/mascot.md) | Proposed | Mascot character definition, identity invariants, approved artwork in [`brand/mascot/`](brand/mascot/), and derivation rules |
 
 ## Desktop Documents
 
