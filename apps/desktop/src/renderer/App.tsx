@@ -11,6 +11,8 @@ import { formatLegalEffectiveDate, legalDocument, resolveLegalBundle, type Legal
 import { ProjectHome } from './project-home';
 import { displayNameInitials } from './profile';
 import { LanguageSelector } from './components/language-selector';
+import { WorkGraphBackground } from './components/work-graph-background';
+import { loginWorkGraphConfig } from './components/work-graph-config';
 
 type CodedError = Error & { code?: string; path?: string; retryAfterSeconds?: number; recovery?: string };
 type CapabilityState = 'loading' | 'ready' | 'unavailable';
@@ -174,6 +176,7 @@ function AuthExperience({ auth, onAuthenticated }: {
       <a className="skip-link" href="#main-content">{t('auth.skip')}</a>
       <main id="main-content" className="auth-layout">
         <aside className="brand-panel">
+          <WorkGraphBackground config={loginWorkGraphConfig} />
           <div className="wordmark">
             <span className="brand-glyph" aria-hidden="true"><i /><i /><i /><i /></span>
             <span>TaskPilot</span>

@@ -447,6 +447,19 @@ brand panel as ambient product context; it fades behind the mid-upper product
 statement instead of behaving like a separate bottom illustration. The brand
 panel is product orientation, not a second form, feature inventory, or place for
 implementation and storage rules.
+
+**Current Work Graph background:** the signed-out brand panel carries an
+`aria-hidden`, pointer-transparent Work Graph layer behind the
+wordmark/message/footer. Its baseline is one quiet 16-pixel grid with no
+self-moving nodes or route particles. On fine-pointer two-column layouts, real
+pointer movement lights grid-aligned square cells along the sampled path;
+skipped cells are interpolated, the newest cells are clearest, and the bounded
+trail decays completely after input stops. The layer does not represent live
+Work Items, Agents, approvals, Evidence, Workspace data, authentication state,
+or execution telemetry. Reduced-motion, coarse-pointer, unsupported
+media-query, and folded-brand-panel states retain only the static baseline;
+window blur or page hiding clears pending trail work. The right-side
+authentication panel never moves or reflows because of the decoration.
 At narrow widths it yields entirely to the decision panel.
 
 The first slice has one emphasized action: **Sign in with GitHub**. It has no
@@ -661,6 +674,14 @@ Offline — showing data loaded at 10:42                 Reconnect
 - Do not animate initial page sections into view or move every row on hover.
 - Respect reduced-motion preferences by removing spatial transitions while
   preserving state changes.
+- The decorative login Work Graph is a quiet grid by default; it has no
+  autonomous route or drifting particles. Fine-pointer movement is quantized to
+  grid-aligned square cells, skipped cells are interpolated into a continuous
+  short trail, and the trail decays completely after input stops.
+- The trail is limited to the visible brand panel, mutates fixed DOM slots
+  through refs, and runs one on-demand `requestAnimationFrame` loop only while
+  cells are alive. Reduced-motion, coarse-pointer, and folded narrow-window
+  layouts keep the static composition.
 - Buttons show pending state without changing width. Completion feedback names
   the completed action using the same verb as its trigger.
 

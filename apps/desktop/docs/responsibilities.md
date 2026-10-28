@@ -68,7 +68,7 @@
 | `renderer/i18n` | Supported locale resolution, safe local preference, static message catalogs, fallback policy and document-language synchronization |
 | `renderer/pages` | Route/window entry and page composition |
 | `renderer/modules/<domain>` | Cohesive first-party UI capability and its presentation logic |
-| `renderer/components` | Application-wide business-neutral React primitives plus narrow shared presentation adapters; Current code owns the controlled single-value Select interaction and the locale selector that maps supported locale data onto it |
+| `renderer/components` | Application-wide business-neutral React primitives plus narrow shared presentation adapters; Current code owns the controlled single-value Select interaction, the locale selector that maps supported locale data onto it, and the decorative Work Graph background component/configuration boundary used by the login brand panel |
 | `renderer/api` | Query-facing adapters over typed Preload cloud capabilities plus error normalization; no credentials or direct authenticated HTTP |
 | `shared-ipc` | Serializable process-boundary schemas; no implementation logic |
 
@@ -108,7 +108,9 @@
 
 The Current implementation slice includes system-browser GitHub authentication,
 first-registration/legal review, OS-credential-backed session lifecycle, the
-Project shell, and the Project's direct Board home. Renderer owns ACTIVE Project
+Project shell, and the Project's direct Board home. The signed-out login brand
+panel owns one decorative Work Graph background configuration made from fixed Renderer display data. Its default state is a quiet grid; fine-pointer movement samples the real path into grid-aligned square cells, interpolates skipped cells, and decays the short trail through one on-demand animation frame loop. It has no autonomous particles, API/IPC, authentication state, business entity, or persistence ownership, and this slice mounts it only on the left brand panel.
+Renderer owns ACTIVE Project
 and Board switching, Project lifecycle actions, Board
 create/edit/permanent-delete, Column create/edit/reorder/delete, Work Item
 creation, and authoritative read-only Work Item detail. Renderer owns the

@@ -100,6 +100,56 @@ describe('Desktop first-use experience', () => {
     cy.wrap(api.auth.cancelGitHubSignIn).should('have.been.calledOnceWith', { flowId: 'opaque-flow' });
   });
 
+  it('shows a decorative Work Graph at the compact desktop viewport without adding overflow', () => {
+    const api = apiFor();
+    cy.viewport(960, 640);
+    cy.window().then((window) => {
+      cy.stub(window, 'matchMedia').callsFake(
+        (query) =>
+          ({
+            matches: query === '(pointer: fine)' || query === '(min-width: 761px)',
+            media: query,
+            onchange: null,
+            addListener: () => undefined,
+            removeListener: () => undefined,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+            dispatchEvent: () => true,
+          }) as MediaQueryList,
+      );
+    });
+    mountApp(api);
+
+    cy.get('.brand-panel').should('be.visible');
+    cy.get('[data-testid="work-graph-background"]')
+      .should('be.visible')
+      .and('have.attr', 'aria-hidden', 'true')
+      .and('have.attr', 'data-dynamic-feedback', 'enabled')
+      .and('have.attr', 'data-flow-mode', 'pointer-trail');
+    cy.get('[data-testid="work-graph-trail-cell"][data-visible="true"]').should('have.length', 0);
+    cy.wait(180);
+    cy.get('[data-testid="work-graph-trail-cell"][data-visible="true"]').should('have.length', 0);
+    cy.get('.brand-panel')
+      .trigger('pointermove', { clientX: 120, clientY: 220, pointerType: 'mouse' })
+      .trigger('pointermove', { clientX: 360, clientY: 300, pointerType: 'mouse' });
+    cy.get('[data-testid="work-graph-trail-cell"][data-visible="true"]')
+      .should('have.length.greaterThan', 8)
+      .then(($cells) => {
+        const positions = [...$cells].map((cell) => `${(cell as HTMLElement).style.left}:${(cell as HTMLElement).style.top}`);
+        expect(new Set(positions).size).to.be.greaterThan(8);
+      });
+    cy.get('[data-testid="work-graph-background"]').should(($graph) => {
+      expect($graph[0].style.getPropertyValue('--work-graph-active')).to.equal('1');
+      expect($graph[0].getAttribute('data-flow-mode')).to.equal('pointer-trail');
+    });
+    cy.wait(750);
+    cy.get('[data-testid="work-graph-trail-cell"][data-visible="true"]').should('have.length', 0);
+    cy.findByRole('button', { name: '使用 GitHub 登录' }).should('be.visible');
+    cy.document().then((document) => {
+      expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth);
+    });
+  });
+
   it('fails closed when GitHub capability is unavailable', () => {
     const api = apiFor();
     (api.auth.getCapabilities as Cypress.Agent<sinon.SinonStub>).resolves({ github: { enabled: false } });
@@ -152,12 +202,17 @@ describe('Desktop first-use experience', () => {
     cy.viewport(480, 640);
     mountApp(api);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).should('be.visible');
+    cy.get('.brand-panel').should('not.be.visible');
+    cy.get('[data-testid="work-graph-background"]')
+      .should('not.be.visible')
+      .and('have.attr', 'data-dynamic-feedback', 'static');
     cy.document().then((document) => {
       expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth);
       const sheet = [...document.styleSheets].flatMap((item) => {
         try { return [...item.cssRules].map((rule) => rule.cssText); } catch { return []; }
       }).join(' ');
       expect(sheet).to.contain('prefers-reduced-motion: reduce');
+      expect(sheet).to.contain('work-graph__trail-cell');
     });
   });
 

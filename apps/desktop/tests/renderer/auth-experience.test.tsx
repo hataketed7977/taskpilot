@@ -3,6 +3,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
+import { loginWorkGraphConfig } from '../../src/renderer/components/work-graph-config';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
 import { boardTestApi } from './board-test-api';
 import type { FederatedAuthFlowView, SessionView, TaskPilotDesktopApi } from '../../src/shared/contracts';
@@ -74,6 +75,9 @@ describe('GitHub authentication UX', () => {
     expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '跳到主要内容' })).toHaveAttribute('href', '#main-content');
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
+    expect(screen.getByTestId('work-graph-background')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getAllByTestId('work-graph-trail-cell')).toHaveLength(loginWorkGraphConfig.trailLength);
+    expect(screen.getAllByTestId('work-graph-trail-cell').every((cell) => cell.dataset.visible === 'false')).toBe(true);
     expect(screen.getByRole('button', { name: '使用 GitHub 登录' })).toBeEnabled();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/邮箱|密码|验证码/)).not.toBeInTheDocument();
