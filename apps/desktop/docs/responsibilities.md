@@ -109,7 +109,7 @@
 The Current implementation slice includes system-browser GitHub authentication,
 first-registration/legal review, OS-credential-backed session lifecycle, the
 Project shell, and the Project's direct Board home. The signed-out login brand
-panel owns one decorative Work Graph background configuration made from fixed Renderer display data. Its default state is a quiet grid; fine-pointer movement samples the real path into grid-aligned square cells, interpolates skipped cells, and decays the short trail through one on-demand animation frame loop. It has no autonomous particles, API/IPC, authentication state, business entity, or persistence ownership, and this slice mounts it only on the left brand panel.
+panel owns one decorative Work Graph background configuration made from fixed Renderer display data. Its default state is a quiet grid; fine-pointer movement samples the real path into full 16 × 16 grid cells, staggers interpolated cells, assigns each record a stable random controlled color and optional symbol, and runs its center-grow/hold/center-shrink lifecycle through one on-demand animation frame loop. It has no autonomous particles, API/IPC, authentication state, business entity, or persistence ownership, and this slice mounts it only on the left brand panel.
 Renderer owns ACTIVE Project
 and Board switching, Project lifecycle actions, Board
 create/edit/permanent-delete, Column create/edit/reorder/delete, Work Item

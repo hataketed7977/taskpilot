@@ -107,10 +107,98 @@ describe('WorkGraphBackground', () => {
 
     const cells = visibleCells();
     expect(cells.length).toBeGreaterThan(5);
-    expect(cells.at(-1)?.style.left).toBe('113px');
-    expect(cells.at(-1)?.style.top).toBe('65px');
+    expect(cells.at(-1)?.style.left).toBe('112px');
+    expect(cells.at(-1)?.style.top).toBe('64px');
     expect(graph.style.getPropertyValue('--work-graph-active')).toBe('1');
     expect(frames.pending()).toBe(1);
+  });
+
+  it('assigns random tone and optional symbols per record without changing them on later frames', async () => {
+    installMatchMedia(enabledMedia);
+    const frames = installAnimationFrame();
+    mountWorkGraph();
+
+    const brandPanel = screen.getByTestId('brand-panel');
+    vi.spyOn(brandPanel, 'getBoundingClientRect').mockReturnValue(rect());
+    vi.spyOn(performance, 'now').mockReturnValue(100);
+    const randomValues = [
+      0, 0, 0,
+      0.5, 0.4, 0.9,
+      0.6, 0.8, 0.7,
+    ];
+    let randomIndex = 0;
+    vi.spyOn(Math, 'random').mockImplementation(
+      () => randomValues[randomIndex++ % randomValues.length] ?? 0,
+    );
+
+    fireEvent.pointerMove(brandPanel, { clientX: 17, clientY: 17 });
+    fireEvent.pointerMove(brandPanel, { clientX: 49, clientY: 17 });
+
+    const cells = visibleCells();
+    expect(new Set(cells.map((cell) => cell.dataset.tone)).size).toBeGreaterThan(1);
+    expect(cells.some((cell) => cell.dataset.symbol === '')).toBe(true);
+    expect(cells.some((cell) => cell.dataset.symbol !== '')).toBe(true);
+    const attributes = cells.map((cell) => ({
+      left: cell.style.left,
+      tone: cell.dataset.tone,
+      symbol: cell.dataset.symbol,
+      text: cell.textContent,
+    }));
+
+    act(() => frames.flush(180));
+
+    expect(visibleCells().map((cell) => ({
+      left: cell.style.left,
+      tone: cell.dataset.tone,
+      symbol: cell.dataset.symbol,
+      text: cell.textContent,
+    }))).toEqual(attributes);
+  });
+
+  it('stagger-interpolates skipped cells and gives each cell a visible grow, hold, and shrink phase', async () => {
+    installMatchMedia(enabledMedia);
+    const frames = installAnimationFrame();
+    mountWorkGraph();
+
+    const brandPanel = screen.getByTestId('brand-panel');
+    vi.spyOn(brandPanel, 'getBoundingClientRect').mockReturnValue(rect());
+    const now = vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(200);
+    const randomValues = [1 / 3, 0.2, 0.1];
+    let randomIndex = 0;
+    vi.spyOn(Math, 'random').mockImplementation(
+      () => randomValues[randomIndex++ % randomValues.length] ?? 0,
+    );
+
+    fireEvent.pointerMove(brandPanel, { clientX: 17, clientY: 17 });
+    fireEvent.pointerMove(brandPanel, { clientX: 145, clientY: 17 });
+    expect(now).toHaveBeenCalledTimes(2);
+
+    const interpolated = visibleCells().slice(-8);
+    expect(interpolated).toHaveLength(8);
+    expect(new Set(interpolated.map((cell) => cell.style.transform)).size).toBeGreaterThan(2);
+    expect(Number.parseFloat(interpolated.at(-1)?.style.opacity ?? '1')).toBeLessThan(0.01);
+    expect(Number.parseFloat(interpolated.at(-1)?.style.transform.slice(6) ?? '1')).toBeLessThan(0.01);
+
+    act(() => frames.flush(250));
+    const growingScale = Number.parseFloat(visibleCells().at(-1)?.style.transform.slice(6) ?? '0');
+    expect(growingScale).toBeGreaterThan(0.5);
+    expect(growingScale).toBeLessThan(1);
+
+    act(() => frames.flush(300));
+    expect(visibleCells().at(-1)?.style.transform).toBe('scale(1)');
+    expect(visibleCells().at(-1)?.style.opacity).toBe('1');
+
+    act(() => frames.flush(350));
+    expect(visibleCells().at(-1)?.style.transform).toBe('scale(1)');
+    expect(visibleCells().at(-1)?.style.opacity).toBe('1');
+
+    act(() => frames.flush(450));
+    expect(Number.parseFloat(visibleCells().at(-1)?.style.transform.slice(6) ?? '1')).toBeLessThan(0.5);
+    expect(visibleCells().at(-1)?.style.opacity).toBe('1');
+
+    act(() => frames.flush(490));
+    expect(Number.parseFloat(visibleCells().at(-1)?.style.opacity ?? '1')).toBeLessThan(0.2);
+    expect(Number.parseFloat(visibleCells().at(-1)?.style.transform.slice(6) ?? '1')).toBeLessThan(0.1);
   });
 
   it('does not add another cell while the pointer remains inside the same grid cell', async () => {
@@ -136,10 +224,12 @@ describe('WorkGraphBackground', () => {
     const brandPanel = screen.getByTestId('brand-panel');
     vi.spyOn(brandPanel, 'getBoundingClientRect').mockReturnValue(rect());
     vi.spyOn(performance, 'now').mockReturnValue(100);
+    vi.spyOn(Math, 'random').mockReturnValue(0);
     fireEvent.pointerMove(brandPanel, { clientX: 33, clientY: 33 });
     expect(frames.pending()).toBe(1);
 
-    act(() => frames.flush(100 + loginWorkGraphConfig.trailLifetimeMs + 1));
+    const shortestActiveDuration = loginWorkGraphConfig.activeDurationRangeMs[0];
+    act(() => frames.flush(100 + shortestActiveDuration + loginWorkGraphConfig.exitDurationMs + 1));
 
     expect(visibleCells()).toHaveLength(0);
     expect(graph.style.getPropertyValue('--work-graph-active')).toBe('0');

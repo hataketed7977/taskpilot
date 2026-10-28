@@ -452,9 +452,11 @@ implementation and storage rules.
 `aria-hidden`, pointer-transparent Work Graph layer behind the
 wordmark/message/footer. Its baseline is one quiet 16-pixel grid with no
 self-moving nodes or route particles. On fine-pointer two-column layouts, real
-pointer movement lights grid-aligned square cells along the sampled path;
-skipped cells are interpolated, the newest cells are clearest, and the bounded
-trail decays completely after input stops. The layer does not represent live
+pointer movement lights full 16 × 16 cells on the same grid origin along the
+sampled path. Skipped cells are interpolated and staggered; each new record
+chooses a controlled color and optional symbol that remain stable while that
+cell grows from its center, briefly holds, then shrinks and fades. The short,
+bounded trail decays completely after input stops. The layer does not represent live
 Work Items, Agents, approvals, Evidence, Workspace data, authentication state,
 or execution telemetry. Reduced-motion, coarse-pointer, unsupported
 media-query, and folded-brand-panel states retain only the static baseline;

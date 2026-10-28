@@ -1,6 +1,10 @@
-# login-work-graph-background Specification
+# Login Work Graph Background Specification
 
-## ADDED Requirements
+## Purpose
+
+定义 TaskPilot Desktop 登录页左侧品牌区域的装饰性 Work Graph 背景：默认安静、仅响应真实精细指针移动生成短促网格方块尾迹，并在可访问性、环境降级和认证边界上保持隔离。
+
+## Requirements
 
 ### Requirement: 登录页品牌区域显示独立的 Work Graph 背景
 
@@ -16,7 +20,7 @@
 
 ### Requirement: 精细指针移动生成网格对齐的方块尾迹
 
-在支持精细指针、未请求 reduced motion 且品牌区域可见时，Work Graph SHALL 仅因用户在左侧区域移动指针而生成网格对齐的方块尾迹。跨越多个网格单元时 SHALL 补齐中间路径；同一单元内移动 MUST NOT 重复堆积。最新单元 SHALL 最清晰，较旧单元 SHALL 依次衰减，并在用户停止移动后的有限时间内全部消失。背景 MUST NOT 自主播放路线粒子、自由漂移或圆形光晕。
+在支持精细指针、未请求 reduced motion 且品牌区域可见时，Work Graph SHALL 仅因用户在左侧区域移动指针而生成网格对齐的方块尾迹。方块 SHALL 与单个网格单元同尺寸、同原点且无间隙。跨越多个网格单元时 SHALL 补齐中间路径并沿路径错峰出生；同一单元内移动 MUST NOT 重复堆积。每个新方格 SHALL 独立随机选择受控颜色与可选特殊符号，随机结果 MUST 在该方格的单次生命周期内保持稳定。每个方格 SHALL 从中心快速放大、短暂保持，再从中心缩小并淡出；较旧单元依次衰减，并在用户停止移动后的有限时间内全部消失。背景 MUST NOT 自主播放路线粒子、自由漂移或圆形光晕。
 
 #### Scenario: 页面静止
 - **WHEN** 登录页完成加载且用户未在左侧移动指针
@@ -24,11 +28,11 @@
 
 #### Scenario: 指针跨格移动
 - **WHEN** 用户在左侧区域从一个网格位置移动到另一个较远位置
-- **THEN** 真实移动路径上的多个中间方格依次显示明显的彩色方块，右侧表单不位移且页面不新增滚动
+- **THEN** 真实移动路径上的多个中间方格按路径顺序错峰显示满格彩色方块，方格随机颜色与可选符号在各自生命周期内稳定，右侧表单不位移且页面不新增滚动
 
 #### Scenario: 指针停止或离开
 - **WHEN** 用户停止移动或离开左侧区域
-- **THEN** 不再生成新方块，已有尾迹按顺序和时间衰减并在有限时间内完全清空
+- **THEN** 不再生成新方块，已有方格各自从中心缩小并淡出，短促尾迹按出生顺序在有限时间内完全清空
 
 #### Scenario: 窗口失焦或页面隐藏
 - **WHEN** 窗口失焦或页面隐藏
@@ -48,7 +52,7 @@ Work Graph SHALL 使用 `aria-hidden="true"` 或等效语义，MUST 不进入辅
 
 ### Requirement: Work Graph 组件边界可配置复用
 
-Work Graph SHALL 通过与认证业务解耦的 Renderer 组件提供展示能力，配置至少表达网格尺寸、尾迹最大长度、衰减寿命、色调序列和动态启用策略。登录页 MUST 只传入登录专用配置；本 Change MUST NOT 在其他页面挂载或引入全局业务状态。
+Work Graph SHALL 通过与认证业务解耦的 Renderer 组件提供展示能力，配置至少表达网格尺寸、尾迹最大长度、分段生命周期、路径错峰上限、受控色调序列、符号池和动态启用策略。登录页 MUST 只传入登录专用配置；本 Change MUST NOT 在其他页面挂载或引入全局业务状态。
 
 #### Scenario: 登录页挂载专用配置
 - **WHEN** 登录页渲染 Work Graph

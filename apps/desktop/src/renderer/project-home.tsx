@@ -338,8 +338,43 @@ function normalizeProjectText(value: string) {
 }
 
 function AccountMenu({ api, user }: { api: TaskPilotDesktopApi; user: AuthenticatedSession['currentUser'] }) {
-  const { t } = useTranslation(); const [pending, setPending] = useState(false);
-  return <section className="account-menu" aria-label={t('project.accountMenu')}><div className="account-menu__identity"><Avatar user={user} size="large" /><div><strong>{user.displayName}</strong><span>{t('project.signedIn')}</span></div></div><LanguageSelector variant="account" /><button type="button" className="account-menu__logout" disabled={pending} onClick={() => { setPending(true); void api.auth.logout().finally(() => setPending(false)); }}>{pending ? t('account.loggingOut') : t('account.logout')}</button></section>;
+  const { t } = useTranslation();
+  const [pending, setPending] = useState(false);
+  return (
+    <section className="account-menu" aria-label={t('project.accountMenu')}>
+      <div className="account-menu__identity">
+        <Avatar user={user} size="large" />
+        <div>
+          <strong>{user.displayName}</strong>
+          <span>{t('project.signedIn')}</span>
+        </div>
+      </div>
+      <div className="account-menu__actions">
+        <LanguageSelector variant="account" />
+        <button
+          type="button"
+          className="account-menu__logout"
+          disabled={pending}
+          onClick={() => {
+            setPending(true);
+            void api.auth.logout().finally(() => setPending(false));
+          }}
+        >
+          <SignOutIcon />
+          <span>{pending ? t('account.loggingOut') : t('account.logout')}</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function SignOutIcon() {
+  return (
+    <svg className="account-menu__logout-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M6.25 2.75H3.9a1.4 1.4 0 0 0-1.4 1.4v7.7a1.4 1.4 0 0 0 1.4 1.4h2.35" />
+      <path d="M9.5 5 12.5 8l-3 3M12.25 8H5.5" />
+    </svg>
+  );
 }
 
 function Avatar({ user, size }: { user: AuthenticatedSession['currentUser']; size: 'small' | 'large' }) { return user.avatarUrl ? <img className={`shell-avatar shell-avatar--${size}`} src={user.avatarUrl} alt="" width={size === 'small' ? 28 : 36} height={size === 'small' ? 28 : 36} referrerPolicy="no-referrer" /> : <span className={`shell-avatar shell-avatar--${size} shell-avatar--fallback`} aria-hidden="true">{displayNameInitials(user.displayName)}</span>; }

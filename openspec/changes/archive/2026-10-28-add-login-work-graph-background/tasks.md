@@ -21,3 +21,15 @@
 - [x] 3.2 更新 Desktop design foundation、responsibilities、testing strategy 的 Current 描述。
 - [x] 3.3 运行 Desktop qualityCheck、focused Cypress、OpenSpec strict validation 和 `git diff --check`。
 - [x] 3.4 self-review 实现、文档和业务模型边界；等待用户实际视觉验收，不执行 sync/archive/stage/commit。
+
+## 4. 方格尾迹质感优化
+
+- [x] 4.1 扩展配置和轨迹记录，支持满格方块、受控随机色调、可选特殊符号和有上限的路径错峰时长。
+- [x] 4.2 将方块改为与 16px 网格同原点的 16×16 满格，并实现每格独立的中心放大、保持、中心缩小及渐入渐出。
+- [x] 4.3 更新 focused/Cypress 测试，证明随机属性生命周期稳定、插值格错峰出生、满格对齐、短促清理和环境降级。
+- [x] 4.4 更新 Desktop Current 文档，运行 focused tests、Chrome Cypress、qualityCheck、OpenSpec strict validation 和 self-review。
+
+## 5. 源码节奏校准
+
+- [x] 5.1 根据 GitHub Universe 当前线上 bundle/CSS 校准为短促尾迹：约 100ms 进入、100–400ms 随机 active window、约 100ms 退出，保留 TaskPilot 路径插值但避免长尾堆积。
+- [x] 5.2 更新 focused/Cypress 测试、Desktop Current 文档和 OpenSpec artifacts，运行受影响门禁并完成实际 Chromium 视觉检查。

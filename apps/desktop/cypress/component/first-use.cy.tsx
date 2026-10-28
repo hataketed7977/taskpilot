@@ -104,6 +104,9 @@ describe('Desktop first-use experience', () => {
     const api = apiFor();
     cy.viewport(960, 640);
     cy.window().then((window) => {
+      const randomValues = [0, 0, 0.2, 0.5, 0.4, 0.9, 0.6, 0, 0.8, 0.7, 0.99, 0.4];
+      let randomIndex = 0;
+      cy.stub(window.Math, 'random').callsFake(() => randomValues[randomIndex++ % randomValues.length]);
       cy.stub(window, 'matchMedia').callsFake(
         (query) =>
           ({
@@ -137,12 +140,18 @@ describe('Desktop first-use experience', () => {
       .then(($cells) => {
         const positions = [...$cells].map((cell) => `${(cell as HTMLElement).style.left}:${(cell as HTMLElement).style.top}`);
         expect(new Set(positions).size).to.be.greaterThan(8);
+        const firstCell = $cells[0] as HTMLElement;
+        expect(window.getComputedStyle(firstCell).width).to.equal('16px');
+        expect(window.getComputedStyle(firstCell).height).to.equal('16px');
+        expect(new Set([...$cells].map((cell) => (cell as HTMLElement).dataset.tone)).size).to.be.greaterThan(3);
+        expect([...$cells].some((cell) => (cell as HTMLElement).dataset.symbol === '')).to.equal(true);
+        expect([...$cells].some((cell) => (cell as HTMLElement).dataset.symbol !== '')).to.equal(true);
       });
     cy.get('[data-testid="work-graph-background"]').should(($graph) => {
       expect($graph[0].style.getPropertyValue('--work-graph-active')).to.equal('1');
       expect($graph[0].getAttribute('data-flow-mode')).to.equal('pointer-trail');
     });
-    cy.wait(750);
+    cy.wait(650);
     cy.get('[data-testid="work-graph-trail-cell"][data-visible="true"]').should('have.length', 0);
     cy.findByRole('button', { name: '使用 GitHub 登录' }).should('be.visible');
     cy.document().then((document) => {
@@ -261,17 +270,37 @@ describe('Desktop first-use experience', () => {
     });
   });
 
-  it('switches the Project shell to English without changing the user or logging out', () => {
+  it('switches the Project shell to English without changing user data or jittering account controls', () => {
     const api = apiFor({ status: 'authenticated', currentUser: user });
     cy.viewport(1280, 800);
     mountApp(api);
     cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
+    cy.findByRole('tab', { name: '工作看板' }).should('be.visible');
+    cy.findByRole('heading', { name: '待处理' }).should('be.visible');
+    cy.findByRole('button', { name: '项目设置' }).click();
+    cy.findByRole('heading', { name: '项目设置' }).should('be.visible');
     cy.findByRole('button', { name: '打开账号菜单' }).click();
-    cy.findByRole('combobox', { name: '语言' }).click();
-    cy.findByRole('option', { name: 'English' }).click();
-    cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
-    cy.contains('Signed in with GitHub').should('be.visible');
-    cy.findByRole('button', { name: 'Sign out' }).should('be.visible');
+
+    cy.findByRole('combobox', { name: '语言' }).then(($select) => {
+      const before = $select[0].getBoundingClientRect();
+      cy.findByRole('combobox', { name: '语言' }).click();
+      cy.findByRole('option', { name: 'English' }).click();
+      cy.findByRole('combobox', { name: 'Language' }).should(($next) => {
+        const after = $next[0].getBoundingClientRect();
+        expect(after.width).to.equal(before.width);
+        expect(Math.abs(after.right - before.right)).to.be.lessThan(0.5);
+      });
+    });
+
+    cy.findByRole('heading', { name: '我的项目' }).should('not.exist');
+    cy.findByRole('heading', { name: 'Project settings' }).should('be.visible');
+    cy.findByLabelText('Project name').should('have.value', '我的项目');
+    cy.findByRole('button', { name: 'Sign out' }).should(($button) => {
+      expect($button.find('svg.account-menu__logout-icon')).to.have.length(1);
+      const languageLeft = Cypress.$('.account-language')[0].getBoundingClientRect().left;
+      const logoutLeft = $button[0].getBoundingClientRect().left;
+      expect(Math.abs(logoutLeft - languageLeft)).to.be.lessThan(1);
+    });
     cy.wrap(api.auth.logout).should('not.have.been.called');
   });
 

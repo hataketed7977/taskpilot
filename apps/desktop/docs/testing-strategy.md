@@ -143,12 +143,13 @@ keyboard-scrollable legal content, and account switching at `960 × 640`, plus
 the existing `480 × 640` auth overflow regression. Work Graph background
 evidence for the login brand panel is split between focused Renderer component
 tests and Cypress: component tests cover an initially empty trail, no idle RAF,
-grid-aligned path sampling, interpolation across skipped cells, same-cell
-deduplication, bounded decay, single-RAF scheduling, blur/hidden/unmount cleanup,
+16 × 16 same-origin path sampling, staggered interpolation across skipped cells,
+record-stable random colors/optional symbols, independent center-grow/hold/shrink
+motion, same-cell deduplication, bounded decay, single-RAF scheduling, blur/hidden/unmount cleanup,
 and reduced-motion/coarse-pointer/folded-brand static degradation. Cypress
 verifies that the real Chromium composition stays still before input, renders
-multiple distinct square cells along a pointer path, clears them after the
-configured lifetime, and remains non-overflowing at `960 × 640`; the `480 ×
+multiple distinct full-grid character cells along a pointer path, clears them after
+the configured lifetime, and remains non-overflowing at `960 × 640`; the `480 ×
 640` single-column auth layout keeps the brand panel hidden, dynamic feedback
 static, and login controls usable. It also covers the bilingual
 Project shell at `960 × 640`, long Project names/descriptions, no horizontal

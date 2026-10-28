@@ -30,7 +30,7 @@
 
 ### 1. 组件配置表达网格尾迹，而不是业务图或路线粒子
 
-`WorkGraphBackground` 接收 `cellSizePx`、`trailLength`、`trailLifetimeMs`、色调序列和动态启用策略。`AuthExperience` 只挂载登录专用配置。既有 `.board-signature` 继续承担低对比工作图语义，动态层只负责鼠标网格尾迹。
+`WorkGraphBackground` 接收 `cellSizePx`、`trailLength`、`enterDurationMs`、随机 `activeDurationRangeMs`、`exitDurationMs`、插值路径最大错峰时长、受控色调序列、符号池和动态启用策略。`AuthExperience` 只挂载登录专用配置。既有 `.board-signature` 继续承担低对比工作图语义，动态层只负责鼠标网格尾迹。
 
 ### 2. 指针路径按网格采样并补齐跳过单元
 
@@ -40,7 +40,7 @@
 
 ### 3. 只在尾迹存在时运行单一 RAF
 
-pointer 事件通过 ref 直接更新短暂队列；React 不逐帧 setState。RAF 只负责依据进入时间和序列位置计算 opacity/scale：新方块最实，旧方块先衰减，超过约 620ms 后隐藏。队列为空即停止调度，因此静止页面没有持续动画开销。
+pointer 事件通过 ref 直接更新短暂队列；React 不逐帧 setState。RAF 只负责依据进入时间和单格分段生命周期计算 opacity/scale：约 100ms 中心放大进入、100–400ms 随机 active window 内短暂保持、约 100ms 中心缩小退出，退出前半段优先展示缩小动作、后半段再淡出。队列为空即停止调度，因此静止页面没有持续动画开销。
 
 每次新 pointer 采样先取消旧的待执行 frame，再写当前画面并只调度一个后续 frame，确保不存在重复循环。blur、hidden、能力降级和 unmount 会取消 frame 并清空尾迹。
 
@@ -54,13 +54,13 @@ Work Graph 根节点保持 `aria-hidden="true"`、`pointer-events: none`，point
 
 ## Verification
 
-- 组件测试：初始无活动方块且无 RAF；跨格 pointermove 补齐连续单元；同格不重复；寿命后完全清空并停止 RAF；blur/unmount 清理；reduced/coarse/narrow 静态降级。
+- 组件测试：初始无活动方块且无 RAF；跨格 pointermove 补齐连续单元；同格不重复；分段生命周期结束后完全清空并停止 RAF；blur/unmount 清理；reduced/coarse/narrow 静态降级。
 - Cypress：真实 Chromium 等待后仍无活动方块；两次跨距 pointermove 后出现多个不同网格坐标；约 750ms 后全部消失；登录按钮可用且无水平溢出。
 - 手工验收：在实际 Electron 窗口检查尾迹可见度、跟手性、文字层级、不同 DPI 和 macOS/Windows 焦点行为。
 
 ## Risks / Trade-offs
 
-- **轨迹太弱或太短：** 使用接近整格的高实色方块和约 620ms 寿命，浏览器验收要求多格可见，而非只测内部变量。
+- **轨迹太弱或太短：** 使用 16 × 16 满格方块、随机保持时长和真实浏览器视觉验收，证明多格可见且不堆积成过长尾巴，而非只测内部变量。
 - **事件采样导致断裂：** 补齐首尾之间网格单元。
 - **持续计算：** 队列为空即停 RAF；固定 30 个 DOM 槽位，无新依赖。
 - **内容干扰：** 动态层位于文案后方并受品牌区裁剪，实际窗口仍需主观验收。
