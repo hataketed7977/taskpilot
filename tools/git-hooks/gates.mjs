@@ -6,13 +6,20 @@ const ROOT_PNPM_PATHS = new Set(['package.json', 'pnpm-workspace.yaml', 'pnpm-lo
 const ROOT_GRADLE_PATHS = new Set(['build.gradle.kts', 'settings.gradle.kts', 'gradlew', 'gradlew.bat']);
 const DEV_PATHS = new Set(['compose.yaml', '.env.local.example']);
 const EXEMPT_METADATA = new Set(['.gitignore']);
+const EXEMPT_DOC_ASSET_EXTENSIONS = new Set(['.gif', '.jpg', '.jpeg', '.png', '.svg', '.webp']);
 
 function startsWith(pathname, prefix) {
   return pathname === prefix.slice(0, -1) || pathname.startsWith(prefix);
 }
 
 export function classifyPath(pathname) {
-  if (pathname.endsWith('.md') || startsWith(pathname, 'openspec/') || startsWith(pathname, '.agents/') || EXEMPT_METADATA.has(pathname)) {
+  if (
+    pathname.endsWith('.md') ||
+    startsWith(pathname, 'openspec/') ||
+    startsWith(pathname, '.agents/') ||
+    (startsWith(pathname, 'docs/') && EXEMPT_DOC_ASSET_EXTENSIONS.has(path.extname(pathname).toLowerCase())) ||
+    EXEMPT_METADATA.has(pathname)
+  ) {
     return { kind: 'exempt', gates: [] };
   }
   if (startsWith(pathname, '.githooks/') || startsWith(pathname, 'tools/git-hooks/')) {

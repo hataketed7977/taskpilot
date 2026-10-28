@@ -19,6 +19,8 @@ const cases = [
   ['settings.gradle.kts', ['core-api']],
   ['gradle/libs.versions.toml', ['core-api']],
   ['README.md', []],
+  ['docs/brand/mascot/otter-pilot-master-3d.jpg', []],
+  ['docs/diagrams/system.svg', []],
   ['openspec/config.yaml', []],
   ['.agents/skills/.openspec-target', []],
   ['.gitignore', []],
