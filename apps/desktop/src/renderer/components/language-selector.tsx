@@ -20,13 +20,15 @@ export function LanguageSelector({ variant = 'floating' }: { variant?: LanguageS
       options={options}
       onValueChange={(next) => void changeLocale(next as SupportedLocale)}
       variant="compact"
+      onPointerDownOutside={variant === 'account' ? preventAccountTriggerOutsidePointerDown : undefined}
     />
   );
 
   if (variant === 'account') {
     return (
-      <div className="account-language">
-        <span>{t('language.label')}</span>
+      <div className="account-language account-menu__row">
+        <span className="account-menu__icon" aria-hidden="true"><GlobeIcon /></span>
+        <span className="account-menu__row-label">{t('language.label')}</span>
         {selector}
       </div>
     );
@@ -47,4 +49,10 @@ function GlobeIcon() {
       <path d="M2.9 10h14.2M10 2.75c2.05 2.02 3.1 4.44 3.1 7.25S12.05 15.23 10 17.25C7.95 15.23 6.9 12.81 6.9 10S7.95 4.77 10 2.75Z" />
     </svg>
   );
+}
+
+function preventAccountTriggerOutsidePointerDown(event: CustomEvent<{ originalEvent: PointerEvent }>) {
+  if (event.detail.originalEvent.composedPath().some((target) => target instanceof Element && target.closest('.account-trigger'))) {
+    event.preventDefault();
+  }
 }

@@ -17,6 +17,7 @@ export type SelectProps = SelectAccessibleName & {
   disabled?: boolean;
   ariaDescribedBy?: string;
   variant?: 'default' | 'compact';
+  onPointerDownOutside?: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>['onPointerDownOutside'];
 };
 
 export function Select({
@@ -28,6 +29,7 @@ export function Select({
   disabled = false,
   ariaDescribedBy,
   variant = 'default',
+  onPointerDownOutside,
 }: SelectProps) {
   return (
     <SelectPrimitive.Root value={value} onValueChange={onValueChange} disabled={disabled}>
@@ -50,6 +52,7 @@ export function Select({
           sideOffset={6}
           collisionPadding={10}
           onEscapeKeyDown={(event) => event.stopPropagation()}
+          onPointerDownOutside={onPointerDownOutside}
         >
           <SelectPrimitive.ScrollUpButton className="tp-select-scroll-button" aria-hidden="true">
             <ChevronUpIcon />

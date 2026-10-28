@@ -349,6 +349,9 @@ describe('personal Workspace Project home', () => {
     await operator.click(screen.getByRole('option', { name: 'English' }));
     expect(screen.getAllByText('Personal space')).not.toHaveLength(0);
     await operator.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(screen.getByRole('dialog', { name: 'Sign out of TaskPilot?' })).toBeInTheDocument();
+    expect(api.auth.logout).not.toHaveBeenCalled();
+    await operator.click(screen.getAllByRole('button', { name: 'Sign out' }).at(-1)!);
     expect(api.auth.logout).toHaveBeenCalledOnce();
   });
 });

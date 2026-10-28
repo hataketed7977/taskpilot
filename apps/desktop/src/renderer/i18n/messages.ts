@@ -292,6 +292,9 @@ export const messageResources = {
         eyebrow: "Signed in",
         detail:
           "GitHub sign-in is ready. More features will be available in a future release.",
+        confirmLogoutTitle: "Sign out of TaskPilot?",
+        confirmLogoutDetail:
+          "You’ll return to the sign-in screen. You can sign in again anytime.",
         loggingOut: "Signing out…",
         logout: "Sign out",
       },
@@ -561,6 +564,8 @@ export const messageResources = {
       account: {
         eyebrow: "已登录",
         detail: "GitHub 登录已就绪。更多功能将在后续版本提供。",
+        confirmLogoutTitle: "退出登录？",
+        confirmLogoutDetail: "你将返回登录页。之后可以随时重新登录。",
         loggingOut: "正在退出…",
         logout: "退出登录",
       },

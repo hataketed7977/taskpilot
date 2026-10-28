@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocale } from './i18n/locale-state';
 import type {
@@ -26,6 +26,7 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteProject, setDeleteProject] = useState<ProjectView>();
   const [accountOpen, setAccountOpen] = useState(false);
+  const accountDockRef = useRef<HTMLDivElement>(null);
   const [errorSignOutPending, setErrorSignOutPending] = useState(false);
   const requestGeneration = useRef(0);
   const selectionGeneration = useRef(0);
@@ -56,6 +57,20 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
       setState({ kind: 'error' });
     }
   }, [accepts, api.projects]);
+
+  useEffect(() => {
+    if (!accountOpen) return undefined;
+    const closeAccountMenu = (event: PointerEvent) => {
+      if (eventPathIncludes(event, accountDockRef.current)) return;
+      if (eventPathClosest(event, '[data-taskpilot-select-content]')) return;
+      if (eventPointWithinSelector(event, '.account-menu, .account-trigger, [data-taskpilot-select-content]')) return;
+      setAccountOpen(false);
+    };
+    document.addEventListener('pointerdown', closeAccountMenu, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeAccountMenu, true);
+    };
+  }, [accountOpen]);
 
   useEffect(() => {
     const request = ++requestGeneration.current;
@@ -158,8 +173,15 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
         <button type="button" className={`sidebar-action${surface === 'archived' ? ' is-active' : ''}`} onClick={() => void showArchived()}>
           <ArchiveIcon />{t('project.archivedAction')}
         </button>
-        <div className="account-dock">
-          <button type="button" className="account-trigger" aria-expanded={accountOpen} aria-label={t('project.openAccountMenu')} onClick={() => setAccountOpen(value => !value)}>
+        <div className="account-dock" ref={accountDockRef}>
+          <button
+            type="button"
+            className="account-trigger"
+            aria-expanded={accountOpen}
+            aria-label={t('project.openAccountMenu')}
+            onClick={() => setAccountOpen(value => !value)}
+            onPointerDown={ignoreWhenAccountSelectIsOpen}
+          >
             <Avatar user={session.currentUser} size="small" />
             <span className="account-trigger__name">{session.currentUser.displayName}</span><span aria-hidden="true">⌃</span>
           </button>
@@ -196,6 +218,31 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
       <span className="visually-hidden" aria-live="polite">{key.sessionGeneration}</span>
     </main>
   );
+}
+
+function ignoreWhenAccountSelectIsOpen(event: ReactPointerEvent) {
+  if (document.querySelector('.account-language .tp-select-trigger[data-state="open"]')) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
+function eventPathIncludes(event: Event, element: Element | null) {
+  return Boolean(element && event.composedPath().includes(element));
+}
+
+function eventPathClosest(event: Event, selector: string) {
+  return event.composedPath().some((target) => target instanceof Element && (target.matches(selector) || target.closest(selector)));
+}
+
+function eventPointWithinSelector(event: PointerEvent, selector: string) {
+  return [...document.querySelectorAll(selector)].some((element) => eventPointWithin(event, element));
+}
+
+function eventPointWithin(event: PointerEvent, element: Element | null) {
+  if (!element || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false;
+  const rect = element.getBoundingClientRect();
+  return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
 }
 
 function ProjectSurface({ api, userId, workspaceId, project, onSettings }: { api: TaskPilotDesktopApi; userId: string; workspaceId: string; project: ProjectView; onSettings(): void }) {
@@ -340,6 +387,15 @@ function normalizeProjectText(value: string) {
 function AccountMenu({ api, user }: { api: TaskPilotDesktopApi; user: AuthenticatedSession['currentUser'] }) {
   const { t } = useTranslation();
   const [pending, setPending] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const signOut = () => {
+    if (pending) return;
+    setPending(true);
+    void api.auth.logout().finally(() => {
+      setPending(false);
+      setConfirmOpen(false);
+    });
+  };
   return (
     <section className="account-menu" aria-label={t('project.accountMenu')}>
       <div className="account-menu__identity">
@@ -355,22 +411,35 @@ function AccountMenu({ api, user }: { api: TaskPilotDesktopApi; user: Authentica
           type="button"
           className="account-menu__logout"
           disabled={pending}
-          onClick={() => {
-            setPending(true);
-            void api.auth.logout().finally(() => setPending(false));
-          }}
+          onClick={() => setConfirmOpen(true)}
         >
-          <SignOutIcon />
-          <span>{pending ? t('account.loggingOut') : t('account.logout')}</span>
+          <span className="account-menu__icon account-menu__logout-icon" aria-hidden="true"><SignOutIcon /></span>
+          <span className="account-menu__logout-label">{pending ? t('account.loggingOut') : t('account.logout')}</span>
         </button>
       </div>
+      {confirmOpen ? <LogoutConfirmDialog pending={pending} onCancel={() => setConfirmOpen(false)} onConfirm={signOut} /> : null}
     </section>
+  );
+}
+
+function LogoutConfirmDialog({ pending, onCancel, onConfirm }: { pending: boolean; onCancel(): void; onConfirm(): void }) {
+  const { t } = useTranslation();
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  useInitialFocus(cancelButton);
+  return (
+    <Modal title={t('account.confirmLogoutTitle')} onClose={onCancel} pending={pending}>
+      <p className="dialog-copy">{t('account.confirmLogoutDetail')}</p>
+      <div className="dialog-actions">
+        <button ref={cancelButton} type="button" className="project-button" disabled={pending} onClick={onCancel}>{t('project.cancel')}</button>
+        <button type="button" className="project-button project-button--primary" disabled={pending} onClick={onConfirm}>{pending ? t('account.loggingOut') : t('account.logout')}</button>
+      </div>
+    </Modal>
   );
 }
 
 function SignOutIcon() {
   return (
-    <svg className="account-menu__logout-icon" viewBox="0 0 16 16" aria-hidden="true">
+    <svg className="account-menu__icon-svg" viewBox="0 0 16 16" aria-hidden="true">
       <path d="M6.25 2.75H3.9a1.4 1.4 0 0 0-1.4 1.4v7.7a1.4 1.4 0 0 0 1.4 1.4h2.35" />
       <path d="M9.5 5 12.5 8l-3 3M12.25 8H5.5" />
     </svg>

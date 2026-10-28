@@ -225,12 +225,21 @@ describe('Desktop first-use experience', () => {
     });
   });
 
-  it('lands in the Project home and keeps logout reachable', () => {
+  it('lands in the Project home and confirms logout before signing out', () => {
     const api = apiFor({ status: 'authenticated', currentUser: user });
     mountApp(api);
     cy.findByRole('heading', { name: '我的项目' }).should('be.visible');
     cy.findByRole('button', { name: '打开账号菜单' }).click();
     cy.findByRole('button', { name: '退出登录' }).click();
+    cy.findByRole('dialog', { name: '退出登录？' }).should('be.visible');
+    cy.wrap(api.auth.logout).should('not.have.been.called');
+    cy.findByRole('button', { name: '取消' }).click();
+    cy.findByRole('dialog', { name: '退出登录？' }).should('not.exist');
+    cy.wrap(api.auth.logout).should('not.have.been.called');
+    cy.findByRole('button', { name: '退出登录' }).click();
+    cy.findByRole('dialog', { name: '退出登录？' }).within(() => {
+      cy.findByRole('button', { name: '退出登录' }).click();
+    });
     cy.wrap(api.auth.logout).should('have.been.calledOnce');
   });
 
@@ -284,6 +293,29 @@ describe('Desktop first-use experience', () => {
     cy.findByRole('combobox', { name: '语言' }).then(($select) => {
       const before = $select[0].getBoundingClientRect();
       cy.findByRole('combobox', { name: '语言' }).click();
+      cy.findByRole('listbox').should('be.visible');
+      cy.get('.account-menu').should('exist');
+      cy.get('.account-language .tp-select-trigger').should(($openSelect) => {
+        expect($openSelect).to.have.css('outline-style', 'none');
+        expect($openSelect).to.have.css('box-shadow', 'none');
+      });
+      cy.get('body').should('have.css', 'margin-right', '0px');
+      cy.document().then((doc) => {
+        expect(doc.documentElement.scrollWidth).to.eq(doc.documentElement.clientWidth);
+      });
+      cy.get('.account-language .tp-select-trigger').then(($trigger) => {
+        const bounds = $trigger[0].getBoundingClientRect();
+        cy.get('body').click(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2, { force: true });
+      });
+      cy.get('.account-menu').should('be.visible');
+      cy.findByRole('listbox').should('not.exist');
+      cy.findByRole('combobox', { name: '语言' }).click();
+      cy.findByRole('listbox').should('be.visible');
+      cy.get('.settings-header h1').contains('项目设置').click({ force: true });
+      cy.get('.account-menu').should('not.exist');
+      cy.findByRole('listbox').should('not.exist');
+      cy.findByRole('button', { name: '打开账号菜单' }).click();
+      cy.findByRole('combobox', { name: '语言' }).click();
       cy.findByRole('option', { name: 'English' }).click();
       cy.findByRole('combobox', { name: 'Language' }).should(($next) => {
         const after = $next[0].getBoundingClientRect();
@@ -296,11 +328,17 @@ describe('Desktop first-use experience', () => {
     cy.findByRole('heading', { name: 'Project settings' }).should('be.visible');
     cy.findByLabelText('Project name').should('have.value', '我的项目');
     cy.findByRole('button', { name: 'Sign out' }).should(($button) => {
-      expect($button.find('svg.account-menu__logout-icon')).to.have.length(1);
-      const languageLeft = Cypress.$('.account-language')[0].getBoundingClientRect().left;
-      const logoutLeft = $button[0].getBoundingClientRect().left;
-      expect(Math.abs(logoutLeft - languageLeft)).to.be.lessThan(1);
+      expect($button.find('.account-menu__logout-icon svg')).to.have.length(1);
+      expect($button).to.have.css('color', 'rgb(23, 32, 27)');
+      const languageIcon = Cypress.$('.account-language .account-menu__icon')[0].getBoundingClientRect();
+      const logoutIcon = $button.find('.account-menu__logout-icon')[0].getBoundingClientRect();
+      const languageLabelLeft = Cypress.$('.account-language .account-menu__row-label')[0].getBoundingClientRect().left;
+      const logoutLabelLeft = $button.find('.account-menu__logout-label')[0].getBoundingClientRect().left;
+      expect(Math.abs((logoutIcon.left + logoutIcon.width / 2) - (languageIcon.left + languageIcon.width / 2))).to.be.at.most(1);
+      expect(Math.abs(logoutLabelLeft - languageLabelLeft)).to.be.at.most(1);
     });
+    cy.get('.settings-header h1').contains('Project settings').click();
+    cy.findByRole('button', { name: 'Sign out' }).should('not.exist');
     cy.wrap(api.auth.logout).should('not.have.been.called');
   });
 

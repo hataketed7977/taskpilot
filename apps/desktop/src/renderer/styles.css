@@ -1157,7 +1157,9 @@ button:disabled {
 .project-shell {
   width: 100%;
   min-width: 0;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 640px;
+  overflow: hidden;
   display: grid;
   grid-template: 48px minmax(0, 1fr) / 216px minmax(0, 1fr);
   color: var(--ink);
@@ -1458,18 +1460,52 @@ button:disabled {
   padding-top: 8px;
 }
 
-.account-language {
+.account-menu__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 128px;
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  min-height: 40px;
-  padding: 3px 4px 3px 8px;
-  color: var(--muted);
+  column-gap: 10px;
+  min-height: 42px;
+  border-radius: 10px;
+  padding: 0 8px;
   font-size: 12px;
 }
 
-.account-language > span {
+.account-language {
+  grid-template-columns: 20px minmax(0, 1fr) 128px;
+  color: var(--muted);
+}
+
+.account-menu__icon {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  color: var(--muted);
+}
+
+.account-menu__icon .language-selector__icon,
+.account-menu__icon-svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.account-menu__icon .language-selector__icon {
+  stroke-width: 1.35;
+}
+
+.account-menu__icon-svg {
+  stroke-width: 1.55;
+}
+
+.account-menu__row-label,
+.account-menu__logout-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1478,54 +1514,71 @@ button:disabled {
 
 .account-language .tp-select-trigger {
   width: 128px;
+  background: var(--paper);
+  box-shadow: none;
+}
+
+.account-language .tp-select-trigger[data-state="open"] {
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+
+.account-language .tp-select-trigger:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--action) 14%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--action) 10%, transparent);
+}
+
+.account-language .tp-select-trigger[data-state="open"]:focus-visible {
+  box-shadow: none;
 }
 
 .account-menu__logout {
   width: 100%;
-  min-height: 40px;
-  justify-content: flex-start;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  min-height: 42px;
   border-color: transparent;
+  border-radius: 10px;
   padding: 0 8px;
-  color: var(--danger);
+  color: var(--ink);
   text-align: left;
   font-size: 12px;
   font-weight: 650;
 }
 
+.account-menu__logout .account-menu__icon {
+  color: var(--muted);
+}
+
 .account-menu__logout:hover:not(:disabled) {
   border-color: transparent;
-  color: color-mix(in srgb, var(--danger) 88%, var(--ink));
-  background: color-mix(in srgb, var(--danger) 7%, var(--paper));
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 4%, var(--paper));
+}
+
+.account-menu__logout:hover:not(:disabled) .account-menu__icon,
+.account-menu__logout:active:not(:disabled) .account-menu__icon {
+  color: currentColor;
+}
+
+.account-menu__logout:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 6%, var(--paper));
 }
 
 .account-menu__logout:disabled {
+  color: var(--muted);
   opacity: 0.64;
   cursor: not-allowed;
-}
-
-.account-menu__logout-icon {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.55;
-}
-
-.account-menu__logout span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .project-workspace {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: color-mix(in srgb, var(--paper) 91%, transparent);
 }
 
@@ -2855,14 +2908,20 @@ button:disabled {
 
 .tp-select-trigger:hover:not(:disabled),
 .tp-select-trigger[data-state="open"] {
-  border-color: var(--line-strong);
+  border-color: color-mix(in srgb, var(--action) 42%, var(--line-strong));
   background: var(--paper);
 }
 
 .tp-select-trigger:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--focus) 18%, transparent);
-  outline-offset: 2px;
-  border-color: var(--focus);
+  outline: 0;
+  border-color: var(--action);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--action) 14%, transparent),
+    0 1px 2px color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.tp-select-trigger[data-state="open"]:focus-visible {
+  box-shadow: none;
 }
 
 .tp-select-trigger:disabled {
@@ -3029,4 +3088,12 @@ button:disabled {
   .tp-select-trigger__icon {
     transition: none;
   }
+}
+
+/* Radix Select locks document scroll while its portal is open. The Project shell
+   owns scrolling internally, so scrollbar compensation would only create a
+   visible right-side gutter in the desktop viewport. */
+html body[data-scroll-locked][data-scroll-locked] {
+  margin-right: 0 !important;
+  padding-right: 0 !important;
 }

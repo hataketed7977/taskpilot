@@ -145,7 +145,10 @@ describe('GitHub authentication UX', () => {
     await screen.findByRole('heading', { name: '我的项目' });
     await operator.click(screen.getByRole('button', { name: '打开账号菜单' }));
     await operator.click(screen.getByRole('button', { name: '退出登录' }));
+    expect(screen.getByRole('dialog', { name: '退出登录？' })).toBeInTheDocument();
+    expect(api.auth.logout).not.toHaveBeenCalled();
 
+    await operator.click(screen.getAllByRole('button', { name: '退出登录' }).at(-1)!);
     expect(api.auth.logout).toHaveBeenCalledOnce();
     expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '我的项目' })).not.toBeInTheDocument();
