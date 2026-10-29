@@ -22,33 +22,33 @@
 - **THEN** 应用 SHALL 完成 Spring 上下文启动并通过受限的健康检查报告存活状态
 
 ### Requirement: 粗粒度能力模块受到可执行验证
-Core API SHALL 以 `access`、`project`、`automation`、`agent` 四个粗粒度能力作为初始模块，并通过自动化模块验证拒绝循环依赖、未声明依赖和对其他模块内部实现的访问。初始化不得将每个业务名词机械拆成模块，也不得通过通用共享包绕过模块边界。
+Core API SHALL 以 `access`、`workspace`、`project`、`onboarding`、`automation`、`agent` 六个粗粒度能力作为当前模块，并通过对编译后生产代码执行的自动化模块验证拒绝循环依赖、未声明依赖和对其他模块内部实现的访问。模块验证 SHALL 明确断言预期模块集合，MUST NOT 以人工合法/违规模块 fixture 或空扫描作为通过证据。Core API 不得将每个业务名词机械拆成模块，也不得通过通用共享包绕过模块边界。
 
 #### Scenario: 合法的初始模块图
-- **WHEN** 架构测试分析初始 Core API 应用
-- **THEN** 它 SHALL 发现四个预期能力模块，并确认模块图无循环且符合声明的公开面和允许依赖
+- **WHEN** 架构测试分析编译后的 Core API 生产代码
+- **THEN** 它 SHALL 发现且仅发现 `access`、`workspace`、`project`、`onboarding`、`automation`、`agent` 六个能力模块，并确认模块图无循环且符合声明的公开面和允许依赖
 
 #### Scenario: 模块越界依赖
-- **WHEN** 架构规则 fixture 引入对另一能力内部实现的依赖
-- **THEN** 模块验证 SHALL 以可定位到违规依赖的失败结果拒绝该结构
+- **WHEN** Core API 生产代码引入循环、未声明的能力依赖或对另一能力内部实现的访问
+- **THEN** 模块验证 SHALL 失败并提供可定位到相关模块或违规依赖的结果
 
 #### Scenario: 模块独立启动保护
 - **WHEN** 一个能力获得首个 Spring 用例或集成组件
 - **THEN** 该能力 SHALL 具有仅在声明依赖范围内启动的模块测试，缺失 wiring 或隐式依赖 SHALL 导致测试失败
 
 ### Requirement: 技术架构规则受到独立保护
-Core API SHALL 使用独立于模块图验证的架构规则，防止业务模型依赖 Web、Spring Security、持久化或 provider SDK 类型，防止持久化与 provider 类型跨能力或 HTTP 边界泄漏，并保持 Desktop、public、managed-execution API surface 相互隔离。每类规则 SHALL 具有允许与禁止示例，证明规则会匹配并拒绝目标违规，而不是空通过。
+Core API SHALL 使用独立于模块图验证的架构规则分析编译后的生产代码，防止业务模型依赖 Web、Spring Security、持久化或 provider SDK 类型，防止持久化与 provider 类型跨能力或 HTTP 边界泄漏，并保持 Desktop、public、managed-execution API surface 相互隔离。架构测试 SHALL 证明生产代码扫描范围非空并执行全部已批准规则，MUST NOT 依赖人工允许/禁止 fixture、伪造的框架类型或独立 fixture source set 作为通过证据。
 
 #### Scenario: 合法依赖示例
-- **WHEN** 架构规则分析只依赖允许契约的示例和生产类
-- **THEN** 所有技术架构规则 SHALL 通过
+- **WHEN** 架构测试导入 Core API 编译后的生产代码
+- **THEN** 它 SHALL 发现 Core API 架构根及生产类型，并 SHALL 对同一生产类集合执行全部已批准技术架构规则
 
 #### Scenario: 禁止依赖示例
-- **WHEN** 架构规则分析模型依赖 Web/持久化框架、API surface 互相引用或跨模块访问 infrastructure 的禁止示例
-- **THEN** 对应规则 SHALL 失败并指出违规来源和目标
+- **WHEN** Core API 生产代码引入被已批准技术架构规则禁止的依赖或包结构
+- **THEN** 对应架构规则 SHALL 失败并指出违规规则以及可定位的来源和目标
 
 ### Requirement: 测试按反馈速度和真实边界分层
-Core API 的测试、测试资源和测试 fixture SHALL 在文件系统中统一归入标准 `src/test` 树，并由标准 `test` 任务提供完整测试套件入口。测试 SHALL 按反馈速度和真实边界保持逻辑分层，并允许调用方通过测试选择器执行不需要容器的聚焦测试，而不是依赖独立的顶层测试源码目录或分层测试任务。模块测试 SHALL 验证限定 Spring 模块上下文；基础设施集成测试 SHALL 使用真实 PostgreSQL 兼容边界。H2 或同类内存数据库 MUST NOT 被用作 PostgreSQL 行为的替代证据。
+Core API 的手写测试源码 SHALL 使用 Kotlin 并统一位于标准 `src/test/kotlin`，测试资源 SHALL 位于标准 `src/test/resources`，标准 `test` 任务 SHALL 提供完整测试套件入口。测试 SHALL 按反馈速度和真实边界保持逻辑分层，并允许调用方通过测试选择器执行不需要容器的聚焦测试，而不是依赖独立的顶层测试源码目录、分层测试任务或人工架构 fixture source set。模块测试 SHALL 验证限定 Spring 模块上下文；基础设施集成测试 SHALL 使用真实 PostgreSQL 兼容边界。H2 或同类内存数据库 MUST NOT 被用作 PostgreSQL 行为的替代证据。
 
 #### Scenario: 快速测试不启动容器
 - **WHEN** 开发者通过标准测试任务的测试选择器只选择单元测试或架构测试
@@ -71,8 +71,8 @@ Core API 的测试、测试资源和测试 fixture SHALL 在文件系统中统�
 - **THEN** 任务 SHALL 明确失败，MUST NOT 静默跳过或改用内存数据库并报告通过
 
 #### Scenario: 测试源码布局保持统一
-- **WHEN** 构建契约检查 Core API 的测试源码、测试资源和架构规则 fixture
-- **THEN** 它们 SHALL 位于 `src/test` 树下，且 SHALL NOT 依赖顶层 `src/moduleTest`、`src/integrationTest` 或 `src/architectureFixtures` 目录
+- **WHEN** 构建契约检查 Core API 的手写测试源码和测试资产布局
+- **THEN** `src/test` SHALL NOT 包含 Java 源码或人工架构 fixture 目录，且 SHALL NOT 依赖顶层 `src/moduleTest`、`src/integrationTest` 或 `src/architectureFixtures` 目录
 
 ### Requirement: 工程质量门禁具有单一可执行入口
 Core API SHALL 提供可由本地和 CI 调用的质量任务，组合编译、格式、静态分析、标准完整测试套件、覆盖率验证和构建产物边界检查。完整测试套件 SHALL 包含适用的架构、模块上下文及基础设施集成测试。生成代码和明确批准的配置样板可按版本控制规则排除，但手写生产逻辑 MUST NOT 为通过门禁而被隐藏、跳过或移入测试代码。

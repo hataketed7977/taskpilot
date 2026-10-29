@@ -315,14 +315,16 @@ security, Problem Details, and implemented-path evidence. Run
 
 Once initialized:
 
-- Spring Modulith verification rejects undeclared capability dependencies and
-  cycles.
-- Architecture checks reject HTTP/persistence/provider leakage across public
-  capability contracts.
-- The checks enforce the actual coarse package graph, not speculative layers or
-  one module per business noun.
-- A new boundary updates architecture/responsibility docs and verification
-  fixtures in the same change.
+- Spring Modulith verification discovers the exact production capability set and
+  rejects undeclared dependencies, internal access, and cycles in the real module
+  graph.
+- ArchUnit imports a non-empty set of compiled production classes rooted at the
+  stable Core API architecture marker and rejects HTTP, persistence, provider,
+  and API-surface leakage by executing every approved rule against that set.
+- The checks enforce the actual coarse package graph, not speculative layers,
+  artificial allowed/forbidden fixtures, or one module per business noun.
+- A new boundary updates the owning architecture/responsibility documents and
+  the production-structure verification in the same change.
 
 ## Test Data and Isolation
 

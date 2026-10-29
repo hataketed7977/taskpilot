@@ -20,17 +20,18 @@ JUnit 6.0.3, Testcontainers 2.0.5, Detekt 1.23.8, ktlint 1.8.0, and Kover
 that does not change the application Kotlin version. Handwritten production
 source is Kotlin-only under `src/main/kotlin`; Spring Modulith module metadata is
 carried by annotation-only Kotlin marker classes, so `src/main` contains no Java
-source. All test code, resources, and fixtures are physically owned by
-`src/test`, and the standard `test` task is the single complete test-suite entry.
+source. Handwritten test source is Kotlin-only under `src/test/kotlin`, test
+resources remain under `src/test/resources`, and the standard `test` task is the
+single complete test-suite entry.
 
-The two architecture-fixture categories retain only the isolation their loading
-mechanisms require. Spring Modulith fixtures are ordinary `src/test/java` output
-on the test runtime and use an explicit import option so test packages are
-scanned. FQCN-conflicting ArchUnit fixtures are compiled from
-`src/test/architecture-fixtures/java` by an internal dependency-isolated source
-set and imported by explicit class-output paths; that source set is not an
-additional test task and its output does not leak onto the normal test runtime.
-Detekt scans the two standard Kotlin roots, Kover measures main production
+Architecture verification analyzes compiled production structure directly.
+Spring Modulith discovers exactly the six declared capability modules and
+verifies their real dependency graph. ArchUnit imports the Core API production
+package, asserts that the stable architecture root and a non-empty production
+class set were discovered, and executes every approved technical-boundary rule
+against that same set. The build contract rejects Java test source,
+non-standard source directories, and additional source sets. Detekt scans the
+two standard Kotlin roots, Kover measures main production
 classes from standard `test` execution with unchanged 80% line and 75% branch
 thresholds, and `qualityCheck` combines the complete suite with compile, format,
 static-analysis, build-contract, and coverage gates. This layout change does not

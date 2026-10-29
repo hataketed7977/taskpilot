@@ -1,4 +1,3 @@
-import java.io.File
 import java.util.jar.JarFile
 
 plugins {
@@ -28,12 +27,6 @@ java {
 repositories {
     mavenCentral()
 }
-
-val architectureFixtures =
-    sourceSets.create("architectureFixtures") {
-        java.setSrcDirs(listOf("src/test/architecture-fixtures/java"))
-        resources.setSrcDirs(emptyList<String>())
-    }
 
 dependencies {
     implementation(platform(libs.spring.modulith.bom))
@@ -146,25 +139,16 @@ kover {
     }
 }
 
-val architectureFixturesClasses = tasks.named(architectureFixtures.classesTaskName)
-
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
 tasks.test {
-    dependsOn(architectureFixturesClasses)
-    inputs.files(architectureFixtures.output.classesDirs).withPropertyName("architectureFixturesClasses")
     val desktopSystemEnabled = System.getProperty("taskpilot.desktop.system") == "true"
     if (!desktopSystemEnabled) {
         filter.excludeTestsMatching("*DesktopSystemJourneyTest")
     }
     doFirst {
-        systemProperty(
-            "taskpilot.architectureFixtures.classesDir",
-            architectureFixtures.output.classesDirs.files
-                .joinToString(File.pathSeparator) { it.absolutePath },
-        )
         if (desktopSystemEnabled) {
             systemProperty("taskpilot.desktop.system", "true")
         }
@@ -194,31 +178,39 @@ val verifyBuildContract =
                 "A root qualityCheck is forbidden; use :services:core-api:qualityCheck"
             }
 
-            val removedSourceDirectories =
-                listOf(
-                    file("src/moduleTest"),
-                    file("src/integrationTest"),
-                    file("src/architectureFixtures"),
-                )
-            check(removedSourceDirectories.none { it.exists() }) {
-                "Removed source directories remain: ${removedSourceDirectories.filter { it.exists() }}"
+            val expectedSourceSets = setOf("main", "test")
+            check(sourceSets.names == expectedSourceSets) {
+                "Core API contains non-standard source sets: ${sourceSets.names - expectedSourceSets}"
+            }
+            val unexpectedSourceDirectories =
+                file("src").listFiles().orEmpty().filter { it.isDirectory && it.name !in expectedSourceSets }
+            check(unexpectedSourceDirectories.isEmpty()) {
+                "Core API contains non-standard source directories: $unexpectedSourceDirectories"
+            }
+            val expectedTestDirectories = setOf("kotlin", "resources")
+            val unexpectedTestDirectories =
+                file("src/test").listFiles().orEmpty().filter { it.isDirectory && it.name !in expectedTestDirectories }
+            check(unexpectedTestDirectories.isEmpty()) {
+                "Core API contains non-standard test source directories: $unexpectedTestDirectories"
+            }
+            val artificialArchitectureFixtureDirectories =
+                file("src/test")
+                    .walkTopDown()
+                    .filter { it.isDirectory }
+                    .filter { directory ->
+                        val relativePath = directory.relativeTo(file("src/test")).invariantSeparatorsPath.lowercase()
+                        "architecture" in relativePath && "fixture" in relativePath
+                    }.toList()
+            check(artificialArchitectureFixtureDirectories.isEmpty()) {
+                "Core API contains artificial architecture fixture directories: $artificialArchitectureFixtureDirectories"
             }
             val productionJavaFiles = fileTree("src/main") { include("**/*.java") }.files
             check(productionJavaFiles.isEmpty()) {
                 "Core API production Java sources remain: $productionJavaFiles"
             }
-
-            val testTask = tasks.named<Test>("test").get()
-            val fixtureOutput =
-                architectureFixtures.output.classesDirs.files
-                    .map { it.canonicalFile }
-                    .toSet()
-            val fixtureOutputOnTestRuntime =
-                testTask.classpath.files
-                    .map { it.canonicalFile }
-                    .intersect(fixtureOutput)
-            check(fixtureOutputOnTestRuntime.isEmpty()) {
-                "Isolated ArchUnit fixture output leaked onto the test runtime classpath: $fixtureOutputOnTestRuntime"
+            val testJavaFiles = fileTree("src/test") { include("**/*.java") }.files
+            check(testJavaFiles.isEmpty()) {
+                "Core API test Java sources remain: $testJavaFiles"
             }
 
             val detektSources =
@@ -294,7 +286,6 @@ val verifyBuildContract =
                 check(
                     entries.none { entry ->
                         entry.contains("Test.class") ||
-                            entry.contains("architecturefixtures", ignoreCase = true) ||
                             entry.contains("db/integration", ignoreCase = true) ||
                             entry.endsWith("V1__integration_probe.sql", ignoreCase = true)
                     },
