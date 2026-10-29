@@ -1,7 +1,7 @@
 import '@testing-library/cypress/add-commands';
 import { mount } from 'cypress/react';
 import '@fontsource-variable/inter';
-import '../../src/renderer/styles.css';
+import '../../src/renderer/styles/index.css';
 
 declare module 'cypress' {
   interface Chainable {

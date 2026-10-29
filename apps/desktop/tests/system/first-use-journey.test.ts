@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { BoardWorkspace } from '../../src/renderer/board-workspace.js';
+import { BoardWorkspace } from '../../src/renderer/features/board/board-workspace.js';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context.js';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';

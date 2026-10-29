@@ -6,9 +6,9 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json-summary'],
+      reporter: ['text', 'json-summary', 'html', 'cobertura'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/main/index.ts', 'src/preload/index.ts', 'src/renderer/main.tsx'],
+      exclude: ['src/main/index.ts', 'src/preload/index.ts', 'src/renderer/app/main.tsx'],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 70 },
     },
   },

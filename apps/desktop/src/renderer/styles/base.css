@@ -1,0 +1,52 @@
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 640px;
+  overflow-x: hidden;
+  background: var(--canvas);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select,
+input[type="checkbox"] {
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(28, 108, 192, 0.14);
+}
+
+h1,
+h2 {
+  text-wrap: balance;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 10px;
+  left: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--ink);
+  transform: translateY(calc(-100% - 20px));
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}

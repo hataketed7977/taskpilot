@@ -15,15 +15,23 @@ Use the lowest reliable layer for each risk and add packaged/native tests only
 for boundaries that unit or Renderer integration tests cannot prove. Tests and
 production behavior land together.
 
-**Current:** Vitest owns Main, Renderer, architecture, and coverage checks;
-Cypress component tests own browser-level first-use interaction; Vite and
-TypeScript own production builds; electron-builder owns unpacked packaged builds.
-Run `pnpm --filter @taskpilot/desktop qualityCheck` for the complete portable
-Desktop gate, `pnpm --filter @taskpilot/desktop test:e2e` for Cypress component
-journeys, and `pnpm --filter @taskpilot/desktop test:packaged-native` for the
-current host's packaged artifact and native credential lifecycle. `test:e2e`
-uses `cypress run --component` in headless Electron; it must not open Cypress GUI
-or a visible application window. The Desktop development-loop regression
+**Current:** Vitest owns Main, Renderer, architecture, and source coverage
+checks; Cypress component tests own browser-level auth, shell, board, detail,
+and shared-control interaction evidence outside the coverage percentage; Vite
+and TypeScript own production builds; electron-builder owns unpacked packaged
+builds. Run `pnpm --filter @taskpilot/desktop qualityCheck` for the complete
+portable Desktop gate, `pnpm --filter @taskpilot/desktop test:e2e` for Cypress
+component journeys, and `pnpm --filter @taskpilot/desktop test:packaged-native`
+for the current host's packaged artifact and native credential lifecycle.
+`test:coverage` runs Vitest V8 coverage over `tests/main`, `tests/renderer`, and
+`tests/architecture`, includes `src/**/*.{ts,tsx}`, excludes entry shells that
+only wire process startup, and emits `coverage/index.html`,
+`coverage/cobertura-coverage.xml`, and `coverage/coverage-summary.json` in
+addition to terminal text. Cypress execution is reported as browser-level
+interaction/layout/focus evidence and is not merged into Vitest line or branch
+percentages. `test:e2e` uses `cypress run --component` in headless Electron; it
+must not open Cypress GUI or a visible application window. The Desktop
+development-loop regression
 checks cover the fixed loopback Renderer origin, production CSP preservation,
 sandbox-compatible bundled Preload, and the root controller's `dev` command;
 manual editing is not the primary proof of those contracts. A development
@@ -82,7 +90,7 @@ journey alone implies no packaged or native result.
   Restart cannot replay an approval or local consent, reuse a stale lease/fencing
   token, or duplicate a local operation.
 - Logout and account switching clear OS-held credential material, applicable
-  Main cloud-client session state, and Renderer-visible protected state; the
+  Main API transport, session state, credential state, and Renderer-visible protected state; the
   previous account cannot remain usable.
 
 The Current Main/Preload suite covers GitHub capability discovery,
@@ -129,7 +137,7 @@ Test user-observable states rather than implementation details: success, empty,
 loading, rejection, permission denied, connection loss/recovery, stale response,
 partial log, large output, keyboard focus, and reduced motion where applicable.
 Mock at the Preload capability boundary, never by importing Main internals into
-Renderer tests. Main cloud-client tests own the HTTP adapter and credential
+Renderer tests. Main API tests own the HTTP adapter; Main auth/session tests own the credential
 lifecycle.
 
 **Current bilingual evidence:** Renderer tests cover ordered system-language

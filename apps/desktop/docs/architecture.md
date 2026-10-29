@@ -87,16 +87,17 @@ JSON-RPC 2.0 / JSONL over stdio| runtime
 apps/desktop/
 ├── src/
 │   ├── main/
-│   │   ├── api/
-│   │   ├── auth/
-│   │   ├── credentials/
-│   │   ├── projects/
-│   │   └── session/
-│   ├── preload/
-│   ├── renderer/
-│   └── shared/
-├── tests/
-└── cypress/
+│   │   ├── app/          # Electron lifecycle bootstrap, BrowserWindow construction, security hooks, device id
+│   │   ├── api/          # Desktop API transport
+│   │   ├── auth/         # federated auth and loopback coordination
+│   │   ├── credentials/  # OS credential adapter
+│   │   ├── projects/     # Workspace/Project/Board/Work Item Desktop API clients and coordinators
+│   │   └── session/      # Main-owned session state
+│   ├── preload/          # narrow sandbox bridge
+│   ├── renderer/         # React Renderer app/features/shared/i18n/styles
+│   └── shared/           # serializable process-boundary contracts
+├── tests/                # mirrors Main/Renderer owner directories
+└── cypress/              # browser-level component journeys
 ```
 
 `shared` contains only serializable schemas and contracts shared across Electron
@@ -106,35 +107,42 @@ separate Main-owned boundary and is not present in the first-use slice.
 
 ## Renderer Architecture
 
-Renderer business code is organized by cohesive domain module, then technical
-responsibility. Pages compose capabilities; components render; Hooks adapt
-React and query state; models contain pure presentation logic; API adapters map
-transport DTOs to frontend models.
+Renderer code is organized by application shell, first-party feature areas, and
+business-neutral shared infrastructure:
+
+```text
+src/renderer/
+├── app/       # React entry, providers, and top-level session/state routing
+├── features/  # auth, shell, board, detail feature UI and presentation logic
+├── shared/    # business-neutral ui and lib helpers
+├── i18n/      # locale state plus static message catalogs
+└── styles/    # token/base/shared/feature CSS loaded in explicit order
+```
 
 ```mermaid
 flowchart LR
-    page["Route or Window Page"]
-    component["Module Components"]
-    hook["Module Hooks"]
-    model["Presentation Models"]
-    cloud["Desktop API Adapter"]
-    native["Preload Capability Adapter"]
+    app["Renderer App"]
+    feature["Feature UI"]
+    shared["Shared UI / Lib"]
+    i18n["Locale and Messages"]
+    preload["Preload Capabilities"]
 
-    page --> component
-    component --> hook
-    component --> model
-    hook --> cloud
-    hook --> native
-    hook --> model
+    app --> feature
+    app --> i18n
+    feature --> shared
+    feature --> i18n
+    feature --> preload
 ```
 
-Components do not call `fetch`, Electron IPC, or Runtime protocols directly.
-Renderer cloud adapters call typed Preload capabilities; Main performs the
-credentialed HTTPS request and returns least-privilege serializable results.
-Remote resources remain owned by TanStack Query; shareable navigation by the
-router; form state by its form boundary; temporary interaction by local React
-state. Workspace- and Project-scoped cache keys include their stable IDs and
-must not rely on mutable global "current" scope.
+Feature code does not call `fetch`, Electron IPC, or Runtime protocols directly.
+It calls typed Preload capabilities exposed on `window.taskpilot`; Main performs
+the credentialed HTTPS request and returns least-privilege serializable results.
+`renderer/shared` contains only business-neutral controls and pure helpers.
+Future generic hooks or common icons belong under `renderer/shared` only after
+they have actual cross-feature use. Feature-specific state, validation, pending
+behavior, and API/IPC parameters stay with the owning feature. Workspace- and Project-scoped cache or
+selection keys include their stable IDs and must not rely on mutable global
+"current" scope.
 
 Renderer consumes provider-neutral Agent and Run view models plus normalized
 capabilities. It never receives provider SDK objects, credentials, raw callback

@@ -57,19 +57,20 @@
 
 | Area | Responsibility |
 | --- | --- |
-| `main/app` | Electron lifecycle, windows, single-instance behavior |
-| `main/ipc` | IPC sender/origin/session authorization, schema validation, rate/size limits, dispatch |
-| `main/cloud-client` | Credentialed Desktop API requests, fixed Workspace/Project route allowlist, token refresh, logout cleanup and transport errors |
+| `main/app` | Electron lifecycle entry, startup bootstrap, BrowserWindow creation, renderer loading, deny-by-default window security hooks, device installation id, and app activation wiring |
+| `main/api` | Credentialed Desktop API transport, route allowlist behavior, token refresh inputs, logout cleanup requests, and transport errors |
+| `main/auth` | Federated sign-in attempts, loopback callback receiving, attempt recovery, browser handoff, and session establishment inputs |
+| `main/credentials` | OS credential persistence adapters and in-memory test doubles; no Renderer exposure |
 | `main/projects` | Typed Workspace/Project/Project Work response validation, Project/Board-home selection, session and Board-generation fencing, and environment-plus-User scoped recent Project/Board device preferences |
-| `main/native` | Credential, dialog, notification, deep-link and platform adapters |
-| `main/runtime-client` | Fixed-path Runtime launch, JSON-RPC/JSONL stdio client, generated contracts, version/capability negotiation, health, cancellation, shutdown and child failure state |
+| `main/session` | Main-owned authenticated session view, refresh, logout, subscription, and credential coordination |
+| `main/ipc` | IPC sender/origin/session authorization, schema validation, rate/size limits, result serialization, and dispatch |
 | `preload` | Narrow typed capabilities exposed to a sandboxed Renderer |
-| `renderer/app` | Providers, routing, auth boundary, global error handling |
+| `renderer/app` | React entry, providers, and top-level session/state routing |
+| `renderer/features` | Cohesive first-party UI feature areas such as auth, shell, board, and detail; feature owners keep validation, pending state, submission timing, and API/IPC parameters |
+| `renderer/shared/ui` | Business-neutral React controls and small presentation primitives, including controlled Select; no business object ownership |
+| `renderer/shared/lib` | Pure DOM, text, date, and formatting helpers with no IPC, credential, or persistence access; future generic hooks or common icons stay in `renderer/shared` only after real cross-feature use |
 | `renderer/i18n` | Supported locale resolution, safe local preference, static message catalogs, fallback policy and document-language synchronization |
-| `renderer/pages` | Route/window entry and page composition |
-| `renderer/modules/<domain>` | Cohesive first-party UI capability and its presentation logic |
-| `renderer/components` | Application-wide business-neutral React primitives plus narrow shared presentation adapters; Current code owns the controlled single-value Select interaction, the locale selector that maps supported locale data onto it, and the decorative Work Graph background component/configuration boundary used by the login brand panel |
-| `renderer/api` | Query-facing adapters over typed Preload cloud capabilities plus error normalization; no credentials or direct authenticated HTTP |
+| `renderer/styles` | Design tokens, base CSS, shared UI CSS, and feature CSS loaded in an explicit order |
 | `shared-ipc` | Serializable process-boundary schemas; no implementation logic |
 
 ## Placement Rules

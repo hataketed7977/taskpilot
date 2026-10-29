@@ -1,0 +1,367 @@
+/* Focused Work Sheet: a stable, viewport-bounded work surface. The body
+   absorbs ordinary free space; only the middle region scrolls when content is long. */
+.work-item-sheet {
+  width: min(760px, calc(100vw - 40px));
+  height: min(480px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  padding: 22px 24px 18px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 70%, transparent) inset,
+    0 20px 56px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.board-dialog__heading {
+  min-width: 0;
+  flex: 1;
+  position: relative;
+}
+.work-item-sheet > header {
+  flex: none;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.work-item-sheet h2,
+.work-item-sheet h2 .work-item-detail__title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+/* The heading receives programmatic focus when the dialog opens so assistive
+   technology announces the object. It is not an interactive editing surface. */
+.work-item-sheet h2:focus,
+.work-item-sheet h2:focus-visible {
+  outline: none;
+}
+.work-item-sheet .icon-action {
+  flex: none;
+}
+.work-item-detail {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.work-item-detail__content {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 5px 8px 2px;
+}
+.work-item-detail__status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.work-item-detail__status .project-button {
+  margin-top: 14px;
+}
+
+.work-item-detail__row {
+  min-width: 0;
+}
+.work-item-detail__row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 20px;
+  margin-bottom: 6px;
+}
+.work-item-detail__label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.work-item-detail__feedback {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.work-item-detail__save-status {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.work-item-sheet > header .work-item-detail__feedback {
+  position: absolute;
+  top: 4px;
+  right: 0;
+}
+
+/* Field surfaces share geometry across read and edit modes. */
+.work-item-detail__surface {
+  position: relative;
+  min-width: 0;
+}
+.work-item-detail__row--description {
+  min-height: 128px;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+}
+.work-item-detail__row--description .work-item-detail__surface {
+  min-height: 128px;
+  flex: 1 1 0;
+  display: block;
+}
+.work-item-detail__field {
+  width: 100%;
+  display: block;
+  min-height: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  cursor: text;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+.work-item-sheet .work-item-detail__field:hover:not(:disabled),
+.work-item-sheet .work-item-detail__field:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--action) 18%, var(--line));
+  background: color-mix(in srgb, var(--action) 3%, var(--paper));
+  box-shadow: none;
+}
+.work-item-sheet .work-item-detail__field:focus-visible {
+  border-color: color-mix(in srgb, var(--action) 42%, var(--line));
+  outline: 2px solid color-mix(in srgb, var(--action) 18%, transparent);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--action) 3%, var(--paper));
+}
+.work-item-detail__field:hover .work-item-detail__value {
+  text-decoration: none;
+}
+.work-item-detail__value {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.work-item-detail__title {
+  min-width: 0;
+  height: 45px;
+  border-radius: 7px;
+  padding: 5px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.work-item-detail__title .work-item-detail__value {
+  display: block;
+  overflow: hidden;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Title editing uses the same reserved field box as the read state. The full
+   boundary matches description editing and prevents text-origin jitter without
+   introducing a separate blue input language. */
+.work-item-sheet .work-item-detail__title:hover:not(:disabled),
+.work-item-sheet .work-item-detail__title:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--action) 18%, var(--line));
+  background: color-mix(in srgb, var(--action) 3%, var(--paper));
+  box-shadow: none;
+}
+.work-item-sheet .work-item-detail__title:focus-visible {
+  border-color: color-mix(in srgb, var(--action) 42%, var(--line));
+  outline: 2px solid color-mix(in srgb, var(--action) 18%, transparent);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--action) 3%, var(--paper));
+  box-shadow: none;
+}
+.work-item-detail__title-input {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 45px;
+  border: 1px solid color-mix(in srgb, var(--action) 32%, var(--line));
+  border-radius: 7px;
+  padding: 5px 8px;
+  overflow: hidden;
+  color: var(--ink);
+  caret-color: var(--action);
+  background: color-mix(in srgb, var(--canvas) 58%, var(--paper));
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  text-overflow: clip;
+  white-space: nowrap;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+.work-item-detail__title-input:focus-visible {
+  border-color: color-mix(in srgb, var(--action) 62%, var(--line));
+  outline: 2px solid color-mix(in srgb, var(--action) 14%, transparent);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.work-item-detail__description,
+.work-item-detail__textarea {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: auto;
+  min-height: 128px;
+}
+.work-item-detail__description {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+.work-item-detail__textarea {
+  bottom: -1px;
+  display: block;
+  border: 1px solid color-mix(in srgb, var(--action) 32%, var(--line));
+  border-radius: 7px;
+  padding: 6px 8px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--canvas) 58%, var(--paper));
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: left;
+  align-content: start;
+  vertical-align: top;
+  resize: none;
+  overflow: hidden;
+}
+.work-item-detail__textarea:focus-visible {
+  border-color: color-mix(in srgb, var(--action) 62%, var(--line));
+  outline: 2px solid color-mix(in srgb, var(--action) 14%, transparent);
+  outline-offset: 1px;
+}
+.work-item-detail__description--empty .work-item-detail__value {
+  color: var(--muted);
+}
+.work-item-detail__field-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+  border-left-width: 3px;
+  border-radius: 8px;
+}
+.work-item-detail__field-error .project-error {
+  min-width: 0;
+  margin: 0;
+}
+.work-item-detail__field-error .project-button {
+  flex: none;
+}
+.work-item-detail__audit {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.work-item-detail__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 0;
+}
+.work-item-detail__metadata div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.work-item-detail__metadata dt,
+.work-item-detail__metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.work-item-detail__gate {
+  border: 1px solid color-mix(in srgb, var(--warning, #8a5a00) 34%, var(--line));
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--warning, #8a5a00) 8%, var(--paper));
+}
+.work-item-detail__gate p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.work-item-detail__gate p + p {
+  margin-top: 4px;
+}
+.work-item-detail__recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+@media (max-width: 1040px) {
+  .board-surface {
+    --board-inline-gutter: 20px;
+  }
+  .board-context {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+  .board-toolbar {
+    padding: 0 20px;
+  }
+  .board-column {
+    width: 252px;
+    flex-basis: 252px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-column,
+  .board-column::before,
+  .board-column__actions,
+  .board-card,
+  .work-item-detail__field {
+    transition: none;
+  }
+  .board-column.is-drop-target,
+  .board-card:hover,
+  .board-card.is-dragging {
+    transform: none;
+  }
+  .board-drop-slot,
+  .board-card.is-settling {
+    animation: none;
+  }
+}

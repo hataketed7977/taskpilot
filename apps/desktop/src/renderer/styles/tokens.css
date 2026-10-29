@@ -1,0 +1,19 @@
+:root {
+  font-family: "Inter Variable", system-ui, sans-serif;
+  color: #17201b;
+  background: #f5f7f4;
+  font-synthesis: none;
+  --ink: #17201b;
+  --muted: #66716a;
+  --canvas: #f5f7f4;
+  --paper: #fbfcfa;
+  --line: #d9e0da;
+  --line-strong: #a8b5ac;
+  --action: #276c55;
+  --action-hover: #1f5a46;
+  --agent: #7568cc;
+  --human: #d97855;
+  --warning: #c69a43;
+  --danger: #a9432e;
+  --focus: #1c6cc0;
+}
