@@ -1,6 +1,6 @@
 # Desktop Responsibilities
 
-- **Status:** Target
+- **Status:** Current responsibilities with Target extensions
 - **Owns:** First-party Desktop interaction, Electron capability placement,
   Renderer state ownership, native integration, and Runtime presentation
 - **Read after:** [`../../../docs/business-model.md`](../../../docs/business-model.md),
@@ -23,7 +23,8 @@
   OS credential persistence, and safe authenticated-state handoff to Renderer.
 - Native dialogs, notifications, credential handles, deep links,
   single-instance behavior, and platform lifecycle integration.
-- Main-owned authenticated Desktop API consumption and, only when a
+- Main-owned authenticated canonical API consumption through the configured
+  Gateway origin, with no Core origin or fallback; and, only when a
   `LOCAL_DESKTOP` capability is invoked, Main-to-Runtime child launch, stdio
   protocol, version/capability, health, shutdown, and failure supervision.
 
@@ -58,7 +59,7 @@
 | Area | Responsibility |
 | --- | --- |
 | `main/app` | Electron lifecycle entry, startup bootstrap, BrowserWindow creation, renderer loading, deny-by-default window security hooks, device installation id, and app activation wiring |
-| `main/api` | Credentialed Desktop API transport, route allowlist behavior, token refresh inputs, logout cleanup requests, and transport errors |
+| `main/api` | Credentialed canonical API transport to Gateway, route allowlist behavior, token refresh inputs, logout cleanup requests, and transport errors |
 | `main/auth` | Federated sign-in attempts, loopback callback receiving, attempt recovery, browser handoff, and session establishment inputs |
 | `main/credentials` | OS credential persistence adapters and in-memory test doubles; no Renderer exposure |
 | `main/projects` | Typed Workspace/Project/Project Work response validation, Project/Board-home selection, session and Board-generation fencing, and environment-plus-User scoped recent Project/Board device preferences |

@@ -131,7 +131,7 @@ describe('bootstrapDesktopApp', () => {
     mock.federatedAuth.close.mockResolvedValue(undefined);
     mock.registerDesktopHandlers.mockImplementation(() => mock.state.dispose);
     process.env.TASKPILOT_DESKTOP_DEV_SERVER_URL = 'http://127.0.0.1:5173';
-    process.env.TASKPILOT_CORE_API_URL = 'http://127.0.0.1:8080';
+    process.env.TASKPILOT_GATEWAY_URL = 'http://127.0.0.1:8080';
   });
 
   it('wires the local Desktop composition, IPC boundary and startup restore in order', async () => {
@@ -190,7 +190,7 @@ describe('bootstrapDesktopApp', () => {
   it('omits local-only API and renderer-origin overrides for packaged production startup', async () => {
     mock.app.isPackaged = true;
     mock.state.renderer = { kind: 'packaged-file' };
-    delete process.env.TASKPILOT_CORE_API_URL;
+    delete process.env.TASKPILOT_GATEWAY_URL;
 
     await bootstrapDesktopApp();
 

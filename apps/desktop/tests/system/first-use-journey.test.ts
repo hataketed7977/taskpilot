@@ -60,7 +60,7 @@ class ProviderBrowserDouble implements ExternalBrowser {
     const state = new URL(authorizationUrl).searchParams.get('state');
     if (!state) throw new Error('Provider authorization URL did not contain state');
     const callback = await fetch(
-      `${baseUrl}/desktop/v1/auth/federated/github/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(this.authorizationCode)}`,
+      `${baseUrl}/v1/provider-callbacks/github/oauth?state=${encodeURIComponent(state)}&code=${encodeURIComponent(this.authorizationCode)}`,
     );
     expect(callback.status).toBe(200);
     const page = await callback.text();
@@ -149,7 +149,7 @@ async function signInExisting(harness: DesktopHarness) {
 describe('Desktop first-use system journey', () => {
   it('crosses provider/browser doubles, Main, IPC, Preload, Core API and PostgreSQL without Agent Runtime', async () => {
     if (!baseUrl) throw new Error('TASKPILOT_SYSTEM_BASE_URL is required');
-    const health = await fetch(`${baseUrl}/actuator/health`);
+    const health = await fetch(`${baseUrl}/actuator/health/readiness`);
     expect(health.status).toBe(200);
     expect(await health.json()).toMatchObject({ status: 'UP' });
 

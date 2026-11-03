@@ -30,7 +30,7 @@ class SecurityConfiguration {
             .logout { it.disable() }
             .exceptionHandling {
                 it.authenticationEntryPoint { request, response, _ ->
-                    val desktopRequest = request.requestURI.startsWith("/desktop/v1/")
+                    val desktopRequest = request.requestURI.startsWith("/v1/")
                     val status =
                         if (desktopRequest) {
                             HttpServletResponse.SC_UNAUTHORIZED
@@ -69,27 +69,16 @@ class SecurityConfiguration {
                         "/swagger-ui/**",
                         "/swagger-ui.html",
                         "/error",
-                        "/desktop/v1/auth/capabilities",
-                        "/desktop/v1/auth/federated/attempts",
-                        "/desktop/v1/auth/federated/github/callback",
-                        "/desktop/v1/auth/federated/attempts/*/poll",
-                        "/desktop/v1/auth/federated/attempts/*/cancel",
-                        "/desktop/v1/auth/federated/registrations",
-                        "/desktop/v1/auth/session/refresh",
-                        "/desktop/v1/auth/session/logout",
-                        // Keep these retired exact paths anonymous so missing routes remain observable as 404.
-                        // Do not use a wildcard: every future authentication route requires explicit review.
-                        "/desktop/v1/auth/registration/code",
-                        "/desktop/v1/auth/registration/code/verify",
-                        "/desktop/v1/auth/registration",
-                        "/desktop/v1/auth/login/password",
-                        "/desktop/v1/auth/login/code",
-                        "/desktop/v1/auth/login/code/verify",
-                        "/desktop/v1/auth/password-reset/code",
-                        "/desktop/v1/auth/password-reset/code/verify",
-                        "/desktop/v1/auth/password-reset",
+                        "/v1/authentication-capabilities",
+                        "/v1/federated-login-attempts",
+                        "/v1/provider-callbacks/github/oauth",
+                        "/v1/federated-login-attempts/*:poll",
+                        "/v1/federated-login-attempts/*:cancel",
+                        "/v1/federated-registrations",
+                        "/v1/session:refresh",
+                        "/v1/session:logout",
                     ).permitAll()
-                it.requestMatchers("/desktop/v1/**").authenticated()
+                it.requestMatchers("/v1/**").authenticated()
                 it.anyRequest().denyAll()
             }
         http.addFilterBefore(DesktopRequestGuardFilter(), UsernamePasswordAuthenticationFilter::class.java)

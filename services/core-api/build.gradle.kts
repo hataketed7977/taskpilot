@@ -28,10 +28,23 @@ repositories {
     mavenCentral()
 }
 
+val canonicalOpenApi =
+    configurations.create("canonicalOpenApi") {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+        attributes {
+            attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.DOCUMENTATION))
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named("taskpilot-canonical-openapi"))
+        }
+    }
+
 dependencies {
+    implementation(project(":contracts:canonical-api")) { isTransitive = false }
+    canonicalOpenApi(project(path = ":contracts:canonical-api", configuration = "canonicalOpenApiElements"))
     implementation(platform(libs.spring.modulith.bom))
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")
+    implementation("org.yaml:snakeyaml")
     implementation(libs.icu4j)
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-security")
@@ -50,6 +63,7 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.springframework.modulith:spring-modulith-starter-test")
     testImplementation(libs.archunit.junit5)
+    testImplementation(project(":services:gateway")) { isTransitive = false }
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.postgresql)
     testImplementation(libs.flyway.core)
@@ -139,14 +153,31 @@ kover {
     }
 }
 
+tasks.processResources {
+    from(canonicalOpenApi) {
+        into("canonical-api")
+        rename { "openapi.yaml" }
+    }
+}
+
+tasks.compileKotlin {
+    dependsOn(":contracts:canonical-api:qualityCheck")
+}
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    systemProperty(
+        "taskpilot.canonical-openapi-source",
+        rootProject.file("contracts/canonical-api/openapi.yaml").absolutePath,
+    )
 }
 
 tasks.test {
     val desktopSystemEnabled = System.getProperty("taskpilot.desktop.system") == "true"
     if (!desktopSystemEnabled) {
         filter.excludeTestsMatching("*DesktopSystemJourneyTest")
+    } else {
+        dependsOn(":services:gateway:bootJar")
     }
     doFirst {
         if (desktopSystemEnabled) {
@@ -308,6 +339,7 @@ val qualityCheck =
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         description = "Runs the complete Core API compile, static-analysis, test, contract, and coverage gate."
         dependsOn(
+            ":contracts:canonical-api:qualityCheck",
             tasks.compileKotlin,
             tasks.named("ktlintCheck"),
             tasks.named("detekt"),
@@ -323,24 +355,34 @@ verifyBuildContract.configure {
     doLast {
         val requiredQualityDependencies =
             setOf(
-                "compileKotlin",
-                "ktlintCheck",
-                "detekt",
-                "test",
-                "verifyBuildContract",
-                "koverXmlReport",
-                "koverHtmlReport",
-                "koverVerify",
+                ":contracts:canonical-api:qualityCheck",
+                ":services:core-api:compileKotlin",
+                ":services:core-api:ktlintCheck",
+                ":services:core-api:detekt",
+                ":services:core-api:test",
+                ":services:core-api:verifyBuildContract",
+                ":services:core-api:koverXmlReport",
+                ":services:core-api:koverHtmlReport",
+                ":services:core-api:koverVerify",
             )
-        val actualQualityDependencies =
-            qualityCheck
-                .get()
-                .taskDependencies
-                .getDependencies(qualityCheck.get())
-                .map { it.name }
-                .toSet()
+
+        fun directDependencyPaths(value: Any?): Set<String> =
+            when (value) {
+                null -> emptySet()
+                is org.gradle.api.Task -> setOf(value.path)
+                is org.gradle.api.tasks.TaskProvider<*> -> setOf(value.get().path)
+                is String -> setOf(if (value.startsWith(":")) value else "${project.path}:$value")
+                is Iterable<*> -> value.flatMapTo(mutableSetOf(), ::directDependencyPaths)
+                else -> error("Unsupported task dependency declaration: ${value::class.qualifiedName}")
+            }
+
+        val actualQualityDependencies = directDependencyPaths(qualityCheck.get().dependsOn)
         check(actualQualityDependencies.containsAll(requiredQualityDependencies)) {
             "qualityCheck is missing direct dependencies: ${requiredQualityDependencies - actualQualityDependencies}"
+        }
+        val compileDependencies = directDependencyPaths(tasks.compileKotlin.get().dependsOn)
+        check(":contracts:canonical-api:qualityCheck" in compileDependencies) {
+            "Core compileKotlin must depend on the canonical contract quality gate"
         }
     }
 }

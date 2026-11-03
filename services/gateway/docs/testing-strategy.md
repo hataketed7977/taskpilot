@@ -1,113 +1,83 @@
 # Gateway Testing Strategy
 
-- **Status:** Target
-- **Owns:** Gateway test layers, policy cases, and verification gates
+- **Status:** Current
+- **Owns:** Gateway test layers, transport/security cases, and verification gates
 - **Read after:** [`../../../docs/architecture.md`](../../../docs/architecture.md),
   [`architecture.md`](architecture.md),
   [`responsibilities.md`](responsibilities.md)
-- **Mandatory before:** Implementing or changing Gateway behavior
+- **Mandatory before:** Implementing or changing Gateway behavior or tests
 
 ## Development Loop
 
-Use RED-GREEN-REFACTOR:
+Use focused Red-Green-Refactor for observable route/filter behavior:
 
-1. Add a focused failing policy or routing test.
-2. Implement the smallest Gateway change.
-3. Refactor while preserving route behavior.
-4. Run focused, related integration, and required project checks.
+1. Add the smallest failing protocol or configuration case.
+2. Implement the smallest transport-policy change.
+3. Refactor without weakening the external assertion.
+4. Run focused tests, then the serial module quality gate.
 
-Exact Gradle commands must be added when the Gateway project is initialized.
+Do not duplicate Core business fixtures in Gateway tests.
+ Tests follow the production responsibility packages (`config`, `route`, and
+`health`), while the comprehensive route integration test intentionally keeps
+transport-policy cases with the observable route/stub boundary instead of
+splitting shared infrastructure merely to mirror directories.
 
-## Test Layers
+## Current Test Layers
 
-| Layer | Planned approach | Covers |
+| Layer | Implementation | Covers |
 | --- | --- | --- |
-| Unit | JUnit Jupiter with Kotlin-friendly mocks | Pure policy, key, and header logic |
-| Filter integration | Spring `WebTestClient` | Filter ordering and response behavior |
-| Route integration | Stub upstream server | Predicates, rewrites, forwarding, timeouts |
-| Infrastructure integration | Testcontainers Redis | Distributed rate-limit behavior |
-| Security integration | Signed test tokens and invalid credentials | Trust-boundary enforcement |
-| Smoke | Packaged service with stub `core-api` | Startup, health, and basic routing |
+| Configuration | Spring context and property tests | valid/invalid Core origin, limits, timeouts, health groups |
+| Route/filter integration | `WebTestClient` plus observable Reactor Netty stub | catalog, path/query/body preservation, headers, limits, timeout, errors, no retry |
+| Availability integration | unavailable Core stub/origin | readiness and stable 503 transport response |
+| Cross-contract | Canonical contract projection tests plus strict Gateway manifest-loader tests | manifest and approved ingress operations are equal; missing, empty, duplicate, and invalid manifests fail startup |
+| Packaged smoke | `bootJar` with real local Core or protocol probe | startup, probes, canonical and rejected legacy path |
+| System journey | compiled Desktop Main/IPC/Preload → packaged Gateway → Core/PostgreSQL/Redis | selected real route and no Core fallback |
+| Build contract | Gradle runtime graph and packaged JAR inspection | no MVC, Core production class, DB/Flyway/Redis/Modulith runtime |
 
-## Required Security Cases
+## Required Current Cases
 
-- Missing, expired, malformed, and wrong-audience credentials.
-- Forged tenant, principal, role, and correlation headers.
-- Tenant context derived from each supported trusted source.
-- Desktop, local managed-execution, provider-callback, and public credentials
-  rejected from every incompatible route surface.
-- Forged Runtime identity, expired or replayed execution credentials, and
-  cross-Workspace/Project/run context rejected once the grant contract exists.
-- Required execution-grant claims, including `LocalWorkspaceBindingId`, survive
-  trusted forwarding unchanged; missing, malformed, duplicated, or conflicting
-  claims fail closed, and a raw local path is never accepted as tenant identity.
-- Invalid provider callback signatures or tokens, replayed callbacks, oversized
-  payloads, wrong provider routes, and raw remote IDs presented as TaskPilot
-  identity fail before upstream application handling.
-- Management endpoints inaccessible through public routes.
-- Secrets and tokens absent from logs and error bodies.
+- Every approved method/path forwards exactly once with path, query, and body
+  preserved; unknown, legacy, wrong-method, future, Swagger/OpenAPI, and
+  management requests never reach the stub.
+- Forged identity/tenant/role/scope, forwarded, proxy, hop-by-hop, cookie, and
+  connection-nominated headers are removed; required credential/content headers
+  remain.
+- One valid bounded correlation ID is reused. Missing, repeated, invalid, or
+  overlong values are replaced consistently upstream and downstream.
+- Declared, unknown-length, and explicitly chunked request bodies pass at
+  `limit - 1` and `limit`, fail at `limit + 1`, and do not reach Core when
+  rejected.
+- Declared and streaming response limits, request/response headers, slow Core,
+  disconnects, and malformed/truncated upstream framing return stable complete
+  local errors without leaking internal origin or low-level exception text.
+- Core business Problem Details preserve status, media type, allowed business
+  headers, and body semantics.
+- Mutation disconnects do not trigger an automatic retry.
+- Credentials, OAuth code/state, cookies, bodies, and internal origin are absent
+  from transport errors and captured logs.
+- Core unavailable makes readiness fail while liveness remains up.
 
-## Required Routing Cases
+## Commands
 
-- Desktop, local managed-execution, provider-callback, and public API route
-  separation.
-- Versioned public route selection.
-- Unknown routes return a stable transport-level response.
-- Request-size rejection occurs before upstream forwarding.
-- Timeout behavior does not leak internal addresses or stack traces.
-- Non-idempotent requests are not retried by default.
-- Correlation metadata reaches the stub upstream.
+Run Gradle commands serially in this checkout:
 
-## Rate-Limit Cases
+```bash
+./gradlew --no-daemon :services:gateway:test --tests '*RouteIntegrationTest'
+./gradlew --no-daemon :services:gateway:test --tests '*UpstreamUnavailableIntegrationTest'
+./gradlew --no-daemon :services:gateway:qualityCheck
+pnpm dev:smoke
+pnpm --filter @taskpilot/desktop test:system
+```
 
-- Limits are isolated by tenant, credential, and route policy.
-- One tenant cannot consume another tenant's bucket.
-- Redis unavailability follows an explicitly tested fail-open or fail-closed
-  policy per route class.
-- Retry-after and quota headers are consistent where exposed.
+`qualityCheck` includes compile, test, ktlint, Detekt, build-contract, Kover,
+and `bootJar` evidence. The module currently enforces at least 80% line and 70%
+branch coverage for hand-written production code, excluding only the application
+entry point.
 
-## Test Design Rules
+## Evidence Boundary
 
-- Test externally observable HTTP behavior.
-- Use deterministic clocks for token and rate-limit windows.
-- Keep upstream stubs protocol-focused; do not duplicate business behavior.
-- Do not mock Spring Cloud Gateway internals when an integration test is
-  practical.
-- Avoid end-to-end domain assertions in this subproject.
-- Representative packaged Desktop/system journeys prove only selected routing
-  and authentication paths; they do not replace the Gateway's header-trust,
-  credential, rate-limit, timeout, or route-isolation matrix.
-- Keep packaged Desktop setup and domain fixtures outside Gateway tests. Gateway
-  tests use protocol-focused upstream stubs and assert externally observable
-  HTTP behavior.
-
-## Execution and Coverage Policy
-
-- Run pure policy tests first and route, security, and Redis integration suites
-  in parallel where infrastructure permits.
-- Apply the repository-wide changed-code and non-regression coverage gates from
-  the [root architecture](../../../docs/architecture.md#coverage-and-effectiveness-policy)
-  to hand-written Gateway production code.
-- Authentication, tenant-context derivation, forged-header rejection,
-  route-surface separation, retry eligibility, and rate-limit isolation are
-  critical branches under the higher repository threshold.
-- Generated configuration metadata and framework-generated code may be
-  excluded. Hand-written filters, predicates, key resolvers, header logic, and
-  error mapping are not excluded.
-- Coverage from a unit test does not replace observable `WebTestClient`, stub
-  upstream, signed-token, or Redis tests for the relevant boundary.
-- Track route/security suite duration and flake rate. Reuse infrastructure when
-  state remains isolated, and do not remove negative cases to meet a time
-  budget.
-
-## Quality Gates
-
-Once initialized, a Gateway change is incomplete until:
-
-- Focused tests pass.
-- Applicable changed-code coverage, critical-branch coverage, and whole-Gateway
-  non-regression gates pass.
-- Route and security integration tests pass.
-- Kotlin compile, lint, and formatting checks pass.
-- Configuration binding and startup smoke checks pass.
-- Any changed trust-boundary rule has a negative security test.
+Gateway tests prove protocol policy and local topology, not Core business
+correctness, real GitHub OAuth, platform-native Desktop release behavior, or
+production Core network isolation. Core owns authorization and OpenAPI tests;
+Desktop owns consumer/fallback tests; a deployment owner must later prove that
+Core cannot be reached externally except through Gateway.

@@ -1,6 +1,6 @@
 # Core API Testing Strategy
 
-- **Status:** Target
+- **Status:** Current foundation with Target extensions
 - **Owns:** Core API business, persistence, API, concurrency, durable-job,
   managed-execution-protocol, and provider-adapter verification
 - **Read after:** [`../../../docs/business-model.md`](../../../docs/business-model.md),
@@ -37,9 +37,9 @@ provisioning:
 The Provider boundary uses local fakes and never calls GitHub in automated
 checks. The suite proves registration provisioning and Workspace/Project
 application, HTTP, persistence, concurrency, lifecycle, deletion, and runtime
-OpenAPI behavior, but not Desktop Project presentation. Agent Runtime, Gateway, real
-GitHub, production rollout, and cross-platform Desktop native behavior are not
-implied by this suite.
+OpenAPI behavior, but not Desktop Project presentation. Agent Runtime, real
+GitHub, production Gateway/Core network isolation, production rollout, and
+cross-platform Desktop native behavior are not implied by this suite.
 
 ## Principles
 
@@ -70,6 +70,19 @@ is intentionally synchronous.
 Use the Current commands above for the initialized layers. Add focused commands
 for each new behavior in its OpenSpec test plan.
 
+## Canonical Contract Evidence
+
+During the active adapter migration, focused HTTP integration tests prove that
+generated interfaces express bearer JSON operations, the GitHub HTML callback,
+204 responses, and PATCH/DELETE semantics without changing authorization or
+business behavior. Architecture checks reject generated transport dependencies
+outside API adapters. The complete Core gate depends on the contract
+`qualityCheck` before compiling or testing consumers.
+
+**Current:** existing runtime OpenAPI contract tests remain until direct artifact
+serving and semantic-equality coverage replace their complete operation table.
+Do not add another parallel method/path fixture.
+
 ## Test Layers
 
 | Layer | Planned approach | Covers |
@@ -78,7 +91,7 @@ for each new behavior in its OpenSpec test plan.
 | Application | Focused Spring or plain service tests | Use-case orchestration, transactions, idempotency, related-record updates |
 | Capability integration | Spring Modulith/application slice | Capability wiring and supported cross-capability calls |
 | PostgreSQL | Testcontainers PostgreSQL | Migrations, constraints, JSONB, indexes, optimistic/concurrent writes, leases |
-| API contract | MockMvc/WebTestClient and generated OpenAPI | Auth, DTO mapping, errors, versions, idempotency, Desktop/managed-execution/public separation |
+| API contract | MockMvc/WebTestClient and generated OpenAPI | Canonical paths, auth, DTO mapping, errors, versions, idempotency, adapter separation |
 | Executor boundary | Separate remote-provider and authenticated local-Runtime fakes | Capability validation, start/claim, observation/heartbeat, progress, result, cancellation, timeout, reconciliation |
 | Full application | Small Spring Boot suite | Startup, security chain, main cross-capability assembly |
 
@@ -234,8 +247,13 @@ Also prove:
 
 ## API Cases
 
-- Desktop, managed-execution, and public API generate separate OpenAPI groups.
-- Local Runtime and provider-callback endpoints are not exposed as public API.
+- The Current client-neutral canonical API generates one runtime OpenAPI group;
+  client-prefixed or legacy `/desktop/v1/**` operations are absent.
+- Canonical artifact projection tests prove the generated Gateway manifest
+  contains all and only approved ingress operations; Gateway tests strictly
+  validate and consume that manifest without runtime Core discovery.
+- Future managed-execution/public trust adapters require explicit contracts;
+  provider callbacks are represented only where currently implemented.
 - Persistence entities, provider SDK types, raw provider status/callback data,
   credentials, and remote handles never appear in Desktop or public schemas.
 - Stable error codes cover authorization, validation, conflict, stale version,
@@ -244,8 +262,10 @@ Also prove:
 - Runtime OpenAPI contract tests cover authentication, session, current-user,
   PERSONAL Workspace, and complete current Project routes, including exact paths,
   security, schemas, operation statuses, shared errors, and secret hygiene.
-  Desktop Main consumer fixtures cover the hand-written adapters, and the system
-  journey crosses compiled Main/IPC/Preload into Core API, PostgreSQL, and Redis;
+  Desktop Main consumer fixtures cover its narrow hand-written transport
+  adapters, and the system
+  journey crosses compiled Main/IPC/Preload through packaged Gateway into Core
+  API, PostgreSQL, and Redis;
   no generated client or compatibility baseline exists yet.
 - Allowed actions aid presentation but never bypass a negative command check.
 
@@ -355,8 +375,8 @@ a Core API change is incomplete until all applicable items below also pass:
 - Relevant business-model scenarios and critical branches pass.
 - Spring Modulith verification passes.
 - PostgreSQL/migration tests pass when persistence changes.
-- Applicable runtime OpenAPI contract and consumer-adapter checks pass when API
-  contracts change; generation and compatibility gates apply only to surfaces
+- Applicable runtime OpenAPI, Gateway-catalog consistency, and consumer-adapter
+  checks pass when API contracts change; generation and compatibility gates apply only to surfaces
   whose owning Change has established that lifecycle.
 - Remote-provider and local-Runtime failure tests pass when their execution
   paths change.

@@ -130,6 +130,28 @@ test('runs selected gates once in fixed order and prints command plus trigger pa
   assert.match(out.read(), /Passed: hook-tooling, dev-tooling, desktop, core-api/);
 });
 
+test('explains why a canonical contract path selects all three JVM boundaries', () => {
+  const calls = [];
+  const out = capture();
+  const code = runPreCommit({
+    root: '/repo',
+    readStaged: () => [record('M', 'contracts/canonical-api/openapi.yaml')],
+    pollutionAdapters: { readUnstagedRecords: () => [], readUntrackedPaths: () => [] },
+    runner: (_command, _args, { gate }) => {
+      calls.push(gate);
+      return { status: 0, signal: null };
+    },
+    stdout: out.stream,
+    stderr: capture().stream,
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(calls, ['canonical-contract', 'core-api', 'gateway']);
+  assert.match(
+    out.read(),
+    /canonical contract owns the Core HTTP adapter and Gateway route manifest/,
+  );
+});
+
 for (const failure of [
   { name: 'spawn failure', result: { error: new Error('ENOENT'), status: null, signal: null }, expected: /unable to start command: ENOENT/ },
   { name: 'non-zero exit', result: { status: 7, signal: null }, expected: /exited with code 7/ },

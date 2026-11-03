@@ -1,8 +1,6 @@
 package ai.taskpilot.coreapi.access
 
-import java.util.UUID
+import ai.taskpilot.coreapi.AuthenticatedActor
 
 /** Trusted actor established by the Desktop access-bearer authentication filter. */
-interface DesktopActor {
-    val userId: UUID
-}
+interface DesktopActor : AuthenticatedActor

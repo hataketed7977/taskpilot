@@ -1,6 +1,6 @@
 # Desktop Architecture
 
-- **Status:** Target
+- **Status:** Current foundation with Target extensions
 - **Owns:** Electron process boundaries, Renderer structure, typed local IPC,
   cloud API integration, native integration, packaging, and update boundaries
 - **Read after:** [`../AGENTS.md`](../AGENTS.md),
@@ -12,10 +12,12 @@
 ## Runtime Role
 
 The Desktop application is the first-party Windows and macOS client. It renders
-TaskPilot workflows, and Electron Main sends authenticated HTTPS requests through
-the deployment edge/TLS boundary directly to the Core API Desktop surface. The
-MVP does not require a Gateway. Ordinary product capabilities and
-`REMOTE_MANAGED` Agent Runs do not require a local Runtime. When a user invokes `LOCAL_DESKTOP` capabilities,
+TaskPilot workflows, and Electron Main sends authenticated HTTPS requests only
+to the Gateway public origin using the canonical `/v1` resource API. It has no
+Core origin or fallback. Gateway applies technical transport policy and forwards
+to Core API, which independently authenticates and authorizes the request.
+Ordinary product capabilities and `REMOTE_MANAGED` Agent Runs do not require a
+local Runtime. When a user invokes `LOCAL_DESKTOP` capabilities,
 Electron Main may start and control the separately supervised Rust
 [`Agent Runtime`](../../agent-runtime/docs/architecture.md) through a versioned
 JSON-RPC 2.0 protocol carried as JSONL over inherited stdio pipes.
@@ -29,9 +31,9 @@ business truth, connect to business databases, or host a remote-provider SDK.
 - React with strict TypeScript and Vite for Renderer UI
 - A narrow typed Preload API; no direct Node.js or Electron access in Renderer
 - TanStack Query for remote cloud state
-- Main-owned narrow transport types and a typed client for the first-party
-  Desktop API, checked against Core API runtime OpenAPI contract fixtures; no
-  generated Desktop client in the first phase
+- Main-owned narrow transport types and a typed client for the canonical API,
+  checked against Core API runtime OpenAPI contract fixtures and Gateway route
+  consistency; no generated Desktop client in the first phase
 - Generated TypeScript types and JSON Schema derived from Runtime-owned Rust
   protocol types for the Main-to-Runtime client
 - Renderer query adapters that invoke typed Preload capabilities and never hold
@@ -59,8 +61,9 @@ flowchart LR
     preload -->|validated IPC| main
     main -.->|only for LOCAL_DESKTOP
 JSON-RPC 2.0 / JSONL over stdio| runtime
-    main -->|authenticated HTTPS| edge
-    edge -->|transport routing only| core
+    main -->|authenticated canonical /v1 HTTPS| edge
+    edge --> gateway
+    gateway -->|path-preserving technical routing| core
     main -->|secret handles| credential
     runtime -->|future managed execution protocol| edge
 ```
@@ -76,10 +79,13 @@ JSON-RPC 2.0 / JSONL over stdio| runtime
 - Agent Runtime owns controlled `LOCAL_DESKTOP` work. It is not required for
   login, Workspace/Project flows, or `REMOTE_MANAGED` run viewing, and it never
   receives the Desktop's long-lived user token.
-- Core API is the current application-layer Resource Server and authoritative
-  source for identity, Workspace, Project, Work Item, workflow, Agent Run, and
-  approval state. The deployment edge does not create a trusted principal; a
-  future Gateway remains defense in depth rather than an authorization owner.
+- Gateway is the Current technical ingress. It owns explicit routing, header
+  hygiene, correlation, limits/timeouts, transport errors, and readiness, but no
+  business schema or authorization.
+- Core API is the application Resource Server and authoritative source for
+  identity, Workspace, Project, Work Item, workflow, Agent Run, and approval
+  state. Neither deployment edge nor Gateway creates a trusted business
+  principal.
 
 ## Current Source Boundaries
 
@@ -88,10 +94,10 @@ apps/desktop/
 ├── src/
 │   ├── main/
 │   │   ├── app/          # Electron lifecycle bootstrap, BrowserWindow construction, security hooks, device id
-│   │   ├── api/          # Desktop API transport
+│   │   ├── api/          # canonical API transport via Gateway
 │   │   ├── auth/         # federated auth and loopback coordination
 │   │   ├── credentials/  # OS credential adapter
-│   │   ├── projects/     # Workspace/Project/Board/Work Item Desktop API clients and coordinators
+│   │   ├── projects/     # Workspace/Project/Board/Work Item canonical API clients and coordinators
 │   │   └── session/      # Main-owned session state
 │   ├── preload/          # narrow sandbox bridge
 │   ├── renderer/         # React Renderer app/features/shared/i18n/styles
@@ -182,8 +188,10 @@ link, embed a WebView, or hold the GitHub client secret.
   issued session and does not expose authenticated UI. Refresh is single-flight
   per generation; logout, cancellation, and window close fence late responses.
 - Account and cloud environment form distinct credential namespaces. A terminal
-  `401` and logout use generation-first cleanup; transient Redis/Core API
-  failures hide protected data rather than claiming a valid session.
+  `401` and logout use generation-first cleanup. Gateway/network/Core temporary
+  failures invalidate in-memory protected state, retain a potentially valid
+  refresh credential, expose `temporarilyUnavailable`, and never fall back to a
+  Core origin.
 - Renderer presents one client-known `zh-CN` User Agreement/Privacy Policy
   bundle, preserves the registration draft while either document is viewed,
   and rejects an unknown server bundle. Explicit consent submits exact bundle,
@@ -353,20 +361,26 @@ changes.
 
 ## API Contract Integration
 
-- The first-party Desktop API is separate from the public HTTP API.
-- In the first phase, Main owns narrow hand-written transport types; Core API
-  runtime OpenAPI contract tests and Main adapter fixtures detect shape drift.
-  No generated Desktop client or breaking-compatibility gate is required until
-  a later Change establishes a versioned contract lifecycle.
+- Desktop consumes the same canonical resource-oriented API intended for other
+  clients; it does not own a client-prefixed business API.
+- Main accepts exactly one Gateway origin per cloud environment and uses only
+  canonical paths. Core internal URL/port variables are not part of Desktop
+  production configuration or subprocess environment.
+- Main owns narrow hand-written transport types. Canonical artifact validation
+  and projection tests, Gateway manifest consumption tests, Core served-artifact
+  equality tests, and Main adapter fixtures detect method/path and shape drift.
+  No generated client or compatibility baseline exists yet.
 - Transport types do not become business models automatically. Current
-  handwritten contracts cover authentication, session, current User, personal
-  Workspace and Project operations. Main validates cloud responses before
-  returning least-privilege keyed values through fixed Preload capabilities.
-- API adapters normalize transport errors into a stable client error model.
-- Mutable requests carry the version or idempotency identifier required by the
-  cloud contract.
-- Realtime progress is a hint over an authoritative reloadable cloud state; a
-  stream is never a second source of business truth.
+  hand-written contracts cover authentication/session, current User, PERSONAL
+  Workspace, Project lifecycle, Boards, Columns, Work Items, and Placements.
+- Gateway/network/Core 5xx or timeout failures map to temporary client errors;
+  there is no direct-Core retry/fallback. An explicit `401` remains the terminal
+  credential-invalid signal.
+- Main validates cloud responses before returning least-privilege keyed values
+  through fixed Preload capabilities. Mutable requests carry the version or
+  idempotency identifier required by Core.
+- Realtime progress is a hint over reloadable Core business truth; a stream is
+  never a second source of business state.
 
 ## Cross-Platform Boundary
 

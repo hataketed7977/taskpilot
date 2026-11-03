@@ -91,7 +91,7 @@ class AuthenticationHttpIntegrationTest(
         val authenticated =
             request(
                 "POST",
-                "/desktop/v1/auth/federated/registrations",
+                "/v1/federated-registrations",
                 """
                 {
                   "continuationId":"${registration.requiredText("continuationId")}",
@@ -118,14 +118,14 @@ class AuthenticationHttpIntegrationTest(
         val accessToken = session.requiredText("accessToken")
         val refreshToken = session.requiredText("refreshToken")
 
-        val me = request("GET", "/desktop/v1/me", bearer = accessToken)
+        val me = request("GET", "/v1/me", bearer = accessToken)
         assertEquals(200, me.status)
         assertEquals("Octo Cat", me.json()["displayName"])
 
         val refreshed =
             request(
                 "POST",
-                "/desktop/v1/auth/session/refresh",
+                "/v1/session:refresh",
                 """{"refreshToken":"$refreshToken"}""",
             )
         assertEquals(200, refreshed.status)
@@ -134,22 +134,22 @@ class AuthenticationHttpIntegrationTest(
         assertNotEquals(refreshToken, rotated.requiredText("refreshToken"))
         assertEquals(
             401,
-            request("POST", "/desktop/v1/auth/session/refresh", """{"refreshToken":"$refreshToken"}""").status,
+            request("POST", "/v1/session:refresh", """{"refreshToken":"$refreshToken"}""").status,
         )
-        assertEquals(401, request("GET", "/desktop/v1/me", bearer = rotated.requiredText("accessToken")).status)
+        assertEquals(401, request("GET", "/v1/me", bearer = rotated.requiredText("accessToken")).status)
     }
 
     @Test
     fun `authenticated workspace and project API supports read create edit and stable failures`() {
         val registered = registerAccount()
 
-        val workspaces = request("GET", "/desktop/v1/workspaces", bearer = registered.accessToken)
+        val workspaces = request("GET", "/v1/workspaces", bearer = registered.accessToken)
         assertEquals(200, workspaces.status)
         assertEquals(registered.workspaceId, workspaces.jsonList().single().requiredText("workspaceId"))
         assertEquals("PERSONAL", workspaces.jsonList().single().requiredText("type"))
         assertEquals("OWNER", workspaces.jsonList().single().requiredText("role"))
 
-        val listed = request("GET", "/desktop/v1/workspaces/${registered.workspaceId}/projects", bearer = registered.accessToken)
+        val listed = request("GET", "/v1/workspaces/${registered.workspaceId}/projects", bearer = registered.accessToken)
         assertEquals(200, listed.status)
         assertEquals(
             registered.projectId,
@@ -164,7 +164,7 @@ class AuthenticationHttpIntegrationTest(
         val created =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                "/v1/workspaces/${registered.workspaceId}/projects",
                 """{"requestId":"$requestId","name":" New project ","description":" Notes "}""",
                 registered.accessToken,
             )
@@ -175,7 +175,7 @@ class AuthenticationHttpIntegrationTest(
         val replay =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                "/v1/workspaces/${registered.workspaceId}/projects",
                 """{"requestId":"$requestId","name":"New project","description":"Notes"}""",
                 registered.accessToken,
             )
@@ -185,7 +185,7 @@ class AuthenticationHttpIntegrationTest(
         val idempotencyConflict =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                "/v1/workspaces/${registered.workspaceId}/projects",
                 """{"requestId":"$requestId","name":"Changed","description":"Notes"}""",
                 registered.accessToken,
             )
@@ -194,7 +194,7 @@ class AuthenticationHttpIntegrationTest(
         val edited =
             request(
                 "PATCH",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId",
+                "/v1/projects/$projectId",
                 """{"expectedVersion":0,"name":"Renamed","description":null}""",
                 registered.accessToken,
             )
@@ -205,7 +205,7 @@ class AuthenticationHttpIntegrationTest(
         val stale =
             request(
                 "PATCH",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId",
+                "/v1/projects/$projectId",
                 """{"expectedVersion":0,"name":"Stale","description":null}""",
                 registered.accessToken,
             )
@@ -214,7 +214,7 @@ class AuthenticationHttpIntegrationTest(
         val archived =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/archive",
+                "/v1/projects/$projectId:archive",
                 """{"expectedVersion":1}""",
                 registered.accessToken,
             )
@@ -224,7 +224,7 @@ class AuthenticationHttpIntegrationTest(
         val archiveReplay =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/archive",
+                "/v1/projects/$projectId:archive",
                 """{"expectedVersion":1}""",
                 registered.accessToken,
             )
@@ -232,7 +232,7 @@ class AuthenticationHttpIntegrationTest(
         assertProblem(
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/restore",
+                "/v1/projects/$projectId:restore",
                 """{"expectedVersion":1}""",
                 registered.accessToken,
             ),
@@ -242,7 +242,7 @@ class AuthenticationHttpIntegrationTest(
         val restored =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/restore",
+                "/v1/projects/$projectId:restore",
                 """{"expectedVersion":2}""",
                 registered.accessToken,
             )
@@ -251,7 +251,7 @@ class AuthenticationHttpIntegrationTest(
         assertProblem(
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/permanent-deletion",
+                "/v1/projects/$projectId:permanentlyDelete",
                 """{"expectedVersion":3,"confirmationName":"Wrong"}""",
                 registered.accessToken,
             ),
@@ -261,7 +261,7 @@ class AuthenticationHttpIntegrationTest(
         val deleted =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId/permanent-deletion",
+                "/v1/projects/$projectId:permanentlyDelete",
                 """{"expectedVersion":3,"confirmationName":"Renamed"}""",
                 registered.accessToken,
             )
@@ -270,7 +270,7 @@ class AuthenticationHttpIntegrationTest(
         assertProblem(
             request(
                 "GET",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/$projectId",
+                "/v1/projects/$projectId",
                 bearer = registered.accessToken,
             ),
             404,
@@ -280,19 +280,19 @@ class AuthenticationHttpIntegrationTest(
         val invalid =
             request(
                 "POST",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects",
+                "/v1/workspaces/${registered.workspaceId}/projects",
                 """{"requestId":"${java.util.UUID.randomUUID()}","name":" ","description":null}""",
                 registered.accessToken,
             )
         assertProblem(invalid, 400, "VALIDATION_FAILED")
         assertEquals("name", invalid.json().requiredText("path"))
 
-        assertEquals(401, request("GET", "/desktop/v1/workspaces").status)
+        assertEquals(401, request("GET", "/v1/workspaces").status)
         val unknownWorkspace = java.util.UUID.randomUUID()
         assertProblem(
             request(
                 "GET",
-                "/desktop/v1/workspaces/$unknownWorkspace/projects",
+                "/v1/workspaces/$unknownWorkspace/projects",
                 bearer = registered.accessToken,
             ),
             404,
@@ -301,7 +301,7 @@ class AuthenticationHttpIntegrationTest(
         assertProblem(
             request(
                 "GET",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects/${java.util.UUID.randomUUID()}",
+                "/v1/projects/${java.util.UUID.randomUUID()}",
                 bearer = registered.accessToken,
             ),
             404,
@@ -310,7 +310,7 @@ class AuthenticationHttpIntegrationTest(
         val invalidLimit =
             request(
                 "GET",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects?limit=0",
+                "/v1/workspaces/${registered.workspaceId}/projects?limit=0",
                 bearer = registered.accessToken,
             )
         assertProblem(invalidLimit, 400, "VALIDATION_FAILED")
@@ -318,7 +318,7 @@ class AuthenticationHttpIntegrationTest(
         val invalidStatus =
             request(
                 "GET",
-                "/desktop/v1/workspaces/${registered.workspaceId}/projects?status=UNKNOWN",
+                "/v1/workspaces/${registered.workspaceId}/projects?status=UNKNOWN",
                 bearer = registered.accessToken,
             )
         assertProblem(invalidStatus, 400, "VALIDATION_FAILED")
@@ -328,13 +328,13 @@ class AuthenticationHttpIntegrationTest(
     @Test
     fun `authenticated project work API enforces scope versions and stable transport semantics`() {
         val registered = registerAccount()
-        val root = "/desktop/v1/workspaces/${registered.workspaceId}/projects/${registered.projectId}"
+        val root = "/v1/projects/${registered.projectId}"
 
         assertEquals(401, request("GET", "$root/boards").status)
         val initialBoards = request("GET", "$root/boards", bearer = registered.accessToken)
         assertEquals(200, initialBoards.status)
         val initialBoardId = initialBoards.jsonList().single().requiredText("boardId")
-        val initialBoard = request("GET", "$root/boards/$initialBoardId", bearer = registered.accessToken)
+        val initialBoard = request("GET", "/v1/boards/$initialBoardId", bearer = registered.accessToken)
         assertEquals(200, initialBoard.status)
         assertEquals("工作看板", initialBoard.json().requiredText("name"))
 
@@ -375,7 +375,7 @@ class AuthenticationHttpIntegrationTest(
         val secondColumn =
             request(
                 "POST",
-                "$root/boards/$boardId/columns",
+                "/v1/boards/$boardId/columns",
                 """{"requestId":"${java.util.UUID.randomUUID()}","expectedBoardVersion":0,"name":"Done"}""",
                 registered.accessToken,
             )
@@ -391,7 +391,7 @@ class AuthenticationHttpIntegrationTest(
         val createdItem =
             request(
                 "POST",
-                "$root/boards/$boardId/work-items",
+                "/v1/boards/$boardId/work-items",
                 """
                 {"requestId":"$itemRequestId","expectedBoardVersion":1,"columnId":"$firstColumnId",
                 "title":" Task ","description":" Detail "}
@@ -419,7 +419,7 @@ class AuthenticationHttpIntegrationTest(
         val itemReplay =
             request(
                 "POST",
-                "$root/boards/$boardId/work-items",
+                "/v1/boards/$boardId/work-items",
                 """
                 {"requestId":"$itemRequestId","expectedBoardVersion":1,"columnId":"$firstColumnId",
                 "title":"Task","description":"Detail"}
@@ -431,7 +431,7 @@ class AuthenticationHttpIntegrationTest(
         assertProblem(
             request(
                 "POST",
-                "$root/boards/$boardId/work-items",
+                "/v1/boards/$boardId/work-items",
                 """
                 {"requestId":"${java.util.UUID.randomUUID()}","expectedBoardVersion":1,
                 "columnId":"$firstColumnId","title":"Stale","description":null}
@@ -445,7 +445,7 @@ class AuthenticationHttpIntegrationTest(
         val moved =
             request(
                 "POST",
-                "$root/boards/$boardId/placements/$workItemId/move",
+                "/v1/boards/$boardId/placements/$workItemId:move",
                 """{"expectedBoardVersion":2,"expectedPlacementVersion":0,"targetColumnId":"$secondColumnId","beforeWorkItemId":null}""",
                 registered.accessToken,
             )
@@ -466,7 +466,7 @@ class AuthenticationHttpIntegrationTest(
         val editedItem =
             request(
                 "PATCH",
-                "$root/work-items/$workItemId",
+                "/v1/work-items/$workItemId",
                 """
                 {"boardId":"$boardId","currentColumnId":"$secondColumnId",
                 "targetColumnId":"$secondColumnId","expectedVersion":0,
@@ -479,10 +479,10 @@ class AuthenticationHttpIntegrationTest(
         val itemKeys = setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt")
         val cardKeys = setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position")
         assertEquals(itemKeys, editedItem.json().nested("workItem").keys)
-        val detail = request("GET", "$root/work-items/$workItemId", bearer = registered.accessToken)
+        val detail = request("GET", "/v1/work-items/$workItemId", bearer = registered.accessToken)
         assertEquals(200, detail.status)
         assertEquals(itemKeys, detail.json().keys)
-        val readBoard = request("GET", "$root/boards/$boardId", bearer = registered.accessToken)
+        val readBoard = request("GET", "/v1/boards/$boardId", bearer = registered.accessToken)
         assertEquals(200, readBoard.status)
         assertEquals(
             cardKeys,
@@ -500,7 +500,7 @@ class AuthenticationHttpIntegrationTest(
             "Updated",
             request(
                 "GET",
-                "$root/boards/$boardId",
+                "/v1/boards/$boardId",
                 bearer = registered.accessToken,
             ).json().listOfObjects("columns").last().listOfObjects("cards").single().requiredText("title"),
         )
@@ -508,7 +508,7 @@ class AuthenticationHttpIntegrationTest(
         val missingBoardVersion =
             request(
                 "PATCH",
-                "$root/work-items/$workItemId",
+                "/v1/work-items/$workItemId",
                 """
                 {"boardId":"$boardId","currentColumnId":"$secondColumnId",
                 "targetColumnId":"$firstColumnId","expectedPlacementVersion":1,"expectedVersion":1,
@@ -522,7 +522,7 @@ class AuthenticationHttpIntegrationTest(
         val missingPlacementVersion =
             request(
                 "PATCH",
-                "$root/work-items/$workItemId",
+                "/v1/work-items/$workItemId",
                 """
                 {"boardId":"$boardId","currentColumnId":"$secondColumnId",
                 "targetColumnId":"$firstColumnId","expectedBoardVersion":3,"expectedVersion":1,
@@ -536,14 +536,14 @@ class AuthenticationHttpIntegrationTest(
         assertProblem(
             request(
                 "DELETE",
-                "$root/boards/$boardId/columns/$secondColumnId?expectedBoardVersion=3&expectedColumnVersion=0",
+                "/v1/columns/$secondColumnId?expectedBoardVersion=3&expectedColumnVersion=0",
                 bearer = registered.accessToken,
             ),
             409,
             "COLUMN_NOT_EMPTY",
         )
 
-        val nonEmptyDeletionPath = "$root/boards/$boardId/permanent-deletion"
+        val nonEmptyDeletionPath = "/v1/boards/$boardId:permanentlyDelete"
         assertProblem(
             request(
                 "POST",
@@ -584,7 +584,7 @@ class AuthenticationHttpIntegrationTest(
             )
         assertEquals(201, disposableBoard.status)
         val disposableBoardId = disposableBoard.json().requiredText("boardId")
-        val disposableDeletionPath = "$root/boards/$disposableBoardId/permanent-deletion"
+        val disposableDeletionPath = "/v1/boards/$disposableBoardId:permanentlyDelete"
         assertEquals(
             401,
             request(
@@ -608,7 +608,7 @@ class AuthenticationHttpIntegrationTest(
                 .any { it.requiredText("boardId") == disposableBoardId },
         )
         assertProblem(
-            request("GET", "$root/boards/$disposableBoardId", bearer = registered.accessToken),
+            request("GET", "/v1/boards/$disposableBoardId", bearer = registered.accessToken),
             404,
             "PROJECT_NOT_FOUND",
         )
@@ -640,7 +640,7 @@ class AuthenticationHttpIntegrationTest(
             assertProblem(
                 request(
                     "POST",
-                    "$root/boards/$protectedBoardId/permanent-deletion",
+                    "/v1/boards/$protectedBoardId:permanentlyDelete",
                     """{"expectedVersion":0,"confirmationName":"Protected"}""",
                     registered.accessToken,
                 ),
@@ -652,17 +652,96 @@ class AuthenticationHttpIntegrationTest(
                 connection.createStatement().use { it.execute("DROP TABLE project.board_delete_http_test_guards") }
             }
         }
-        assertProblem(
+        assertEquals(
+            404,
             request(
                 "GET",
-                "/desktop/v1/workspaces/${java.util.UUID.randomUUID()}/projects/${registered.projectId}/boards/$boardId",
+                "/v1/projects/${registered.projectId}/boards/$boardId",
                 bearer = registered.accessToken,
-            ),
-            404,
-            "PROJECT_NOT_FOUND",
+            ).status,
         )
-        assertEquals(405, request("DELETE", "$root/boards/$boardId", bearer = registered.accessToken).status)
-        assertEquals(405, request("DELETE", "$root/work-items/$workItemId", bearer = registered.accessToken).status)
+        assertEquals(405, request("DELETE", "/v1/boards/$boardId", bearer = registered.accessToken).status)
+        assertEquals(405, request("DELETE", "/v1/work-items/$workItemId", bearer = registered.accessToken).status)
+    }
+
+    @Test
+    fun `canonical stable id paths conceal cross account ownership and reject mixed placements without mutation`() {
+        val owner = registerAccount("owner-a")
+        val outsider = registerAccount("owner-b")
+        val ownerBoard = firstBoard(owner)
+        val outsiderBoard = firstBoard(outsider)
+        val outsiderColumnId =
+            outsiderBoard
+                .json()
+                .listOfObjects("columns")
+                .single()
+                .requiredText("columnId")
+        val outsiderWorkItem =
+            request(
+                "POST",
+                "/v1/boards/${outsiderBoard.json().requiredText("boardId")}/work-items",
+                """{"requestId":"${java.util.UUID.randomUUID()}","expectedBoardVersion":0,""" +
+                    """"columnId":"$outsiderColumnId","title":"Private","description":null}""",
+                outsider.accessToken,
+            )
+        assertEquals(201, outsiderWorkItem.status)
+        val outsiderWorkItemId = outsiderWorkItem.json().nested("workItem").requiredText("workItemId")
+
+        listOf(
+            ConcealedRequest("GET", "/v1/projects/${outsider.projectId}"),
+            ConcealedRequest("GET", "/v1/boards/${outsiderBoard.json().requiredText("boardId")}"),
+            ConcealedRequest(
+                "PATCH",
+                "/v1/columns/$outsiderColumnId",
+                """{"expectedBoardVersion":1,"expectedColumnVersion":0,"name":"Hidden"}""",
+            ),
+            ConcealedRequest("GET", "/v1/work-items/$outsiderWorkItemId"),
+        ).forEach { candidate ->
+            val concealed = request(candidate.method, candidate.path, candidate.body, owner.accessToken)
+            assertEquals(404, concealed.status, candidate.path)
+            assertTrue(
+                concealed.json().requiredText("code") in setOf("PROJECT_NOT_FOUND", "PROJECT_WORK_NOT_FOUND"),
+                "${candidate.path} leaked a distinguishable authorization result: ${concealed.body}",
+            )
+        }
+
+        val ownerBefore = request("GET", "/v1/boards/${ownerBoard.json().requiredText("boardId")}", bearer = owner.accessToken)
+        val outsiderBefore =
+            request(
+                "GET",
+                "/v1/boards/${outsiderBoard.json().requiredText("boardId")}",
+                bearer = outsider.accessToken,
+            )
+        val ownerColumnId =
+            ownerBefore
+                .json()
+                .listOfObjects("columns")
+                .single()
+                .requiredText("columnId")
+        val mixedMove =
+            request(
+                "POST",
+                "/v1/boards/${ownerBoard.json().requiredText("boardId")}/placements/$outsiderWorkItemId:move",
+                """{"expectedBoardVersion":0,"expectedPlacementVersion":0,"targetColumnId":"$ownerColumnId","beforeWorkItemId":null}""",
+                owner.accessToken,
+            )
+        assertEquals(404, mixedMove.status)
+        assertTrue(
+            mixedMove.json().requiredText("code") in setOf("PROJECT_NOT_FOUND", "PROJECT_WORK_NOT_FOUND"),
+            mixedMove.body,
+        )
+        assertEquals(
+            ownerBefore.body,
+            request("GET", "/v1/boards/${ownerBoard.json().requiredText("boardId")}", bearer = owner.accessToken).body,
+        )
+        assertEquals(
+            outsiderBefore.body,
+            request(
+                "GET",
+                "/v1/boards/${outsiderBoard.json().requiredText("boardId")}",
+                bearer = outsider.accessToken,
+            ).body,
+        )
     }
 
     @Test
@@ -684,7 +763,7 @@ class AuthenticationHttpIntegrationTest(
         val registered =
             request(
                 "POST",
-                "/desktop/v1/auth/federated/registrations",
+                "/v1/federated-registrations",
                 registrationBody(preview),
             )
         assertEquals(201, registered.status)
@@ -717,7 +796,7 @@ class AuthenticationHttpIntegrationTest(
         val cancelled =
             request(
                 "POST",
-                "/desktop/v1/auth/federated/attempts/${created.requiredText("attemptId")}/cancel",
+                "/v1/federated-login-attempts/${created.requiredText("attemptId")}:cancel",
                 """{"pollSecret":"${created.requiredText("pollSecret")}"}""",
             )
         assertEquals(204, cancelled.status)
@@ -725,7 +804,7 @@ class AuthenticationHttpIntegrationTest(
         val state = URI(created.requiredText("authorizationUrl")).queryParameters().getValue("state")
         assertEquals(
             409,
-            request("GET", "/desktop/v1/auth/federated/github/callback?state=${encode(state)}&code=late").status,
+            request("GET", "/v1/provider-callbacks/github/oauth?state=${encode(state)}&code=late").status,
         )
     }
 
@@ -734,14 +813,14 @@ class AuthenticationHttpIntegrationTest(
         val invalid =
             request(
                 "POST",
-                "/desktop/v1/auth/federated/attempts",
+                "/v1/federated-login-attempts",
                 """{"provider":"github","installationId":"desktop-test","completionUri":"https://example.com/callback"}""",
             )
         assertEquals(400, invalid.status)
         repeat(5) {
-            assertEquals(201, request("POST", "/desktop/v1/auth/federated/attempts", attemptBody("desktop-$it")).status)
+            assertEquals(201, request("POST", "/v1/federated-login-attempts", attemptBody("desktop-$it")).status)
         }
-        val limited = request("POST", "/desktop/v1/auth/federated/attempts", attemptBody("desktop-over-limit"))
+        val limited = request("POST", "/v1/federated-login-attempts", attemptBody("desktop-over-limit"))
         assertEquals(429, limited.status)
         assertTrue(limited.json().requiredText("code") == "AUTHENTICATION_RATE_LIMITED")
     }
@@ -787,7 +866,7 @@ class AuthenticationHttpIntegrationTest(
         val response =
             request(
                 "POST",
-                "/desktop/v1/auth/federated/registrations",
+                "/v1/federated-registrations",
                 registrationBody(preview, locale = locale),
             )
         assertEquals(201, response.status)
@@ -801,7 +880,7 @@ class AuthenticationHttpIntegrationTest(
         val response =
             request(
                 "POST",
-                "/desktop/v1/auth/federated/registrations",
+                "/v1/federated-registrations",
                 registrationBody(
                     preview,
                     locale = overrides["locale"] ?: "zh-CN",
@@ -846,10 +925,10 @@ class AuthenticationHttpIntegrationTest(
         }
     }
 
-    private fun registerAccount(): RegisteredAccount {
-        val completed = completeAttempt()
+    private fun registerAccount(identity: String = "owner-default"): RegisteredAccount {
+        val completed = completeAttempt(identity)
         val preview = poll(completed.created, completed.proof).json().nested("registration")
-        val response = request("POST", "/desktop/v1/auth/federated/registrations", registrationBody(preview))
+        val response = request("POST", "/v1/federated-registrations", registrationBody(preview))
         assertEquals(201, response.status)
         val body = response.json()
         return RegisteredAccount(
@@ -857,6 +936,15 @@ class AuthenticationHttpIntegrationTest(
             body.nested("bootstrap").requiredText("workspaceId"),
             body.nested("bootstrap").requiredText("projectId"),
         )
+    }
+
+    private fun firstBoard(account: RegisteredAccount): HttpResult {
+        val boards = request("GET", "/v1/projects/${account.projectId}/boards", bearer = account.accessToken)
+        assertEquals(200, boards.status)
+        val boardId = boards.jsonList().single().requiredText("boardId")
+        return request("GET", "/v1/boards/$boardId", bearer = account.accessToken).also {
+            assertEquals(200, it.status)
+        }
     }
 
     private fun assertProblem(
@@ -868,10 +956,10 @@ class AuthenticationHttpIntegrationTest(
         assertEquals(code, response.json().requiredText("code"))
     }
 
-    private fun completeAttempt(): CompletedAttempt {
+    private fun completeAttempt(identity: String = "owner-default"): CompletedAttempt {
         val created = createAttempt()
         val state = URI(created.requiredText("authorizationUrl")).queryParameters().getValue("state")
-        val callback = request("GET", "/desktop/v1/auth/federated/github/callback?state=${encode(state)}&code=code-1")
+        val callback = request("GET", "/v1/provider-callbacks/github/oauth?state=${encode(state)}&code=${encode(identity)}")
         assertEquals(200, callback.status)
         assertTrue(callback.body.contains("window.close()"))
         val proof =
@@ -881,7 +969,7 @@ class AuthenticationHttpIntegrationTest(
     }
 
     private fun createAttempt(): Map<String, Any?> {
-        val response = request("POST", "/desktop/v1/auth/federated/attempts", attemptBody("desktop-test"))
+        val response = request("POST", "/v1/federated-login-attempts", attemptBody("desktop-test"))
         assertEquals(201, response.status)
         return response.json()
     }
@@ -914,7 +1002,7 @@ class AuthenticationHttpIntegrationTest(
     ): HttpResult =
         request(
             "POST",
-            "/desktop/v1/auth/federated/attempts/${created.requiredText("attemptId")}/poll",
+            "/v1/federated-login-attempts/${created.requiredText("attemptId")}:poll",
             """{"pollSecret":"${created.requiredText(
                 "pollSecret",
             )}"${proof?.let { ",\"completionProof\":\"$it\"" }.orEmpty()}}""",
@@ -960,6 +1048,12 @@ class AuthenticationHttpIntegrationTest(
 
     private fun encode(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8)
 
+    private data class ConcealedRequest(
+        val method: String,
+        val path: String,
+        val body: String? = null,
+    )
+
     private data class RegisteredAccount(
         val accessToken: String,
         val workspaceId: String,
@@ -977,7 +1071,7 @@ class AuthenticationHttpIntegrationTest(
     )
 
     companion object {
-        private const val CALLBACK_URI = "http://127.0.0.1:18080/desktop/v1/auth/federated/github/callback"
+        private const val CALLBACK_URI = "http://127.0.0.1:18080/v1/provider-callbacks/github/oauth"
         private const val VALID_COMPLETION_URI = "http://127.0.0.1:49152/taskpilot/oauth/complete/abcdefghijklmnopqrstuvwxyzABCDEF"
         private val postgres = PostgreSQLContainer("postgres:17-alpine").apply { start() }
         private val redis = AuthRedisContainer().withExposedPorts(6379).apply { start() }
@@ -1032,7 +1126,7 @@ class FakeFederatedProviderConfiguration {
             ) = ProviderIdentity(
                 "github",
                 URI("https://github.com"),
-                "123456",
+                authorizationCode,
                 "Octo Cat",
                 URI("https://avatars.githubusercontent.com/u/123456"),
             )

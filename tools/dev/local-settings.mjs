@@ -16,6 +16,7 @@ export function defaultLocalSettings(root) {
     TASKPILOT_POSTGRES_PORT: String(15_000 + slot),
     TASKPILOT_REDIS_PORT: String(25_000 + slot),
     TASKPILOT_CORE_API_PORT: String(45_000 + slot),
+    TASKPILOT_GATEWAY_PORT: String(35_000 + slot),
     TASKPILOT_DESKTOP_DEV_SERVER_PORT: String(55_000 + slot),
   };
 }

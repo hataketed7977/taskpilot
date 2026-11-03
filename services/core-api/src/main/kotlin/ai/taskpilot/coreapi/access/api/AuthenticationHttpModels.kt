@@ -1,42 +1,23 @@
 package ai.taskpilot.coreapi.access.api
 
+import ai.taskpilot.contract.generated.model.CurrentUserResponse
+import ai.taskpilot.contract.generated.model.SessionResponse
 import ai.taskpilot.coreapi.access.application.CurrentUserView
 import ai.taskpilot.coreapi.access.application.IssuedSession
-import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.Size
-import java.net.URI
-import java.time.Instant
-import java.util.UUID
+import java.time.ZoneOffset
 
-data class RefreshRequest(
-    @field:NotBlank @field:Size(max = 512) val refreshToken: String,
-)
+internal fun CurrentUserView.toWireResponse() =
+    CurrentUserResponse(
+        userId = userId.value,
+        displayName = displayName,
+        avatarUrl = avatarUrl,
+    )
 
-data class CurrentUserResponse(
-    val userId: UUID,
-    val displayName: String,
-    val avatarUrl: URI?,
-) {
-    companion object {
-        fun from(view: CurrentUserView) = CurrentUserResponse(view.userId.value, view.displayName, view.avatarUrl)
-    }
-}
-
-data class SessionResponse(
-    val accessToken: String,
-    val accessTokenExpiresAt: Instant,
-    val refreshToken: String,
-    val refreshTokenExpiresAt: Instant,
-    val currentUser: CurrentUserResponse,
-) {
-    companion object {
-        fun from(session: IssuedSession) =
-            SessionResponse(
-                session.accessToken,
-                session.accessTokenExpiresAt,
-                session.refreshToken,
-                session.refreshTokenExpiresAt,
-                CurrentUserResponse.from(session.currentUser),
-            )
-    }
-}
+internal fun IssuedSession.toWireResponse() =
+    SessionResponse(
+        accessToken = accessToken,
+        accessTokenExpiresAt = accessTokenExpiresAt.atOffset(ZoneOffset.UTC),
+        refreshToken = refreshToken,
+        refreshTokenExpiresAt = refreshTokenExpiresAt.atOffset(ZoneOffset.UTC),
+        currentUser = currentUser.toWireResponse(),
+    )

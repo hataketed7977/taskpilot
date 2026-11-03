@@ -37,10 +37,10 @@ export interface DesktopComposition {
 export function createDesktopComposition(options: DesktopCompositionOptions): DesktopComposition {
   const session = new SessionCoordinator(options.environment, options.credentials, {
     refresh: refreshToken => options.transport.request({
-      method: 'POST', path: '/desktop/v1/auth/session/refresh', body: { refreshToken },
+      method: 'POST', path: '/v1/session:refresh', body: { refreshToken },
     }),
     logout: accessToken => options.transport.request({
-      method: 'POST', path: '/desktop/v1/auth/session/logout', accessToken,
+      method: 'POST', path: '/v1/session:logout', accessToken,
     }),
   });
   const projectHome = new ProjectHomeCoordinator(

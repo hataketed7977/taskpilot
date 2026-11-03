@@ -15,6 +15,11 @@ class ProjectProvisioningConfiguration {
     fun personalProjectProvisioner(dataSource: DataSource): PersonalProjectProvisioner = JdbcPersonalProjectProvisioner(dataSource)
 
     @Bean
+    fun projectResourceScope(dataSource: DataSource): ProjectResourceScope =
+        ai.taskpilot.coreapi.project.internal
+            .JdbcProjectResourceScope(dataSource)
+
+    @Bean
     fun projectUseCases(
         dataSource: DataSource,
         workspaceAccess: ai.taskpilot.coreapi.workspace.WorkspaceAccessQuery,

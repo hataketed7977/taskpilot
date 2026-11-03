@@ -23,6 +23,9 @@ management:
 springdoc:
   api-docs:
     enabled: ${TASKPILOT_API_DOCS_ENABLED:true}
+  enable-default-api-docs: false
   swagger-ui:
     enabled: ${TASKPILOT_SWAGGER_UI_ENABLED:true}
+    url: /v3/api-docs
+    disable-swagger-default-url: true
     persist-authorization: false

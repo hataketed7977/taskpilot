@@ -1,6 +1,6 @@
 # Core API Architecture
 
-- **Status:** Target
+- **Status:** Current foundation with Target extensions
 - **Owns:** Core API runtime structure, application transactions, persistence,
   HTTP adapters, durable jobs, managed-execution protocol, and provider
   integration
@@ -13,8 +13,8 @@
 ## Current Foundation
 
 **Current:** The repository now contains a runnable `:services:core-api` Gradle
-subproject. The root Gradle Wrapper includes only this subproject and pins JDK
-21, Kotlin 2.3.21, Spring Boot 4.1.1, Spring Modulith 2.1.1, ArchUnit 1.5.1,
+subproject. The root Gradle Wrapper includes both `:services:core-api` and the
+independent `:services:gateway` subproject and pins JDK 21, Kotlin 2.3.21, Spring Boot 4.1.1, Spring Modulith 2.1.1, ArchUnit 1.5.1,
 JUnit 6.0.3, Testcontainers 2.0.5, Detekt 1.23.8, ktlint 1.8.0, and Kover
 0.9.10. Detekt runs with its compatible isolated Kotlin 2.0.21 tool classpath;
 that does not change the application Kotlin version. Handwritten production
@@ -76,18 +76,20 @@ The implemented application is deliberately limited to:
 The ArchUnit rules use independently reported `rule-id/case-id` fixtures for
 model dependencies on MVC, Security, Jakarta Persistence, Spring Data, Spring
 JDBC, jOOQ, transport, and provider types; implementation-type leakage; every
-directed Desktop/public/managed-execution surface pair; controller access to
-another capability's internal or repository packages; reverse project
-dependencies; and shared/common escape packages. The three future HTTP adapter
-surface package segments are fixed as `desktopapi`, `publicapi`, and
-`managedapi`; a future Change that renames or adds a surface must update the
-owning architecture contract and fixtures together.
+directed legacy adapter-surface pair; controller access to another capability's
+internal or repository packages; reverse project dependencies; shared/common
+escape packages; and client-named Desktop/Web/Mobile/CLI/MCP business API types.
+The current canonical resource API remains capability-owned. Future adapters
+with genuinely distinct trust or protocol boundaries must update the owning
+architecture contract and rules together; client identity alone is not such a
+boundary.
 
-The Current first-use HTTP surface exposes Desktop authentication, session,
-current-user, PERSONAL Workspace discovery, and complete current Project
-controllers. Runtime OpenAPI and non-persistent Swagger authorization remain
-enabled outside Production; exact-path contract tests cover these implemented
-routes, their access-bearer boundary, transport schemas, successful responses,
+The Current canonical `/v1` HTTP surface exposes authentication, session,
+current-user, PERSONAL Workspace discovery, complete Project lifecycle, Board,
+Column, Work Item, and Placement controllers. Runtime OpenAPI and non-persistent
+Swagger authorization remain available only from the internal Core origin
+outside Production; Gateway exposes neither. Exact-path contract tests cover
+these implemented routes, their access-bearer boundary, transport schemas, successful responses,
 shared Problem Details, and secret hygiene. Legacy
 email/password/OTP/reset, TEAM, provider, durable-job, workflow, Agent-execution,
 and managed-execution behavior remain unimplemented. The current persistence choice is explicit Spring JDBC plus
@@ -97,6 +99,19 @@ auto-configuration; each business capability owns only its schema, JDBC
 implementation, and participation in explicitly coordinated transactions.
 Everything below that describes later capabilities remains **Target** unless
 explicitly marked Current.
+
+### Canonical HTTP Contract
+
+**Current:** [`../../../contracts/canonical-api/openapi.yaml`](../../../contracts/canonical-api/openapi.yaml)
+is the checked-in owner of canonical HTTP representation and generates
+build-only Spring interfaces and wire models. Core HTTP adapters implement those
+interfaces and explicitly map generated wire models to existing application
+commands/results. Generated transport types remain under API adapter packages;
+architecture checks prevent application, domain, authorization, persistence,
+and repository code from depending on them. Core continues to authenticate
+credentials and authorize every operation. In Local/Test, `/v3/api-docs`
+directly serializes the packaged canonical artifact; in Production it remains
+disabled, and Gateway never proxies it.
 
 ## Federated Access Implementation Status
 
@@ -110,7 +125,7 @@ uniqueness and never merges accounts by email or profile similarity.
 
 **Current HTTP slice:** Core API exposes capability discovery, attempt creation,
 the fixed GitHub callback, poll/cancel, first registration, refresh, logout, and
-`GET /desktop/v1/me`. Attempts accept only the exact restricted `127.0.0.1`
+`GET /v1/me`. Attempts accept only the exact restricted `127.0.0.1`
 completion URI shape. The callback claims one-time state, performs Provider HTTP
 outside database transactions, and retains only normalized encrypted identity
 state. Its no-store completion page uses a nonce CSP, removes OAuth query data,
@@ -148,19 +163,21 @@ Workspace and Project routes through narrow Preload capabilities and validates
 registration bootstrap plus recent/fallback Project selection before presenting
 Project home. Automated tests use browser, loopback, Provider, Redis, PostgreSQL,
 and credential doubles/containers; the integrated journey crosses compiled
-Main, IPC, Preload, Core API, PostgreSQL, and Redis. Real GitHub OAuth remains
-manual evidence; packaged/native evidence is platform-specific. Deep links,
-embedded WebViews, GitHub repository integration, Gateway authentication, and
-production rollout remain outside this slice.
+Main, IPC, Preload, packaged Gateway, Core API, PostgreSQL, and Redis. Real
+GitHub OAuth remains manual evidence; packaged/native evidence is
+platform-specific. Deep links, embedded WebViews, GitHub repository integration,
+production Core network isolation, and production rollout remain outside this
+slice.
 
 ## Runtime Role
 
-`core-api` is one Kotlin/Spring Boot application. For the MVP it is also the
-only application-layer Resource Server: Desktop Main reaches it through the
-deployment edge/TLS boundary, and Core API validates its own opaque Desktop
-access token before constructing an authenticated principal. It owns application use cases,
-business rule enforcement, authorization, PostgreSQL persistence, first-party
-Desktop API controllers, public HTTP API controllers, workflow orchestration,
+`core-api` is one Kotlin/Spring Boot application and the only current
+application-layer Resource Server. Desktop Main reaches it through the
+Gateway's explicit canonical route catalog; Core API independently validates
+its own opaque access token before constructing an authenticated principal. It
+owns application use cases, business rule enforcement, authorization,
+PostgreSQL persistence, the canonical resource controllers and runtime OpenAPI,
+workflow orchestration,
 and the control-plane state for Agent execution.
 
 Long-running Agent work follows the immutable execution mode pinned by the
@@ -378,8 +395,8 @@ class hierarchy.
 
 ## Current Workspace-Scoped Project Operations
 
-The Current Desktop API exposes the authenticated User's PERSONAL Workspace,
-authorized Project operations, and explicit Project Work operations for Board
+The Current canonical resource API exposes the authenticated User's PERSONAL
+Workspace, authorized Project operations, and explicit Project Work operations for Board
 list/create/read/edit/permanent-delete, Column create/edit/reorder/delete, basic Work Item
 create/read/edit, and Placement move. Project pages are
 ordered by `(createdAt, projectId)` and use an opaque Base64URL cursor whose
@@ -435,36 +452,36 @@ before measured need.
 
 ## HTTP API Adapters
 
-Desktop API, managed-execution, and public HTTP API controllers are separate
-adapter surfaces over the
-same application use cases:
+The Current Core HTTP boundary is one client-neutral canonical `/v1` resource
+surface over capability-owned application use cases:
 
 - Controllers parse transport input, call application services, and map typed
-  results to surface-specific DTOs.
+  results without client-named Desktop/Web/Mobile/CLI/MCP copies.
+- Stable-ID single-resource paths resolve actual persisted Workspace/Project/
+  Board ownership before authorization; omitted parent IDs are never inferred as
+  trust, and mismatched compositions retain not-found anti-enumeration behavior.
 - Persistence entities, provider SDK types, and mutable internal state never
   appear in HTTP schemas.
 - Business errors map to stable Problem Details-compatible codes.
-- Mutable operations accept expected versions where stale decisions matter.
-- Retryable create, start, result, approval, and callback operations define an
-  idempotency key.
-- Definition validation returns JSON/YAML paths so editors can highlight exact
-  errors.
+- Mutable operations retain expected versions and idempotency identifiers where
+  stale decisions or retries matter.
 - The server remains authoritative for permissions and allowed actions.
 
-The initial Desktop surface exposes runtime-generated OpenAPI JSON and Swagger
-UI for federated authentication, session refresh/logout, current user, PERSONAL
-Workspace discovery, and the complete current Project lifecycle, and verifies
-them with runtime contract tests. The contract fixture freezes anonymous versus
-refresh-body versus opaque-bearer security, exact loopback completion-URI
-constraints, registration/session and Workspace/Project request/response shapes,
-operation-specific success and failure statuses, shared Problem Details, the
-email-free `CurrentUserView`, PERSONAL-only Workspace transport, and the absence
-of reusable OAuth/attempt/session secret examples and unimplemented paths.
-Production disables both OpenAPI JSON and Swagger UI. Main adapter fixtures cover
-the consumed shape; this phase does not require a committed standalone schema,
-generated Desktop client, or breaking-change compatibility gate. Managed-
-execution and public API contract lifecycles remain separate and are established
-by the Changes that initialize those surfaces.
+The checked-in canonical artifact is the only complete HTTP contract source.
+Core packages that artifact and serializes its JSON representation at
+`/v3/api-docs` in Local/Test; Swagger UI consumes the same endpoint. Production
+disables both, and Gateway routes neither. Contract projection tests prove that
+the generated route manifest contains all and only approved ingress operations;
+Gateway strict-loader and integration tests prove consumption without comparing
+against runtime Core discovery. Desktop Main uses narrow hand-written transport
+types and consumer fixtures; there is no generated client or compatibility
+baseline yet.
+
+Provider callback ingress is part of the approved current authentication flow
+but does not create a second client business API. Future managed-execution or
+Public Developer API adapters require their own trust/protocol and compatibility
+contracts; they reuse canonical application capabilities rather than copy the
+business surface by client name.
 
 ## Durable Jobs and Notifications
 
@@ -550,10 +567,10 @@ before either existing route is stretched to support it.
   Refresh rotates both tokens; reuse of an old refresh credential revokes the
   session family. Malformed, expired, corrupt, revoked, unknown, or unavailable
   session state fails closed.
-- The deployment edge does not create trusted identity. A future Gateway may
-  apply route-specific credential validation or normalize trusted context as
-  defense in depth, without assuming OIDC/JWT, but Core API still independently
-  authenticates the principal and authorizes every resource action.
+- The deployment edge and Current Gateway do not create trusted business
+  identity. Gateway removes spoofable context and forwards the credential;
+  Core API independently authenticates the principal and authorizes every
+  resource action.
 - Workspace and Project membership are checked by application use cases, not by
   UI role names.
 - Provider Connections contain secret references, never credential material in

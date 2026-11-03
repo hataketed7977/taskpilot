@@ -1,6 +1,6 @@
 # TaskPilot Architecture
 
-- **Status:** Target
+- **Status:** Current with Target extensions
 - **Owns:** System topology, cross-project technical constraints, quality
   policy, and top-level project boundaries
 - **Read after:** [`../AGENTS.md`](../AGENTS.md)
@@ -16,16 +16,16 @@ repository is being formed. Product vocabulary and behavior belong to the
 frontend, Gateway, backend, CLI, or infrastructure decisions until a real
 subproject exists to own the detail.
 
-The repository now contains runnable Desktop and Core API subprojects. Their
-current slice covers system-browser GitHub authentication, first registration
+The repository now contains runnable Desktop, Gateway, and Core API subprojects. Their
+current slice covers system-browser GitHub authentication through the Gateway, first registration
 with personal Workspace and default Project provisioning, opaque-session
 restore/refresh/logout, Project management and the Desktop Project home,
 ordinary Boards with ordered Columns, basic Work Items, Board-local Card
 placement and moves, the production Flyway baseline for these durable facts,
 Redis-backed temporary authentication state, and non-production runtime
 OpenAPI. `TEAM` Workspaces, Work Item types and assignments, workflows, Agent
-configuration and execution, approvals, Agent Runtime, Gateway, deployment,
-signing, and updates remain Target unless explicitly marked Current.
+configuration and execution, approvals, Agent Runtime, production deployment and
+network isolation, signing, and updates remain Target unless explicitly marked Current.
 
 ## Diagram Conventions
 
@@ -52,29 +52,25 @@ flowchart LR
     desktop["Electron Desktop\nWindows and macOS"]
     runtime["Agent Runtime\nLocal execution plane"]
     workspace["Bound local project root"]
-    external["Third-party HTTP clients"]
-    cli["Future CLI"]
+    clients["Future Web / Mobile / CLI / MCP adapters"]
     edge["Edge / TLS / WAF"]
-    gateway["Future Kotlin API Gateway"]
-    api["Kotlin core-api control plane"]
+    gateway["Kotlin API Gateway\ntechnical ingress"]
+    api["Kotlin core-api\ncanonical contract"]
     provider["Remote managed-Agent providers"]
     credential["OS credential store"]
     postgres[(PostgreSQL)]
     redis[(Redis technical state)]
 
-    desktop -->|HTTPS| edge
-    external --> edge
-    cli --> edge
-    edge --> api
-    edge -.->|future centralized edge policy| gateway
-    gateway -.->|future routing| api
-    gateway -.->|future optional technical state| redis
+    desktop -->|HTTPS canonical /v1| edge
+    clients -.->|future canonical /v1 or adapter protocol| edge
+    edge --> gateway
+    gateway -->|path-preserving canonical HTTP| api
     api -->|durable business facts| postgres
     api -->|OAuth attempts, rate limits, sessions| redis
     api -->|provider-neutral adapter| provider
     desktop -->|JSON-RPC 2.0 / JSONL over stdio| runtime
     runtime --> workspace
-    runtime -->|local execution evidence| edge
+    runtime -.->|future managed execution| edge
     desktop -->|secret handles| credential
 ```
 
@@ -117,22 +113,24 @@ and Windows isolation, child-process network policy, whole-process-tree cleanup,
 and sandbox failure and escape behavior. Rust, local consent, and canonical path
 checks do not satisfy that gate by themselves.
 
-For the MVP, Desktop Main reaches the Core API through the deployment edge/TLS
-boundary. That edge may provide transport protection such as TLS termination,
-basic request-size/rate controls, and observability, but it does not create a
-trusted application principal. Core API is the only current application-layer
-Resource Server: it validates the Desktop bearer token and remains responsible
-for every business authorization decision. The Gateway is a future optional
-boundary, not an MVP request hop; introducing it requires a separate Change for
-a proven multi-backend, multi-API-surface, or centralized edge-policy need and
-must not weaken Core API authentication or authorization.
+Desktop Main reaches Core API only through the deployment edge/TLS boundary
+and the Current Gateway. Gateway applies an explicit canonical method/path
+allowlist, header hygiene, correlation, bounded transport limits/timeouts,
+transport errors, and health/readiness; it does not create a trusted application
+principal, own business schemas, or expose Core runtime OpenAPI. Core API remains
+the application Resource Server: it independently validates the Desktop bearer
+token and performs every business authorization decision. Local/system tests
+prove the Gateway hop and absence of Desktop Core fallback. Because this
+repository has no production deployment project, private Core binding and
+network-policy prevention of external bypass remain required production
+evidence rather than a Current claim.
 
 Redis is current technical infrastructure for Core API OAuth attempts,
 registration continuations, login rate limits, and opaque sessions. These keys
 are bounded by TTL and fail closed when Redis is unavailable. PostgreSQL remains
 the system of record for durable User, External Identity, and legal-acceptance
-facts; Redis never owns business truth. A future Gateway may also use Redis only
-for a separately justified technical requirement.
+facts; Redis never owns business truth. Gateway currently owns no Redis or
+business-database dependency.
 
 Current first registration treats `(locale, legalBundleVersion, termsVersion,
 privacyVersion)` as the cross-project identity of the exact legal texts shown by
@@ -159,9 +157,11 @@ taskpilot/
 │   │   └── docs/
 │   └── cli/                   # Future
 ├── services/
-│   ├── gateway/
+│   ├── gateway/             # Current Spring Cloud Gateway technical ingress
 │   │   ├── AGENTS.md
-│   │   └── docs/
+│   │   ├── build.gradle.kts
+│   │   ├── docs/
+│   │   └── src/               # Current route catalog, transport policy, health, and tests
 │   └── core-api/
 │       ├── AGENTS.md
 │       ├── build.gradle.kts
@@ -182,9 +182,9 @@ taskpilot/
 ```
 
 Do not create future directories until their project or artifact is actually
-initialized. Desktop and Core API are the currently initialized runnable
-subprojects; Agent Runtime and Gateway still have documentation owners only. The
-future CLI receives the same structure when created.
+initialized. Desktop, Gateway, and Core API are the currently initialized runnable
+subprojects; Agent Runtime still has documentation owners only. The future CLI
+receives the same structure when created.
 
 ## Technology Direction
 
@@ -207,9 +207,10 @@ future CLI receives the same structure when created.
 - Local development: the root pnpm commands are a cross-project entry point,
   not the owner of Kotlin compilation or database migration. Explicit
   `bootstrap` validates system prerequisites, installs the locked JavaScript
-  graph, precompiles Desktop and Core API, and pulls missing images; routine
-  `dev` delegates Core API compilation/runtime to the Gradle Wrapper and Flyway
-  execution to Spring Boot. Compose owns PostgreSQL and Redis. Each checkout has
+  graph, precompiles Desktop, Core API, and Gateway, and pulls missing images;
+  routine `dev` delegates Core API and Gateway compilation/runtime to the Gradle
+  Wrapper and Flyway execution to Core API Spring Boot. Compose owns PostgreSQL
+  and Redis. Each checkout has
   a deterministic Compose project, independent PostgreSQL/Redis volumes, and persisted
   loopback ports propagated through Compose, Spring Boot, Vite, Electron, and
   Desktop transport. Git-ignored `.env.local` owns the GitHub OAuth App values
@@ -245,6 +246,7 @@ platform evidence.
 | Subproject | Architecture | Responsibilities | Testing |
 | --- | --- | --- | --- |
 | Desktop | [`architecture`](../apps/desktop/docs/architecture.md) | [`responsibilities`](../apps/desktop/docs/responsibilities.md) | [`testing strategy`](../apps/desktop/docs/testing-strategy.md) |
+| Canonical API Contract | [`architecture`](../contracts/canonical-api/docs/architecture.md) | [`AGENTS.md`](../contracts/canonical-api/AGENTS.md) | [`testing strategy`](../contracts/canonical-api/docs/testing-strategy.md) |
 | Agent Runtime | [`architecture`](../apps/agent-runtime/docs/architecture.md) | [`responsibilities`](../apps/agent-runtime/docs/responsibilities.md) | [`testing strategy`](../apps/agent-runtime/docs/testing-strategy.md) |
 | Gateway | [`architecture`](../services/gateway/docs/architecture.md) | [`responsibilities`](../services/gateway/docs/responsibilities.md) | [`testing strategy`](../services/gateway/docs/testing-strategy.md) |
 | Core API | [`architecture`](../services/core-api/docs/architecture.md) | [`responsibilities`](../services/core-api/docs/responsibilities.md) | [`testing strategy`](../services/core-api/docs/testing-strategy.md) |
@@ -375,10 +377,16 @@ runs them in the fixed order below:
 | Hook tooling | `.githooks/**`, `tools/git-hooks/**` | `pnpm hooks:test` |
 | Development tooling | `tools/dev/**`, `compose.yaml`, `.env.local.example` | `pnpm dev:test` |
 | Desktop | Executable/configuration paths under `apps/desktop/**` | `pnpm --filter @taskpilot/desktop qualityCheck` |
-| Core API | Executable/configuration paths under `services/core-api/**`, root Gradle files, `gradle/**` | platform wrapper plus `--no-daemon :services:core-api:qualityCheck` |
+| Canonical API contract | Executable/configuration paths under `contracts/canonical-api/**` | platform wrapper plus `--no-daemon :contracts:canonical-api:qualityCheck` |
+| Core API | Executable/configuration paths under `services/core-api/**` | platform wrapper plus `--no-daemon :services:core-api:qualityCheck` |
+| Gateway | Executable/configuration paths under `services/gateway/**` | platform wrapper plus `--no-daemon :services:gateway:qualityCheck` |
+| Shared Gradle | Root Gradle files and `gradle/**` | serial canonical contract, Core API, and Gateway quality gates |
 
-Root pnpm package, workspace, and lock files select Hook tooling, Development
-tooling, and Desktop together. Markdown, OpenSpec artifacts, Agent instructions,
+A canonical contract path selects the contract, Core API, and Gateway gates once
+each because the artifact generates both consumer boundaries. Root pnpm package,
+workspace, and lock files select Hook tooling, Development tooling, and Desktop.
+Root Gradle settings/build, Wrapper, and version-catalog paths select the
+canonical contract, Core API, and Gateway. Markdown, OpenSpec artifacts, Agent instructions,
 and known repository metadata are explicit exemptions. Any other staged path
 fails closed until its ownership and quality gate are declared. This mapping
 accelerates local feedback only; main or release verification must still catch
@@ -390,7 +398,7 @@ tracked unstaged and untracked files that map to a selected gate, while ignoring
 dirty files in unrelated mapped modules. It never stashes, resets, cleans,
 constructs another worktree, or mutates the index. Each failure reports the
 rule or gate, concrete cause, triggering paths and command when applicable, and
-a manual next step. Child Desktop and Core API testing strategies continue to
+a manual next step. Child Desktop, Core API, and Gateway testing strategies continue to
 own the contents of their quality gates; this repository strategy only owns
 selection and orchestration.
 
@@ -418,23 +426,25 @@ Windows, but real Windows Git execution remains separate platform evidence.
 - Agent Runtime policy and protocol tests run below system E2E; real
   filesystem, process-tree, PTY, journal/recovery, and platform tests remain at
   the Runtime boundary.
-- System E2E selects the real boundaries needed by the scenario. MVP ordinary
-  product flows use Desktop, the deployment edge/TLS test boundary, Core API,
-  and PostgreSQL; a future Gateway is included only after its own initialization
-  Change. A provider fake sits at the server-side adapter boundary for
+- System E2E selects the real boundaries needed by the scenario. Current
+  ordinary product flows use compiled Desktop Main/IPC/Preload, a packaged
+  Gateway, Core API, PostgreSQL, and Redis. The Desktop subprocess receives only
+  the Gateway origin; Gateway-stopped and Core-unavailable journeys verify there
+  is no direct-Core fallback. A provider fake sits at the server-side adapter boundary for
   `REMOTE_MANAGED`; packaged Agent Runtime plus its managed-execution surface is
   used for `LOCAL_DESKTOP`. Third-party identity and Agent providers may be
   deterministic test doubles at TaskPilot-owned outbound boundaries.
 - System E2E state is prepared through controlled test fixtures or APIs rather
   than repeated UI setup. Test-only setup capabilities are unavailable in
   production and cannot bypass the business rule under test.
-- Once initialized, Gateway routing, header trust, credential, timeout, and
-  rate-limit matrices remain Gateway integration tests. Core API authentication,
+- Gateway route catalog, header trust, correlation, size/timeout, transport
+  error, no-retry, readiness, and secret-hygiene matrices remain Gateway
+  integration tests. Core API authentication,
   domain, tenancy, authorization, persistence, migration, concurrency, and
   idempotency matrices remain Core API tests.
-- The initial Desktop API uses runtime OpenAPI contract tests and Swagger UI;
-  generated-client and compatibility gates are introduced only by a later
-  Change with a versioned-contract requirement. No contract gate substitutes
+- Core API owns canonical runtime OpenAPI in Local/Test and disables it in
+  Production. Gateway does not expose Swagger/OpenAPI. Generated-client and
+  compatibility gates require a later versioned-contract Change. No contract gate substitutes
   for runtime API or system integration tests.
 - Essential security, contract, database, migration, and critical-journey tests
   are blocking before release; nightly execution may broaden coverage but is
@@ -526,37 +536,47 @@ threshold is an architectural policy change, not a local test workaround.
 
 ## Cross-Project API Boundaries
 
-- The first-party Desktop API and public HTTP API are separate API products.
-- Both may be implemented by `core-api`, but they have separate controllers,
-  transport models, and compatibility policies. The initial Desktop API exposes
-  runtime-generated OpenAPI and Swagger UI; a committed versioned artifact is
-  not required until a later Change establishes that contract lifecycle.
-- Desktop Main owns narrow hand-written transport types checked against
-  runtime OpenAPI contract fixtures. The current contract covers in-app GitHub
-  authentication, opaque-session lifecycle, PERSONAL Workspace discovery, and
-  the complete current Project lifecycle; generated TypeScript transport types
-  may be introduced later only with an explicit source-of-truth and drift policy.
+- Core API owns the behavior and final authorization of one canonical
+  resource-oriented `/v1` business surface for current clients. Paths are based
+  on resources and stable IDs rather than Desktop/Web/Mobile/CLI/MCP client
+  names.
+- The checked-in [`canonical OpenAPI artifact`](../contracts/canonical-api/openapi.yaml)
+  owns that surface's HTTP representation: method/path, operation ID,
+  parameters, wire schemas, responses, security declarations, descriptions,
+  tags, and explicit ingress classification. Its local
+  [`architecture`](../contracts/canonical-api/docs/architecture.md) owns
+  generation and projection detail without owning business meaning.
+- A new client reuses canonical operations instead of copying controllers,
+  DTOs, or application use cases. A separate adapter is justified only by a
+  genuinely different trust/protocol boundary, such as future managed execution
+  or provider callback ingress; it does not become a second business model.
+- **Current:** the contract module validates the checked-in artifact and emits
+  build-only Spring interfaces/wire models plus a deterministic route manifest.
+  Generated transport types remain confined to Core's HTTP adapter. Gateway
+  routing and transport admission consume one generated immutable method/path
+  manifest. Neither consumer maintains a second complete contract source, uses
+  runtime discovery, or introduces a generic `/v1/**` catch-all.
+- Core remains the only runtime documentation host. Local/Test serves the
+  checked-in artifact from the internal Core origin for contract verification;
+  Production disables OpenAPI JSON and Swagger UI, and Gateway never publishes
+  either.
+- Desktop Main owns narrow hand-written transport types checked against the
+  canonical artifact. The current contract covers authentication/session,
+  PERSONAL Workspace discovery, Project lifecycle, Boards, Columns, Work Items,
+  and Placements. Generated client SDKs or compatibility baselines require a
+  later explicit lifecycle decision.
 - Core API `access` owns User, External Identity, legal acceptance, and session
   authentication; `workspace` owns Workspace and Workspace Membership; `project`
-  owns Project, Project Membership, Board, Column, Work Item, and Placement. Their
-  PostgreSQL baseline, first-registration
-  provisioning, narrow capability contracts, and current Workspace/Project HTTP
-  behavior are Current.
-- The narrow `onboarding` capability is the approved first-registration
-  coordinator: it may depend on Access, Workspace, and Project, owns no tables or endpoints,
-  and commits all PostgreSQL records before Access issues a Redis session.
-- The public API exposes HTTP only; TaskPilot does not publish a public SDK.
-- The future CLI consumes the public HTTP API like any external client.
-- In the MVP, the deployment edge routes the Desktop to Core API without
-  producing trusted identity. A future Gateway may route and apply technical
-  policy to multiple API surfaces but never owns business flows or replaces
-  Core API authentication and authorization.
-- Remote managed-Agent providers are integrations behind Core API-owned adapter
-  ports; provider SDK types, credentials, callbacks, and raw status vocabularies
-  do not cross into Desktop or business contracts.
-- Local Agent Runtime uses a distinct authenticated managed-execution surface;
-  it does not reuse the Desktop's long-lived user credential or the public API
-  as a generic remote shell.
+  owns Project, Project Membership, Board, Column, Work Item, and Placement.
+- The narrow `onboarding` capability coordinates first registration across
+  Access, Workspace, and Project, owns no table or HTTP endpoint, and commits
+  durable PostgreSQL facts before Access issues the Redis session.
+- Public Developer API, Web, Mobile, CLI, MCP, and managed-execution surfaces are
+  not implemented by this contract. A future CLI or MCP adapter should reuse
+  canonical application capabilities rather than force a client-prefixed copy.
+- Remote managed-Agent providers remain Core-owned outbound adapters. Local
+  Agent Runtime requires a distinct future authenticated managed-execution
+  contract and never reuses the Desktop long-lived credential.
 
 ### Identity and Execution Authorization
 
@@ -588,15 +608,13 @@ certification remain separate evidence. No embedded WebView, repository
 permission, Gateway identity assertion, or production deployment behavior is
 implied.
 
-The deployment edge does not normalize or assert identity. Core API remains
-authoritative for current authentication and Workspace/Project business
-authorization. The current authenticated journey enters the User's PERSONAL
+The deployment edge and Gateway do not assert business identity. Gateway strips
+spoofable identity/tenant metadata and forwards the required credential; Core
+API remains authoritative for authentication and Workspace/Project/resource
+business authorization. The current authenticated journey enters the User's PERSONAL
 Workspace and selects the registration bootstrap Project, a valid recent Project,
-the first accessible ACTIVE Project, or the Project creation empty state. A
-future Gateway may apply route-specific credential
-validation or normalize internal context only as defense in depth; credential
-formats remain route-specific, and Core API still independently authenticates
-and authorizes. Desktop credentials never enter Renderer or Agent Runtime.
+the first accessible ACTIVE Project, or the Project creation empty state. Gateway correlation metadata and route admission are technical context only;
+Core API still independently authenticates and authorizes. Desktop credentials never enter Renderer or Agent Runtime.
 
 Before Runtime execution exists, a behavior change must define a short-lived
 execution grant bound to issuer, User, Workspace, Project, Agent Run, Attempt,
@@ -628,11 +646,13 @@ compatibility policies:
   domain permission from role names.
 - Definition validation returns path-addressable diagnostics for visual editors
   without moving canonical DSL rules into the Desktop.
-- In the first Desktop API phase, `core-api` produces runtime OpenAPI JSON and
-  Swagger UI, and runtime contract tests are verified with Main adapter tests.
-  It does not require a committed standalone schema, generated Desktop client,
-  or breaking-change compatibility gate. A later Change may introduce those
-  controls when cross-version or multi-client needs justify them.
+- The checked-in canonical OpenAPI artifact is the HTTP contract source.
+  **Current:** the contract module validates it and creates build-only
+  projections; Core packages and directly serializes the same artifact at
+  `/v3/api-docs` in Local/Test. Swagger consumes that endpoint, Production keeps
+  it disabled, and Gateway never publishes it. Semantic-equality tests replace
+  parallel complete operation tables. Generated Desktop clients and
+  compatibility baselines remain outside this Change.
 
 Exact status codes, headers, payloads, and executable contract-test commands are
 recorded with the first API implementation.
@@ -681,11 +701,10 @@ extraction constraints belong to the
 
 ## SaaS Direction
 
-Tenant identity and isolation are cross-cutting requirements. In the MVP,
-`core-api` derives the principal from a verified bearer token and remains
-responsible for authorization and tenant-scoped data access. A future Gateway
-may normalize trusted context as defense in depth, but its output is never
-sufficient proof of membership or permission.
+Tenant identity and isolation are cross-cutting requirements. `core-api`
+derives the principal from a verified bearer token and remains responsible for
+authorization and tenant-scoped data access. Current Gateway output is transport
+metadata only and is never sufficient proof of membership or permission.
 
 The initial design must permit future plans, quotas, enterprise identity, audit,
 and selected tenant isolation strategies without implementing those

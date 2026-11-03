@@ -181,7 +181,7 @@ export class SessionCoordinator {
             throw error;
           }
           this.publish({ status: 'signedOut' });
-        } else if ((error as { status?: number }).status === 401 || isAmbiguousNetworkFailure(error)) {
+        } else if ((error as { status?: number }).status === 401) {
           this.generation += 1;
           try {
             await this.mutateCredential(() => this.credentials.clearCurrent(this.environment));
@@ -218,9 +218,6 @@ export class SessionCoordinator {
   }
 }
 
-function isAmbiguousNetworkFailure(error: unknown): boolean {
-  return error instanceof TypeError || (error instanceof DOMException && error.name === 'AbortError');
-}
 
 function authenticationRequired(cause?: unknown): Error {
   return Object.assign(new Error('Authentication required', cause === undefined ? undefined : { cause }), {

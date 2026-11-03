@@ -1,6 +1,6 @@
 # Core API Responsibilities
 
-- **Status:** Target
+- **Status:** Current responsibilities with Target extensions
 - **Owns:** Core API capability ownership, use-case placement, synchronous and
   asynchronous collaboration, and explicit non-responsibilities
 - **Read after:** [`../../../docs/business-model.md`](../../../docs/business-model.md),
@@ -22,7 +22,7 @@ locale allowlist, exact `(locale, legalBundleVersion, termsVersion,
 privacyVersion)` validation, atomic acceptance persistence, and server-generated
 `acceptedAt`; it does not own Desktop language preference or general server-side
 i18n. Project currently owns ordinary Boards, ordered Columns, basic Work
-Items without a state capability, Board Placements, OWNER-authorized layout moves, and their Desktop API.
+Items without a state capability, Board Placements, OWNER-authorized layout moves, and their canonical HTTP API.
 Cards reuse `WorkItemId`; they are not persisted business records. The GitHub adapter performs only
 authorization/token/authenticated-user exchange outside database transactions
 and returns a normalized durable identity; it does not persist Provider tokens.
@@ -35,8 +35,8 @@ Workspace owns PERSONAL Workspace provisioning; Project owns default-Project pro
 workflow, rate-limit, and session technical state, and Access issues a session
 only after the onboarding transaction returns committed. Workspace exposes the
 current PERSONAL Workspace list; Project exposes authorized list/detail/create/
-edit use cases and Desktop HTTP adapters with idempotent creation and optimistic
-editing. Runtime OpenAPI documents authentication/session/current-user,
+edit use cases and canonical HTTP adapters with idempotent creation and
+optimistic editing. Runtime OpenAPI documents authentication/session/current-user,
 registration bootstrap, PERSONAL Workspace discovery, and the complete current
 Project operations outside Production. Project also owns current archive/restore
 and guarded physical deletion, including explicit Membership
@@ -61,8 +61,9 @@ and focused tests land together.
   reconciliation, and output references.
 - Server-side remote-provider adapter orchestration and normalized lifecycle
   commands.
-- Desktop API, local managed-execution, provider-callback, and public HTTP API
-  representations and OpenAPI generation.
+- One canonical resource-oriented business HTTP surface and its sole runtime
+  OpenAPI. Provider callback ingress and future managed-execution/public trust
+  adapters remain explicit without copying the business API by client type.
 - Durable local jobs, audit facts, and realtime notification sources.
 
 It does not own:
@@ -170,6 +171,16 @@ shape per concept.
 The use-case names describe behavior; they do not require one service or command
 class per bullet.
 
+## Canonical HTTP Adapter Ownership
+
+**Current:** the canonical artifact generates build-only Spring interfaces and
+wire models. API adapters alone implement generated interfaces and map generated
+wire values to capability-owned application commands/results. Capability
+application services retain business behavior and final authorization;
+generated types must not appear in application, domain, persistence, repository,
+or provider packages. The adapters do not create a second complete operation or
+schema catalog.
+
 ## Placement Rules
 
 Place a use case in the capability that owns the initiating business intent:
@@ -275,20 +286,22 @@ local Runtime evidence stays behind the managed-execution adapter.
 
 ## API Responsibilities
 
-- Desktop controllers optimize first-party workflows.
-- Public controllers maintain their own compatibility policy.
-- Both call the same application use cases without sharing transport DTOs by
-  accident.
-- The server returns allowed actions for presentation but always reauthorizes
-  commands.
-- Validation and conflict errors are stable and path-addressable where relevant.
-- Provider callback ingress authenticates and normalizes remote observations
-  before invoking idempotent application commands; raw provider payloads do not
-  become Desktop or public contracts.
-- Local managed-execution endpoints accept authenticated, idempotent evidence
-  from Agent Runtime and are separated from Desktop and public APIs.
-- `core-api`, not a provider or Runtime, owns `AgentRun`, `ApprovalRequest`,
-  durable jobs, authorization, and business-database truth.
+- Own one canonical resource-oriented business API independent of
+  Desktop/Web/Mobile/CLI/MCP names; clients reuse it instead of receiving copied
+  controllers, DTOs, or application use cases.
+- Own the only runtime OpenAPI for implemented business operations. It is
+  available from the internal Core origin in Local/Test, disabled in Production,
+  and never published by Gateway.
+- Resolve stable resource IDs to persisted ownership before authorization and
+  preserve not-found anti-enumeration for mismatched relationships.
+- Return allowed actions for presentation but always reauthorize commands.
+- Keep validation, version, idempotency, and conflict errors stable and
+  path-addressable where relevant.
+- Keep provider callback ingress and future managed-execution/public adapters
+  distinct only because their trust/protocol contracts differ; they do not
+  define duplicate business models.
+- `core-api`, not Gateway, a provider, or Runtime, owns `AgentRun`,
+  `ApprovalRequest`, durable jobs, authorization, and business-database truth.
 
 ## Security Responsibilities
 

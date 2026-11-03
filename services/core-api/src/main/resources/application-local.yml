@@ -1,6 +1,6 @@
 server:
   address: 127.0.0.1
-  port: ${TASKPILOT_CORE_API_PORT:8080}
+  port: ${TASKPILOT_CORE_API_PORT:45432}
 
 spring:
   datasource:

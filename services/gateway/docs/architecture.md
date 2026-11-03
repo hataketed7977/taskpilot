@@ -1,127 +1,163 @@
 # Gateway Architecture
 
-- **Status:** Target
-- **Owns:** Gateway runtime, request pipeline, routing, trust boundaries, and
-  infrastructure integrations
+- **Status:** Current with explicitly marked Target extensions
+- **Owns:** Gateway runtime, canonical route catalog, transport policy, health,
+  and Core upstream integration
 - **Read after:** [`../AGENTS.md`](../AGENTS.md),
   [`../../../docs/business-model.md`](../../../docs/business-model.md),
   [`../../../docs/architecture.md`](../../../docs/architecture.md)
-- **Mandatory before:** Initializing or changing the Gateway structure
+- **Mandatory before:** Changing Gateway structure, filters, routing,
+  configuration, or dependencies
 
-## Runtime Role
+## Current Runtime Role
 
-This document describes a **future optional Target**, not an initialized MVP
-service. The current Desktop topology is Desktop Main → deployment edge/TLS →
-Core API, and Core API is the only application-layer Resource Server. Gateway
-initialization requires a separate OpenSpec Change justified by multiple
-backends, multiple API surfaces, or centralized technical edge policy.
-
-If introduced, the Gateway is an independently deployable Kotlin/Spring service
-between the external edge and `core-api`. It provides technical policy
-enforcement without owning business workflows, and it never replaces Core API's
-independent authentication or final authorization.
-
-## Technology Direction
-
-- Kotlin
-- Spring Boot
-- Spring Cloud Gateway WebFlux
-- Spring Security resource server support
-- Redis-backed distributed rate limiting when required
-- Micrometer and OpenTelemetry-compatible observability
-
-Use the Spring Cloud release train to select compatible stable versions.
-
-## Request Pipeline
-
-The following pipeline applies only after that future Gateway is initialized.
+The Gateway is an independently runnable Kotlin/Spring Cloud Gateway WebFlux
+service between clients and `core-api`:
 
 ```mermaid
 flowchart LR
-    client["Client"]
-    edge["Edge / WAF"]
-    correlation["Correlation"]
-    auth["Route Credential Policy"]
-    tenant["Trusted Context"]
-    limits["Rate / Size Limits"]
-    route["Route Policy"]
-    core["core-api"]
-    credential["Route-specific Credential Verifier"]
-    redis[("Redis")]
-    telemetry["Telemetry"]
+    client["Desktop or HTTP client"]
+    gateway["Gateway\ntechnical ingress"]
+    core["Core API\ncanonical contract and authorization"]
+    postgres[(PostgreSQL)]
+    redis[(Redis)]
 
-    client --> edge --> correlation --> auth --> tenant --> limits --> route --> core
-    auth -.->|future, per route| credential
-    limits --> redis
-    correlation --> telemetry
-    route --> telemetry
+    client -->|canonical /v1 HTTP| gateway
+    gateway -->|path-preserving HTTP| core
+    core --> postgres
+    core --> redis
 ```
 
-Filter ordering is explicit and tested. Untrusted inbound headers are removed
-before trusted internal context is written.
+The current Desktop, provider callback, local development lifecycle, and system
+journey use the Gateway public origin. The Gateway forwards only an explicit
+method/path catalog to one configured internal Core origin. It has no generic
+`/v1/**` catch-all, no `/desktop/v1/**` compatibility route, and no alternate
+Core fallback.
 
-## Route Boundaries
+Gateway implementation is organized by technical responsibility:
 
-These are possible future route classes, not current MVP endpoints.
+```text
+ai.taskpilot.gateway
+├── GatewayApplication.kt
+├── config/       # validated properties and upstream HTTP client configuration
+├── route/        # canonical route value, catalog, and Spring route configuration
+├── transport/    # ingress/egress policy filter and stable transport errors
+└── health/       # Core readiness contribution
+```
 
-| Route class | Target | Policy |
-| --- | --- | --- |
-| First-party Desktop API | `core-api` Desktop controllers | Authenticated user identity, first-party limits |
-| Local managed-execution API | `core-api` internal Runtime controllers | Authenticated Runtime identity, execution-scoped technical credential, strict limits |
-| Provider callback ingress | `core-api` provider callback controllers | Provider-specific authentication/verification, replay and size limits; no Desktop or Runtime credential |
-| Public HTTP API | `core-api` public controllers | Versioned routes, API credentials, public quotas |
-| Health and readiness | Gateway management endpoints | Restricted exposure |
+The root package owns only the application entry point. `GatewayProperties`
+keeps its explicit name because it binds the external `taskpilot.gateway`
+configuration contract; other internal types rely on their package context
+instead of repeating a `Gateway*` prefix. This split is an internal ownership
+boundary, not an additional runtime layer or business abstraction.
 
-The Gateway must preserve the distinction among Desktop, local
-managed-execution, provider-callback, and public API surfaces. The local
-managed-execution route authenticates the execution-scoped credential and
-preserves every claim required by the root
-[identity and execution authorization contract](../../../docs/architecture.md#identity-and-execution-authorization).
-It does not accept a raw local path as tenant identity or required grant material.
-Exact wire format and technical validation belong to the implementation change;
-route documentation must not weaken the root bindings or replace Core API
-authorization. Provider callbacks use a separate route and provider-specific
-verification policy; the Gateway may verify transport authenticity but never
-maps a raw provider identifier directly to TaskPilot business identity.
+Core API remains the application Resource Server: it independently validates
+opaque access credentials and performs final Workspace/Project/resource
+authorization from persisted facts. Gateway correlation data, URL parents, and
+inbound identity-like headers are never authorization evidence.
 
-## Identity and Tenant Context
+## Current Technology and Build
 
-- User, Runtime, or callback source identity is derived only from credentials
-  accepted for the selected route class; Desktop, Runtime, provider callback,
-  and public credentials are not interchangeable.
-- Trusted context is derived only from a route's accepted credential contract;
-  no global OIDC/JWT assumption applies to Desktop, Runtime, callbacks, or public
-  clients.
-- Client-provided internal identity and tenant headers are stripped.
-- Normalized identity and tenant context are forwarded only on trusted internal
-  routes.
-- `core-api` independently authenticates the principal and verifies membership,
-  execution scope, resource binding, and domain authorization; Gateway-produced
-  context is never sufficient on its own.
-- Gateway validation and normalization never turn identity or tenant context
-  into proof of resource ownership or permission to advance an `AgentRun`.
+- Kotlin and Java 21
+- Spring Boot and Spring Cloud Gateway WebFlux using the pinned compatible
+  Spring Cloud release train
+- Actuator liveness/readiness probes
+- Gradle `bootJar`, ktlint, Detekt, JUnit/WebTestClient, and Kover
+- no Spring MVC, JDBC/JPA, PostgreSQL driver, Flyway, Redis runtime, Spring
+  Modulith runtime, Core API production dependency, or business database
 
-## Failure Behavior
+`./gradlew --no-daemon :services:gateway:qualityCheck` owns the complete module
+gate. The build contract inspects actual runtime dependencies and the packaged
+JAR.
 
-- Authentication and policy failures stop before routing.
-- Upstream timeouts and unavailable responses use stable transport-level error
-  responses.
-- Retries are disabled by default for non-idempotent requests.
-- Circuit breaking or retries are added per route only with an explicit
-  idempotency argument.
-- Request and response bodies are not logged by default.
+## Current Request Pipeline
 
-## Configuration
+```mermaid
+flowchart LR
+    request["Inbound request"]
+    correlation["Validate or generate correlation ID"]
+    allowlist["Explicit method and PathPattern catalog"]
+    headers["Header allowlist and spoofing removal"]
+    requestLimit["Bound request headers and body"]
+    route["Path-preserving Core route"]
+    responseLimit["Timeout and bounded response"]
+    caller["Caller"]
 
-- Routes and policy defaults are version-controlled.
-- Secrets and credentials are environment-injected.
-- Environment overrides must not redefine business behavior.
-- Management endpoints use a separate exposure policy.
+    request --> correlation --> allowlist --> headers --> requestLimit --> route
+    route --> responseLimit --> caller
+```
+
+Current transport policy:
+
+- accepts exactly the canonical operations listed in
+  `route.RouteCatalog`; unknown paths, wrong methods, legacy paths, Swagger,
+  runtime OpenAPI, and arbitrary management paths do not reach Core;
+- preserves the accepted path, query, and body without client-specific rewrite;
+- removes hop-by-hop, proxy, forwarded, cookie, and identity/tenant/scope-like
+  spoofing headers while forwarding the required credential and content
+  headers;
+- accepts one bounded valid `X-Correlation-Id` or generates one and returns the
+  same value to the caller;
+- enforces bounded request headers/bodies, response headers/bodies, connect and
+  response timeouts before returning a stable transport Problem Details body;
+- never retries mutations automatically; and
+- passes Core business Problem Details through while keeping internal origin,
+  credentials, bodies, stack traces, and low-level transport errors out of
+  Gateway errors and logs.
+
+The Gateway buffers bounded request and response bodies so limits remain valid
+for declared, chunked, and unknown-length publishers. A malformed/truncated
+upstream response is converted to a complete local transport error rather than
+reusing upstream framing headers.
+
+## Health and Configuration
+
+The public management surface contains only:
+
+- `/actuator/health/liveness`: Gateway process/liveness state;
+- `/actuator/health/readiness`: Gateway readiness including a bounded Core
+  readiness probe.
+
+Configuration binds the loopback/public host and port, internal Core origin,
+body/header limits, and timeouts. Local development gives only the Gateway URL
+to Desktop; `TASKPILOT_CORE_API_INTERNAL_URL` is process-internal configuration
+for Gateway and local orchestration.
+
+The repository proves loopback local topology and a packaged cross-service
+journey. It does not contain production deployment/network-policy evidence.
+Until a deployment owner proves Core is privately bound and unreachable through
+an external bypass, this architecture must not be described as production-ready
+network isolation.
+
+## Contract Ownership
+
+The checked-in canonical OpenAPI artifact owns HTTP request/response schemas,
+Problem Details representation, operations, and ingress metadata. Core API owns
+business controllers, Problem Details behavior, authentication/authorization,
+and the internal runtime documentation endpoint. Runtime OpenAPI is available
+only from the internal Core origin in Local/Test profiles and is disabled in
+Production. Gateway does not generate or publish Swagger/OpenAPI.
+
+**Current:** the contract build projects approved ingress operations into an
+independent route-manifest resource. Gateway strictly loads that resource once
+as the single immutable catalog shared by routing and admission; missing,
+empty, duplicate, or invalid manifests fail startup. This build-time allowlist
+is not another business API definition, is not environment configuration, and
+never depends on Core runtime OpenAPI availability.
+
+## Target Extensions
+
+Managed-execution, public API credentials/quotas, distributed rate limiting,
+multiple upstreams, and richer edge observability remain Target. Each requires
+an approved Change and route-specific trust model. They must not turn the
+Gateway into a business orchestration layer or replace Core authentication and
+authorization.
 
 ## Non-Goals
 
-- No business database.
-- No ticket, project, board, or Agent workflow.
-- No final domain authorization.
-- No response composition BFF.
-- No public API schema ownership.
+- No business persistence, migration, transaction, or domain state.
+- No screen-specific aggregation or client-specific API copy.
+- No trusted identity derived from caller-supplied forwarding headers.
+- No API schema or runtime OpenAPI ownership.
+- No implicit retries for mutation requests.
+- No claim of production network isolation from local tests alone.

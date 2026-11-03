@@ -127,7 +127,7 @@ class FederatedLoginSecurityTest {
             FederatedAuthenticationProperties(
                 clientId = "client-id",
                 clientSecret = "client-secret",
-                callbackUri = URI("http://127.0.0.1:8080/desktop/v1/auth/federated/github/callback"),
+                callbackUri = URI("http://127.0.0.1:8080/v1/provider-callbacks/github/oauth"),
                 hmacKeyBase64 = encodedHmac,
                 aeadKeyBase64 = encodedAead,
             )
@@ -147,14 +147,14 @@ class FederatedLoginSecurityTest {
             FederatedAuthenticationProperties(
                 clientId = "client-id",
                 clientSecret = "client-secret",
-                callbackUri = URI("http://127.0.0.1:8080/desktop/v1/auth/federated/github/callback"),
+                callbackUri = URI("http://127.0.0.1:8080/v1/provider-callbacks/github/oauth"),
                 hmacKeyBase64 = encodedHmac,
                 aeadKeyBase64 = encodedAead,
             )
 
         assertFalse(complete.copy(clientId = "").capabilityEnabled())
         assertFalse(complete.copy(callbackUri = null).capabilityEnabled())
-        val callbackPath = "/desktop/v1/auth/federated/github/callback"
+        val callbackPath = "/v1/provider-callbacks/github/oauth"
         assertFalse(complete.copy(callbackUri = URI("http://localhost:8080$callbackPath")).capabilityEnabled())
         assertFalse(complete.copy(callbackUri = URI("http://127.0.0.1:1023$callbackPath")).capabilityEnabled())
         assertFalse(complete.copy(callbackUri = URI("http://127.0.0.1:8080/wrong")).capabilityEnabled())

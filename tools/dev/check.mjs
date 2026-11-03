@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
-import process from 'node:process';
-import { childCommands, repositoryRoot } from './dev-config.mjs';
+import { qualityCheckPlan } from './quality-check-plan.mjs';
+import { repositoryRoot } from './dev-config.mjs';
 
 function run(command, args, label) {
   console.log(`\n==> ${label}`);
@@ -12,14 +12,17 @@ function run(command, args, label) {
 }
 
 try {
-  const tests = readdirSync(path.join(repositoryRoot, 'tools', 'dev'))
-    .filter(file => file.endsWith('.test.mjs'))
-    .map(file => path.join('tools', 'dev', file));
-  run(process.execPath, ['--test', ...tests], 'Launcher tests');
-  const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-  run(pnpm, ['--dir', repositoryRoot, '--filter', '@taskpilot/desktop', 'qualityCheck'], 'Desktop quality gate');
-  const gradle = childCommands().gradleCompile;
-  run(gradle.command, ['--project-dir', repositoryRoot, ':services:core-api:qualityCheck'], 'Core API quality gate');
+  for (const step of qualityCheckPlan(repositoryRoot)) {
+    const args = step.expandDevTests
+      ? [
+          '--test',
+          ...readdirSync(path.join(repositoryRoot, 'tools', 'dev'))
+            .filter(file => file.endsWith('.test.mjs'))
+            .map(file => path.join('tools', 'dev', file)),
+        ]
+      : step.args;
+    run(step.command, args, step.label);
+  }
   console.log('\nTaskPilot quality gates passed.');
 } catch (error) {
   console.error(`TaskPilot quality check failed: ${error.message}`);

@@ -173,7 +173,7 @@ class GitHubIdentityProviderTest {
         GitHubIdentityProvider.forTesting(
             clientId = "client-id",
             clientSecret = "client-secret",
-            callbackUri = URI("http://127.0.0.1:8080/desktop/v1/auth/federated/github/callback"),
+            callbackUri = URI("http://127.0.0.1:8080/v1/provider-callbacks/github/oauth"),
             endpointBaseUri = baseUri,
             httpClient = HttpClient.newHttpClient(),
         )

@@ -146,6 +146,15 @@ export function runPreCommit({
     return 1;
   }
 
+  const canonicalContractTriggered = [...plan.triggers.get('canonical-contract')]
+    .some(pathname => pathname.startsWith('contracts/canonical-api/'));
+  if (canonicalContractTriggered) {
+    stdout.write(
+      '[pre-commit] canonical contract owns the Core HTTP adapter and Gateway route manifest; ' +
+        'all three JVM quality gates are required.\n',
+    );
+  }
+
   const registry = gateRegistry(root, platform);
   const passed = [];
   for (const gate of plan.gates) {

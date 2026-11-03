@@ -20,19 +20,19 @@ function fixture() {
   const proof = Promise.withResolvers<string>();
   const request = vi.fn(async (input: TransportRequest): Promise<unknown> => {
     switch (input.path) {
-      case '/desktop/v1/auth/capabilities': return { github: { enabled: true } };
-      case '/desktop/v1/auth/federated/attempts': return {
+      case '/v1/authentication-capabilities': return { github: { enabled: true } };
+      case '/v1/federated-login-attempts': return {
         attemptId: 'attempt-id', pollSecret: 'poll-secret-value',
         authorizationUrl: 'https://github.com/login/oauth/authorize?client_id=client',
         expiresAt: '2030-01-01T00:00:00Z',
       };
-      case '/desktop/v1/auth/federated/attempts/attempt-id/poll': return { status: 'AUTHENTICATED', session: issued, bootstrap: { workspaceId, projectId } };
-      case '/desktop/v1/workspaces': return [{ workspaceId, type: 'PERSONAL', role: 'OWNER', createdAt: project.createdAt, updatedAt: project.updatedAt }];
-      case `/desktop/v1/workspaces/${workspaceId}/projects/${projectId}`: return project;
-      case `/desktop/v1/workspaces/${workspaceId}/projects?status=ACTIVE&limit=50`: return { items: [project], nextCursor: null };
-      case '/desktop/v1/auth/session/refresh': return { ...issued, accessToken: 'access-rotated', refreshToken: 'refresh-rotated' };
-      case '/desktop/v1/auth/session/logout': return undefined;
-      case '/desktop/v1/auth/federated/attempts/attempt-id/cancel': return undefined;
+      case '/v1/federated-login-attempts/attempt-id:poll': return { status: 'AUTHENTICATED', session: issued, bootstrap: { workspaceId, projectId } };
+      case '/v1/workspaces': return [{ workspaceId, type: 'PERSONAL', role: 'OWNER', createdAt: project.createdAt, updatedAt: project.updatedAt }];
+      case `/v1/projects/${projectId}`: return project;
+      case `/v1/workspaces/${workspaceId}/projects?status=ACTIVE&limit=50`: return { items: [project], nextCursor: null };
+      case '/v1/session:refresh': return { ...issued, accessToken: 'access-rotated', refreshToken: 'refresh-rotated' };
+      case '/v1/session:logout': return undefined;
+      case '/v1/federated-login-attempts/attempt-id:cancel': return undefined;
       default: throw new Error(`Unexpected request: ${input.method} ${input.path}`);
     }
   });
@@ -80,7 +80,7 @@ describe('createDesktopComposition', () => {
 
     await current.composition.session.refresh();
     expect(current.request).toHaveBeenCalledWith({
-      method: 'POST', path: '/desktop/v1/auth/session/refresh', body: { refreshToken: 'refresh-token' },
+      method: 'POST', path: '/v1/session:refresh', body: { refreshToken: 'refresh-token' },
     });
     await auth.logout();
     await expect(auth.getSessionView()).resolves.toEqual({ status: 'signedOut' });

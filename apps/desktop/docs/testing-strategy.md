@@ -1,6 +1,6 @@
 # Desktop Testing Strategy
 
-- **Status:** Target
+- **Status:** Current foundation with Target extensions
 - **Owns:** Desktop test layers, Electron boundary tests, packaged application
   journeys, accessibility checks, and Windows/macOS release evidence
 - **Read after:** [`architecture.md`](architecture.md),
@@ -41,11 +41,15 @@ signing/notarization or signed-installer behavior, native credential integration
 and final visual smoke are recorded separately on macOS arm64 and Windows x64
 before claiming that platform is release-ready.
 
-The portable local system test crosses compiled Main, IPC, and Preload into a
-real loopback Core API backed by PostgreSQL and Redis. Test-only Provider,
+The portable local system test crosses compiled Main, IPC, and Preload through
+a real packaged loopback Gateway into Core API backed by PostgreSQL and Redis.
+The Desktop subprocess receives only `TASKPILOT_SYSTEM_BASE_URL` for Gateway and
+has Core URL/port variables removed. Test-only Provider,
 browser, credential, and session-failure doubles exercise first registration
 into the default Project, recent/fallback selection after login, last-Project
-empty state, post-commit session failure recovery, cancellation/restart, absence
+empty state, post-commit session failure recovery, cancellation/restart,
+Gateway-stopped/Core-still-running no-fallback behavior, Core-unavailable stable
+Gateway transport errors, credential retention on temporary failures, absence
 of retired email routes, and zero Agent Runtime dependency without adding a
 production test endpoint. Real GitHub OAuth and native credential persistence
 remain separate manual/current-platform evidence. The previous capture-mail
@@ -99,7 +103,9 @@ rebinding, valid-proof-only Desktop activation, Main-only registration
 continuation, direct session handoff, credential-write failure cleanup, refresh
 rotation, logout, legal-document navigation and draft retention, cancellation
 without an extra restart step, authenticated Project-home presentation, and
-session generation fencing. It also covers the Workspace/Project HTTP allowlist and
+session generation fencing. It also covers Gateway-only origin selection,
+canonical paths, absence of Core fallback, and the Workspace/Project HTTP
+allowlist and
 typed contracts, registration bootstrap, environment-plus-User recent-Project
 partitioning, valid and stale preference fallback, corrupt/read/write-failed
 preference degradation, terminal `401` cleanup, channel-specific IPC validation,
@@ -201,9 +207,9 @@ retention during saving, IME composition suppression, and single-snapshot saves
 across rapid field switches and close requests; reducer tests cover state transitions independently.
 Pointer and keyboard-equivalent movement, optimistic rollback, focus/live-region
 behavior, and the horizontally scrollable Column region remain covered. The
-system journey uses a
-provider/browser double plus real PostgreSQL and Redis; it does not prove real
-GitHub OAuth or Windows-native drag/focus behavior.
+system journey uses a provider/browser double plus packaged Gateway, real Core
+API, PostgreSQL, and Redis; it does not prove real GitHub OAuth, production Core
+network isolation, or Windows-native drag/focus behavior.
 
 ## Packaged and Native Matrix
 
@@ -229,14 +235,16 @@ release claims rather than blocking an otherwise portable feature Change.
 
 ## Architecture Regression Checks
 
-Once source exists, automated checks enforce no Renderer-to-Node/Electron
+Automated checks enforce Desktop configuration has one Gateway origin, production
+source/build output has no Core origin or fallback, adapters use only approved
+canonical paths, and Renderer has no endpoint/fetch access. They also enforce no Renderer-to-Node/Electron
 imports, no raw channel strings outside the IPC owner, no Main-to-Agent
 implementation dependency, and no deep imports across Renderer domain-module
 owners. Fixture-based allowed/forbidden examples accompany those rules.
 
 ## Quality Gates
 
-After initialization, a Desktop change is incomplete until focused tests,
+A Desktop change is incomplete until focused tests,
 strict type checking, lint/formatting, architecture checks, relevant
 accessibility assertions, IPC contract checks, and risk-appropriate current-host
 packaged or native checks pass. A release claim for macOS or Windows additionally

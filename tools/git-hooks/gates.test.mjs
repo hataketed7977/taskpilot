@@ -6,9 +6,14 @@ const cases = [
   ['apps/desktop/src/main.ts', ['desktop']],
   ['apps/desktop/tests/example.test.ts', ['desktop']],
   ['apps/desktop/AGENTS.md', []],
+  ['contracts/canonical-api/openapi.yaml', ['canonical-contract', 'core-api', 'gateway']],
+  ['contracts/canonical-api/src/test/kotlin/ContractTest.kt', ['canonical-contract', 'core-api', 'gateway']],
+  ['contracts/canonical-api/docs/testing-strategy.md', []],
   ['services/core-api/src/main/kotlin/App.kt', ['core-api']],
   ['services/core-api/src/main/resources/db/migration/V1.sql', ['core-api']],
   ['services/core-api/docs/testing-strategy.md', []],
+  ['services/gateway/src/main/kotlin/App.kt', ['gateway']],
+  ['services/gateway/docs/testing-strategy.md', []],
   ['tools/dev/dev.mjs', ['dev-tooling']],
   ['compose.yaml', ['dev-tooling']],
   ['.env.local.example', ['dev-tooling']],
@@ -16,8 +21,11 @@ const cases = [
   ['.githooks/pre-commit', ['hook-tooling']],
   ['package.json', ['hook-tooling', 'dev-tooling', 'desktop']],
   ['pnpm-lock.yaml', ['hook-tooling', 'dev-tooling', 'desktop']],
-  ['settings.gradle.kts', ['core-api']],
-  ['gradle/libs.versions.toml', ['core-api']],
+  ['settings.gradle.kts', ['canonical-contract', 'core-api', 'gateway']],
+  ['build.gradle.kts', ['canonical-contract', 'core-api', 'gateway']],
+  ['gradlew', ['canonical-contract', 'core-api', 'gateway']],
+  ['gradlew.bat', ['canonical-contract', 'core-api', 'gateway']],
+  ['gradle/libs.versions.toml', ['canonical-contract', 'core-api', 'gateway']],
   ['README.md', []],
   ['docs/brand/mascot/otter-pilot-master-3d.jpg', []],
   ['docs/diagrams/system.svg', []],
@@ -33,6 +41,18 @@ for (const [pathname, expected] of cases) {
     assert.equal(result.kind, expected.length ? 'gate' : 'exempt');
   });
 }
+
+test('canonical contract changes select each owning JVM gate once in fixed order', () => {
+  const plan = planGates([
+    { status: 'M', paths: ['contracts/canonical-api/openapi.yaml'] },
+    { status: 'M', paths: ['contracts/canonical-api/build.gradle.kts'] },
+  ]);
+  assert.deepEqual(plan.gates, ['canonical-contract', 'core-api', 'gateway']);
+  assert.deepEqual([...plan.triggers.get('canonical-contract')], [
+    'contracts/canonical-api/openapi.yaml',
+    'contracts/canonical-api/build.gradle.kts',
+  ]);
+});
 
 test('unknown paths fail closed', () => {
   assert.deepEqual(classifyPath('apps/new-runtime/src/index.ts'), { kind: 'unknown', gates: [] });
@@ -68,8 +88,13 @@ test('pollution is scoped to selected gates and shared paths', () => {
 test('registry selects platform-specific logical commands', () => {
   const windows = gateRegistry('C:\\repo', 'win32');
   assert.equal(windows.get('desktop').command, 'pnpm.cmd');
+  assert.equal(windows.get('canonical-contract').command, 'C:\\repo\\gradlew.bat');
   assert.equal(windows.get('core-api').command, 'C:\\repo\\gradlew.bat');
   const mac = gateRegistry('/repo', 'darwin');
   assert.equal(mac.get('desktop').command, 'pnpm');
+  assert.deepEqual(mac.get('canonical-contract').args, [
+    '--no-daemon',
+    ':contracts:canonical-api:qualityCheck',
+  ]);
   assert.equal(mac.get('core-api').command, '/repo/gradlew');
 });

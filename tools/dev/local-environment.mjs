@@ -76,12 +76,23 @@ const localEnvironmentSections = [
     ],
   },
   {
+    title: 'Gateway',
+    introduction: ['Public loopback entry point used by Desktop and local development checks.'],
+    fields: [
+      {
+        key: 'TASKPILOT_GATEWAY_PORT',
+        comments: ['Host port for the loopback-only Gateway.'],
+        example: '35432',
+      },
+    ],
+  },
+  {
     title: 'Core API',
-    introduction: ['Loopback endpoint used by the Desktop and local development checks.'],
+    introduction: ['Internal loopback endpoint used only by Gateway and local development tooling.'],
     fields: [
       {
         key: 'TASKPILOT_CORE_API_PORT',
-        comments: ['Host port for the loopback-only Core API.'],
+        comments: ['Host port for the internal loopback-only Core API. Do not configure Desktop with this port.'],
         example: '45432',
       },
     ],
@@ -146,9 +157,9 @@ const localEnvironmentSections = [
         key: 'TASKPILOT_GITHUB_CALLBACK_URI',
         comments: [
           'Authorization callback URL. Copy this exact value into the GitHub OAuth App;',
-          'it must track TASKPILOT_CORE_API_PORT.',
+          'it must track TASKPILOT_GATEWAY_PORT.',
         ],
-        example: 'http://127.0.0.1:45432/desktop/v1/auth/federated/github/callback',
+        example: 'http://127.0.0.1:35432/v1/provider-callbacks/github/oauth',
       },
     ],
   },
@@ -198,11 +209,15 @@ export function ensureLocalEnvironment(environmentPath = localEnvironmentPath, r
     const active = Object.fromEntries(
       Object.entries(existing).filter(([key]) => !retiredEnvironmentKeys.has(key)),
     );
-    const values = { ...active, ...missingGeneratedValues(active, root) };
+    const { values: migrated, githubCallbackMigrated } = migrateGeneratedValues(active, root);
+    const values = { ...migrated, ...missingGeneratedValues(migrated, root) };
     const normalized = renderLocalEnvironment(values);
     if (current !== normalized) {
       writeLocalEnvironmentAtomically(environmentPath, normalized);
-      console.log(`Updated ${path.basename(environmentPath)} to the current documented layout; existing values were preserved.`);
+      console.log(`Updated ${path.basename(environmentPath)} to the current documented layout; existing values were preserved except recognized generated values that require migration.`);
+      if (githubCallbackMigrated) {
+        console.warn(`Update the GitHub OAuth App Authorization callback URL to ${values.TASKPILOT_GITHUB_CALLBACK_URI}.`);
+      }
     } else {
       console.log(`Using existing ${path.basename(environmentPath)}.`);
     }
@@ -235,8 +250,8 @@ export function federatedAuthenticationEnvironment(values) {
   if (!values.TASKPILOT_GITHUB_CLIENT_ID || !values.TASKPILOT_GITHUB_CLIENT_SECRET) {
     return disabled('GitHub OAuth App client id and client secret must be non-empty');
   }
-  if (!validCallback(values.TASKPILOT_GITHUB_CALLBACK_URI)) {
-    return disabled('GitHub callback must be the exact Core API loopback callback');
+  if (!validCallback(values.TASKPILOT_GITHUB_CALLBACK_URI, values.TASKPILOT_GATEWAY_PORT)) {
+    return disabled('GitHub callback must be the exact Gateway loopback callback');
   }
   const hmac = decode32(values.TASKPILOT_FEDERATED_HMAC_KEY_BASE64);
   const aead = decode32(values.TASKPILOT_FEDERATED_AEAD_KEY_BASE64);
@@ -249,11 +264,12 @@ export function federatedAuthenticationEnvironment(values) {
   };
 }
 
-function validCallback(value) {
+function validCallback(value, gatewayPort) {
   try {
     const uri = new URL(value);
-    return uri.protocol === 'http:' && uri.hostname === '127.0.0.1' && Number(uri.port) >= 1024
-      && Number(uri.port) <= 65535 && uri.pathname === '/desktop/v1/auth/federated/github/callback'
+    return uri.protocol === 'http:' && uri.hostname === '127.0.0.1' && uri.port === gatewayPort
+      && Number(uri.port) >= 1024 && Number(uri.port) <= 65535
+      && uri.pathname === '/v1/provider-callbacks/github/oauth'
       && uri.search === '' && uri.hash === '' && uri.username === '' && uri.password === '';
   } catch {
     return false;
@@ -287,6 +303,24 @@ function parseEntries(content) {
   return values;
 }
 
+
+function migrateGeneratedValues(values, root) {
+  const settings = defaultLocalSettings(root);
+  const corePort = values.TASKPILOT_CORE_API_PORT ?? settings.TASKPILOT_CORE_API_PORT;
+  const legacyCallback = `http://127.0.0.1:${corePort}/desktop/v1/auth/federated/github/callback`;
+  if (values.TASKPILOT_GITHUB_CALLBACK_URI !== legacyCallback) {
+    return { values, githubCallbackMigrated: false };
+  }
+  const gatewayPort = values.TASKPILOT_GATEWAY_PORT ?? settings.TASKPILOT_GATEWAY_PORT;
+  return {
+    values: {
+      ...values,
+      TASKPILOT_GITHUB_CALLBACK_URI: `http://127.0.0.1:${gatewayPort}/v1/provider-callbacks/github/oauth`,
+    },
+    githubCallbackMigrated: true,
+  };
+}
+
 function missingGeneratedValues(values, root) {
   const settings = defaultLocalSettings(root);
   const additions = {};
@@ -298,7 +332,7 @@ function missingGeneratedValues(values, root) {
   if (!values.TASKPILOT_FEDERATED_AEAD_KEY_BASE64) additions.TASKPILOT_FEDERATED_AEAD_KEY_BASE64 = randomBytes(32).toString('base64');
   for (const [key, value] of Object.entries(settings)) if (!values[key]) additions[key] = value;
   if (!values.TASKPILOT_GITHUB_CALLBACK_URI) {
-    additions.TASKPILOT_GITHUB_CALLBACK_URI = `http://127.0.0.1:${values.TASKPILOT_CORE_API_PORT ?? additions.TASKPILOT_CORE_API_PORT ?? settings.TASKPILOT_CORE_API_PORT}/desktop/v1/auth/federated/github/callback`;
+    additions.TASKPILOT_GITHUB_CALLBACK_URI = `http://127.0.0.1:${values.TASKPILOT_GATEWAY_PORT ?? additions.TASKPILOT_GATEWAY_PORT ?? settings.TASKPILOT_GATEWAY_PORT}/v1/provider-callbacks/github/oauth`;
   }
   for (const key of githubCredentialKeys) if (values[key] === undefined) additions[key] = '';
   return additions;

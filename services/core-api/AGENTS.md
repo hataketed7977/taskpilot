@@ -32,12 +32,24 @@ rules.
 - Preserve the pragmatic capability boundaries and dependency rules documented
   locally; do not introduce tactical-DDD layers or artifacts by default.
 - Do not expose persistence entities across modules or HTTP boundaries.
-- Keep Desktop API, server-side remote-provider adapters, local Runtime
-  managed-execution, provider-callback ingress, and public API adapters distinct.
+- Keep the canonical resource API client-neutral; Desktop/Web/Mobile/CLI/MCP
+  must not acquire copied controllers, DTOs, or application use cases. Keep
+  genuinely distinct trust/protocol adapters such as provider callback ingress,
+  future managed execution, and remote-provider outbound integration explicit.
   `core-api` owns `AgentRun`, `ApprovalRequest`, executor routing,
   authorization, and business-database truth; providers and Runtime submit
   normalized, authenticated, idempotent observations and never write those
   tables directly.
+- The checked-in canonical OpenAPI artifact owns the HTTP representation;
+  Core API owns business behavior, authentication, final authorization,
+  transactions, and persistence. Generated interfaces and wire models stay in
+  the HTTP adapter and must not enter application, domain, or persistence code.
+- **Current:** Core HTTP adapters implement the generated interfaces and keep
+  generated wire models inside API packages. Local/Test runtime docs directly
+  serialize the checked-in artifact; Production and Gateway/public origins do
+  not expose docs.
+- Core independently authenticates credentials and authorizes every business
+  request even when Gateway has admitted and sanitized the transport route.
 - Behavior changes require focused tests and module-boundary verification. Run
   the owning test layer described in `docs/testing-strategy.md`; use
   `:services:core-api:qualityCheck` for the complete local/CI Core API gate.

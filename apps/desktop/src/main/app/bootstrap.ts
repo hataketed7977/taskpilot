@@ -26,7 +26,7 @@ export async function bootstrapDesktopApp(): Promise<void> {
   const transport = new FixedHttpTransport(
     environment,
     fetch,
-    environment === 'local' ? process.env.TASKPILOT_CORE_API_URL : undefined,
+    environment === 'local' ? process.env.TASKPILOT_GATEWAY_URL : undefined,
   );
   const createKeyringEntry = (service: string, account: string) => new AsyncEntry(service, account);
   const credentials = new KeyringCredentialStore(createKeyringEntry);

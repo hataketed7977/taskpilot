@@ -5,6 +5,7 @@ import { repositoryRoot, stateDirectory, statePath } from './dev-config.mjs';
 
 const serviceMarkers = {
   coreApi: ':services:core-api:bootRun',
+  gateway: ':services:gateway:bootRun',
   desktop: '@taskpilot/desktop',
 };
 

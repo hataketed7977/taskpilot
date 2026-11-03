@@ -35,14 +35,14 @@ export class FederatedAuthClient {
   capabilities() {
     return this.transport.request<{ github: { enabled: boolean } }>({
       method: 'GET',
-      path: '/desktop/v1/auth/capabilities',
+      path: '/v1/authentication-capabilities',
     });
   }
 
   createAttempt(input: { installationId: string; completionUri: string }) {
     return this.transport.request<FederatedAttemptResponse>({
       method: 'POST',
-      path: '/desktop/v1/auth/federated/attempts',
+      path: '/v1/federated-login-attempts',
       body: { provider: 'github', ...input },
     });
   }
@@ -50,7 +50,7 @@ export class FederatedAuthClient {
   poll(attemptId: string, body: { pollSecret: string; completionProof?: string }) {
     return this.transport.request<FederatedPollResponse>({
       method: 'POST',
-      path: `/desktop/v1/auth/federated/attempts/${attemptId}/poll`,
+      path: `/v1/federated-login-attempts/${attemptId}:poll`,
       body,
     });
   }
@@ -58,7 +58,7 @@ export class FederatedAuthClient {
   cancel(attemptId: string, pollSecret: string) {
     return this.transport.request<void>({
       method: 'POST',
-      path: `/desktop/v1/auth/federated/attempts/${attemptId}/cancel`,
+      path: `/v1/federated-login-attempts/${attemptId}:cancel`,
       body: { pollSecret },
     });
   }
@@ -75,7 +75,7 @@ export class FederatedAuthClient {
   }) {
     return this.transport.request<FederatedPollResponse>({
       method: 'POST',
-      path: '/desktop/v1/auth/federated/registrations',
+      path: '/v1/federated-registrations',
       body,
     });
   }

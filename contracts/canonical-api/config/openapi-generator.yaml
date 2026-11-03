@@ -1,0 +1,14 @@
+packageName: ai.taskpilot.contract.generated
+apiPackage: ai.taskpilot.contract.generated.api
+modelPackage: ai.taskpilot.contract.generated.model
+interfaceOnly: true
+useSpringBoot3: true
+useJakartaEe: true
+useTags: true
+skipDefaultInterface: true
+requestMappingMode: api_interface
+performBeanValidation: true
+useBeanValidation: true
+useResponseEntity: true
+serializationLibrary: jackson
+hideGenerationTimestamp: true

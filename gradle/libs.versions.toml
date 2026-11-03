@@ -2,6 +2,7 @@
 java = "21"
 kotlin = "2.3.21"
 spring-boot = "4.1.1"
+spring-cloud = "2025.1.4"
 spring-dependency-management = "1.1.7"
 spring-modulith = "2.1.1"
 archunit = "1.5.1"
@@ -15,8 +16,11 @@ kover = "0.9.10"
 icu4j = "78.3"
 bouncycastle = "1.86"
 springdoc = "3.1.1"
+openapi-generator = "7.14.0"
+swagger-parser = "2.1.48"
 
 [libraries]
+spring-cloud-dependencies = { module = "org.springframework.cloud:spring-cloud-dependencies", version.ref = "spring-cloud" }
 spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
@@ -27,6 +31,7 @@ flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", versio
 icu4j = { module = "com.ibm.icu:icu4j", version.ref = "icu4j" }
 bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 springdoc-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+swagger-parser = { module = "io.swagger.parser.v3:swagger-parser", version.ref = "swagger-parser" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
@@ -36,3 +41,4 @@ spring-dependency-management = { id = "io.spring.dependency-management", version
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint-plugin" }
 kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+openapi-generator = { id = "org.openapi.generator", version.ref = "openapi-generator" }

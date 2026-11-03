@@ -1,6 +1,13 @@
 import path from 'node:path';
 
-export const GATE_ORDER = Object.freeze(['hook-tooling', 'dev-tooling', 'desktop', 'core-api']);
+export const GATE_ORDER = Object.freeze([
+  'hook-tooling',
+  'dev-tooling',
+  'desktop',
+  'canonical-contract',
+  'core-api',
+  'gateway',
+]);
 
 const ROOT_PNPM_PATHS = new Set(['package.json', 'pnpm-workspace.yaml', 'pnpm-lock.yaml']);
 const ROOT_GRADLE_PATHS = new Set(['build.gradle.kts', 'settings.gradle.kts', 'gradlew', 'gradlew.bat']);
@@ -34,11 +41,17 @@ export function classifyPath(pathname) {
   if (startsWith(pathname, 'apps/desktop/')) {
     return { kind: 'gate', gates: ['desktop'] };
   }
+  if (startsWith(pathname, 'contracts/canonical-api/')) {
+    return { kind: 'gate', gates: ['canonical-contract', 'core-api', 'gateway'] };
+  }
   if (startsWith(pathname, 'services/core-api/')) {
     return { kind: 'gate', gates: ['core-api'] };
   }
+  if (startsWith(pathname, 'services/gateway/')) {
+    return { kind: 'gate', gates: ['gateway'] };
+  }
   if (ROOT_GRADLE_PATHS.has(pathname) || startsWith(pathname, 'gradle/')) {
-    return { kind: 'gate', gates: ['core-api'] };
+    return { kind: 'gate', gates: ['canonical-contract', 'core-api', 'gateway'] };
   }
   return { kind: 'unknown', gates: [] };
 }
@@ -78,6 +91,11 @@ export function gateRegistry(root, platform = process.platform) {
     ['hook-tooling', { command: pnpm, args: ['hooks:test'] }],
     ['dev-tooling', { command: pnpm, args: ['dev:test'] }],
     ['desktop', { command: pnpm, args: ['--filter', '@taskpilot/desktop', 'qualityCheck'] }],
+    [
+      'canonical-contract',
+      { command: gradle, args: ['--no-daemon', ':contracts:canonical-api:qualityCheck'] },
+    ],
     ['core-api', { command: gradle, args: ['--no-daemon', ':services:core-api:qualityCheck'] }],
+    ['gateway', { command: gradle, args: ['--no-daemon', ':services:gateway:qualityCheck'] }],
   ]);
 }

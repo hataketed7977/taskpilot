@@ -1,5 +1,6 @@
 package ai.taskpilot.coreapi.access.api
 
+import ai.taskpilot.coreapi.AuthenticationProblemException
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.ConstraintViolationException
 import org.springframework.dao.DataAccessException
@@ -13,14 +14,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import java.net.URI
-
-class AuthenticationProblemException(
-    val status: HttpStatus,
-    val code: String,
-    val path: String? = null,
-    val retryAfterSeconds: Long? = null,
-    cause: Throwable? = null,
-) : RuntimeException(code, cause)
 
 @RestControllerAdvice
 class AuthenticationProblemHandler {
@@ -110,7 +103,7 @@ class AuthenticationProblemHandler {
         detail.detail = safeDetail(code)
         detail.instance = URI.create(request.requestURI)
         detail.setProperty("code", code)
-        detail.setProperty("correlationId", request.getAttribute(CORRELATION_ID_ATTRIBUTE).toString())
+        detail.setProperty("correlationId", request.getAttribute(CORRELATION_ID_ATTRIBUTE)?.toString().orEmpty())
         fieldPath?.let { detail.setProperty("path", it) }
         retryAfterSeconds?.let { detail.setProperty("retryAfterSeconds", it) }
         return ResponseEntity.status(status).body(detail)

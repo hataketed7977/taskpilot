@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { classifyComposeProject, parseComposePs } from './compose-manager.mjs';
 import { childCommands, defaultLocalSettings, localConfiguration } from './dev-config.mjs';
-import { assertDesktopCoreApi, assertDesktopPortReplaceable, childExitedUnexpectedly, doctorHasBlockingProblems, isolatedSmokeEnvironment, parseCli, pnpmLockfilesMatch, projectDependencyChecks, replaceRecordedHostServices, reserveLoopbackPort, stopHostServices, stopIsolatedSmokeCoreApi, waitForChild, waitForSpawn } from './dev.mjs';
+import { assertDesktopGatewayStack, assertDesktopPortReplaceable, childExitedUnexpectedly, doctorHasBlockingProblems, isolatedSmokeEnvironment, parseCli, pnpmLockfilesMatch, projectDependencyChecks, replaceRecordedHostServices, reserveLoopbackPort, resolvePackagedGatewayJar, stopHostServices, stopIsolatedSmokeCoreApi, waitForChild, waitForSpawn } from './dev.mjs';
 import { parseMajorVersion, parsePnpmVersion, portConflictMessage, supportsNodeVersion } from './preflight.mjs';
 import {
   emptyState,
@@ -29,13 +29,26 @@ test('CLI parses supported lifecycle commands and log options', () => {
   assert.throws(() => parseCli(['explode']), /Unknown command/);
 });
 
+test('packaged Gateway jar resolution is version independent and excludes plain jars', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-gateway-jars-'));
+  try {
+    writeFileSync(path.join(directory, 'gateway-9.8.7.jar'), 'boot');
+    writeFileSync(path.join(directory, 'gateway-9.8.7-plain.jar'), 'plain');
+    assert.equal(resolvePackagedGatewayJar(directory), path.join(directory, 'gateway-9.8.7.jar'));
+    writeFileSync(path.join(directory, 'gateway-9.8.8.jar'), 'second');
+    assert.throws(() => resolvePackagedGatewayJar(directory), /exactly one packaged Gateway boot jar/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('smoke isolates disabled GitHub configuration without mutating the source environment', async () => {
   const source = {
     TASKPILOT_POSTGRES_PASSWORD: 'database-secret',
     TASKPILOT_REDIS_PASSWORD: 'redis-secret',
     TASKPILOT_GITHUB_CLIENT_ID: 'real-client-id',
     TASKPILOT_GITHUB_CLIENT_SECRET: 'real-client-secret',
-    TASKPILOT_GITHUB_CALLBACK_URI: 'http://127.0.0.1:8080/desktop/v1/auth/federated/github/callback',
+    TASKPILOT_GITHUB_CALLBACK_URI: 'http://127.0.0.1:38080/v1/provider-callbacks/github/oauth',
     TASKPILOT_FEDERATED_HMAC_KEY_BASE64: 'hmac',
     TASKPILOT_FEDERATED_AEAD_KEY_BASE64: 'aead',
     TASKPILOT_CORE_API_PORT: '8080',
@@ -44,7 +57,7 @@ test('smoke isolates disabled GitHub configuration without mutating the source e
   };
 
   const port = await reserveLoopbackPort();
-  const isolated = isolatedSmokeEnvironment(source, port);
+  const isolated = isolatedSmokeEnvironment(source, port, port + 1);
 
   assert.equal(source.TASKPILOT_GITHUB_CLIENT_ID, 'real-client-id');
   assert.equal(isolated.TASKPILOT_GITHUB_CLIENT_ID, '');
@@ -55,8 +68,9 @@ test('smoke isolates disabled GitHub configuration without mutating the source e
   assert.equal(isolated.TASKPILOT_POSTGRES_PASSWORD, 'database-secret');
   assert.equal(isolated.TASKPILOT_REDIS_PASSWORD, 'redis-secret');
   assert.equal(isolated.TASKPILOT_CORE_API_PORT, String(port));
-  assert.equal(isolated.TASKPILOT_CORE_API_URL, `http://127.0.0.1:${port}`);
-  assert.equal(isolated.SERVER_PORT, String(port));
+  assert.equal(isolated.TASKPILOT_CORE_API_INTERNAL_URL, `http://127.0.0.1:${port}`);
+  assert.equal(isolated.TASKPILOT_GATEWAY_URL, `http://127.0.0.1:${port + 1}`);
+  assert.equal(isolated.SERVER_PORT, '8080');
 });
 
 test('smoke reports a temporary Core API that cannot be stopped', async () => {
@@ -142,16 +156,17 @@ settings:
   }
 });
 
-test('Desktop accepts only a healthy Core API owned by this checkout', () => {
-  assert.doesNotThrow(() => assertDesktopCoreApi({ status: 'owned', pid: 42 }, true, 'http://127.0.0.1:48080'));
-  assert.throws(
-    () => assertDesktopCoreApi({ status: 'not-recorded' }, true, 'http://127.0.0.1:48080'),
-    /ownership is not recorded/,
-  );
-  assert.throws(
-    () => assertDesktopCoreApi({ status: 'owned', pid: 42 }, false, 'http://127.0.0.1:48080'),
-    /not healthy/,
-  );
+test('Desktop accepts only an owned and ready Gateway stack', () => {
+  const config = { coreApiInternalUrl: 'http://127.0.0.1:48080', gatewayUrl: 'http://127.0.0.1:38080' };
+  assert.doesNotThrow(() => assertDesktopGatewayStack(
+    { status: 'owned', pid: 42 }, true, { status: 'owned', pid: 43 }, true, config,
+  ));
+  assert.throws(() => assertDesktopGatewayStack(
+    { status: 'owned', pid: 42 }, true, { status: 'not-recorded' }, true, config,
+  ), /Gateway ownership/);
+  assert.throws(() => assertDesktopGatewayStack(
+    { status: 'owned', pid: 42 }, true, { status: 'owned', pid: 43 }, false, config,
+  ), /Gateway is not ready/);
 });
 
 test('an occupied Desktop port is replaceable only when its recorded process is owned', () => {
@@ -198,14 +213,16 @@ test('local settings are stable per checkout and validate distinct overrides', (
   assert.notDeepEqual(defaultLocalSettings('/tmp/another-checkout'), settings);
   const config = localConfiguration(settings, root);
   assert.equal(config.composeProject, settings.TASKPILOT_COMPOSE_PROJECT);
-  assert.equal(config.coreApiUrl, `http://127.0.0.1:${settings.TASKPILOT_CORE_API_PORT}`);
+  assert.equal(config.coreApiInternalUrl, `http://127.0.0.1:${settings.TASKPILOT_CORE_API_PORT}`);
+  assert.equal(config.gatewayUrl, `http://127.0.0.1:${settings.TASKPILOT_GATEWAY_PORT}`);
   assert.equal(config.desktopDevServerUrl, `http://127.0.0.1:${settings.TASKPILOT_DESKTOP_DEV_SERVER_PORT}`);
   assert.equal(new Set([
     config.postgresPort,
     config.redisPort,
     config.coreApiPort,
+    config.gatewayPort,
     config.desktopDevServerPort,
-  ]).size, 4);
+  ]).size, 5);
   assert.equal('smtpPort' in config, false);
   assert.equal('mailpitHttpPort' in config, false);
   assert.throws(() => localConfiguration({ ...settings, TASKPILOT_CORE_API_PORT: '0' }, root), /between 1 and 65535/);
@@ -216,9 +233,9 @@ test('local settings are stable per checkout and validate distinct overrides', (
 test('child commands carry checkout identity on macOS and Windows', () => {
   const unix = childCommands('darwin', root);
   const windows = childCommands('win32', root);
-  assert.equal(unix.gradle.command, path.join(root, 'gradlew'));
-  assert.deepEqual(unix.gradle.args.slice(0, 2), ['--project-dir', root]);
-  assert.equal(windows.gradle.command, path.join(root, 'gradlew.bat'));
+  assert.equal(unix.coreApi.command, path.join(root, 'gradlew'));
+  assert.deepEqual(unix.coreApi.args.slice(0, 2), ['--project-dir', root]);
+  assert.equal(windows.coreApi.command, path.join(root, 'gradlew.bat'));
   assert.equal(windows.desktopDev.command, 'pnpm.cmd');
   assert.ok(windows.desktopDev.args.includes(root));
 });
@@ -414,7 +431,7 @@ test('host shutdown attempts both services even when one stop throws', async () 
     if (name === 'desktop') throw new Error('desktop stop failed');
     return { status: 'stopped', pid: 42 };
   });
-  assert.deepEqual(attempts.sort(), ['coreApi', 'desktop']);
+  assert.deepEqual(attempts, ['desktop', 'gateway', 'coreApi']);
   assert.equal(stops[0].status, 'rejected');
   assert.equal(stops[1].status, 'fulfilled');
   assert.equal(stops[1].value.result.status, 'stopped');

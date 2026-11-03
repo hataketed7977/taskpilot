@@ -67,6 +67,18 @@ internal object CoreApiArchitectureRules {
                             "ai.taskpilot.gateway",
                         )
                 },
+            "generated-transport-adapter-isolation" to
+                dependencyRule("generated-transport-adapter-isolation") { source, target ->
+                    target.packageName.startsWith("ai.taskpilot.contract.generated") &&
+                        !source.packageName.inSegment("api")
+                },
+            "client-named-business-api" to
+                classes()
+                    .should(notUseClientNamedBusinessApiType())
+                    .because(
+                        "[client-named-business-api] Desktop/Web/Mobile/CLI/MCP must reuse canonical " +
+                            "controllers, transport DTOs, and application use cases",
+                    ),
             "shared-package-escape" to
                 classes()
                     .should(notResideInEscapePackage())
@@ -97,6 +109,26 @@ internal object CoreApiArchitectureRules {
                 }
             },
         )
+
+    private fun notUseClientNamedBusinessApiType() =
+        object : ArchCondition<JavaClass>("not use a client-named business API type") {
+            override fun check(
+                item: JavaClass,
+                events: ConditionEvents,
+            ) {
+                val clientPrefixes = setOf("Desktop", "Web", "Mobile", "Cli", "Mcp")
+                val businessSuffixes =
+                    setOf("Controller", "Request", "Response", "Dto", "UseCase", "ApplicationService")
+                if (clientPrefixes.any(item.simpleName::startsWith) && businessSuffixes.any(item.simpleName::endsWith)) {
+                    events.add(
+                        SimpleConditionEvent.violated(
+                            item,
+                            "[client-named-business-api] Forbidden client-specific business API type ${item.name}",
+                        ),
+                    )
+                }
+            }
+        }
 
     private fun notResideInEscapePackage() =
         object : ArchCondition<JavaClass>("not reside in a shared/common escape package") {

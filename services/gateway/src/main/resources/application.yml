@@ -1,0 +1,42 @@
+server:
+  address: ${TASKPILOT_GATEWAY_HOST:127.0.0.1}
+  port: ${TASKPILOT_GATEWAY_PORT:35432}
+spring:
+  application:
+    name: taskpilot-gateway
+  cloud:
+    compatibility-verifier:
+      enabled: true
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: ${TASKPILOT_GATEWAY_CONNECT_TIMEOUT_MILLIS:2000}
+            response-timeout: ${TASKPILOT_GATEWAY_UPSTREAM_RESPONSE_TIMEOUT:8s}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,coreApi
+  health:
+    defaults:
+      enabled: true
+taskpilot:
+  gateway:
+    core-origin: ${TASKPILOT_CORE_API_INTERNAL_URL:http://127.0.0.1:45432}
+    maximum-request-bytes: ${TASKPILOT_GATEWAY_MAXIMUM_REQUEST_BYTES:1048576}
+    maximum-response-bytes: ${TASKPILOT_GATEWAY_MAXIMUM_RESPONSE_BYTES:4194304}
+    maximum-header-bytes: ${TASKPILOT_GATEWAY_MAXIMUM_HEADER_BYTES:16384}
+    connect-timeout: ${TASKPILOT_GATEWAY_CONNECT_TIMEOUT:2s}
+    upstream-response-timeout: ${TASKPILOT_GATEWAY_UPSTREAM_RESPONSE_TIMEOUT:8s}
+    response-timeout: ${TASKPILOT_GATEWAY_RESPONSE_TIMEOUT:10s}

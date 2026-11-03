@@ -1,12 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { closeSync, existsSync, openSync, readFileSync, statSync, watchFile, unwatchFile } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, statSync, watchFile, unwatchFile } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
   childCommands,
   coreApiLogPath,
+  gatewayLogPath,
   localConfiguration,
   repositoryRoot,
 } from './dev-config.mjs';
@@ -25,7 +26,7 @@ import {
   startupUsedExpectedLocalDatabase,
   withOneDatabaseRecovery,
 } from './database-recovery.mjs';
-import { coreApiHealth, waitForHealth } from './health-checks.mjs';
+import { coreApiHealth, gatewayReadiness, waitForHealth } from './health-checks.mjs';
 import {
   ensureStateDirectory,
   forgetService,
@@ -48,7 +49,7 @@ import {
 } from './preflight.mjs';
 
 const supportedCommands = new Set(['start', 'api', 'desktop', 'stop', 'restart', 'status', 'logs', 'doctor', 'smoke', 'help']);
-const logServices = new Set(['core-api', 'postgres', 'redis']);
+const logServices = new Set(['core-api', 'gateway', 'postgres', 'redis']);
 
 export function parseCli(argv) {
   const args = [...argv];
@@ -62,7 +63,7 @@ export function parseCli(argv) {
     else if (argument === '--service') service = args.shift();
     else throw new Error(`Unknown option: ${argument}`);
   }
-  if (!logServices.has(service)) throw new Error('Log service must be core-api, postgres, or redis.');
+  if (!logServices.has(service)) throw new Error('Log service must be core-api, gateway, postgres, or redis.');
   return { command, service, follow };
 }
 
@@ -104,10 +105,12 @@ function environmentAndConfig({ create = false } = {}) {
       TASKPILOT_COMPOSE_PROJECT: config.composeProject,
       TASKPILOT_POSTGRES_PORT: String(config.postgresPort),
       TASKPILOT_CORE_API_PORT: String(config.coreApiPort),
+      TASKPILOT_GATEWAY_PORT: String(config.gatewayPort),
       TASKPILOT_DESKTOP_DEV_SERVER_PORT: String(config.desktopDevServerPort),
       SPRING_PROFILES_ACTIVE: 'local',
       SERVER_PORT: String(config.coreApiPort),
-      TASKPILOT_CORE_API_URL: config.coreApiUrl,
+      TASKPILOT_CORE_API_INTERNAL_URL: config.coreApiInternalUrl,
+      TASKPILOT_GATEWAY_URL: config.gatewayUrl,
       TASKPILOT_DESKTOP_DEV_SERVER_URL: config.desktopDevServerUrl,
     },
   };
@@ -207,11 +210,22 @@ function inspectCoreApi() {
   return inspectRecordedService('coreApi');
 }
 
+function inspectGateway() {
+  return inspectRecordedService('gateway');
+}
+
 async function assertCoreApiPortAvailable(config) {
   if (!await isPortOpen(config.coreApiPort)) return;
   const recorded = inspectCoreApi();
-  if (recorded.status === 'owned' && await coreApiHealth(config.coreApiUrl)) return;
+  if (recorded.status === 'owned' && await coreApiHealth(config.coreApiInternalUrl)) return;
   throw new Error(portConflictMessage(config.coreApiPort, 'Core API'));
+}
+
+async function assertGatewayPortAvailable(config) {
+  if (!await isPortOpen(config.gatewayPort)) return;
+  const recorded = inspectGateway();
+  if (recorded.status === 'owned' && await gatewayReadiness(config.gatewayUrl)) return;
+  throw new Error(portConflictMessage(config.gatewayPort, 'Gateway'));
 }
 
 export function waitForSpawn(child, label = 'Child process') {
@@ -264,7 +278,7 @@ async function startCoreApi(environment, config) {
   ensureStateDirectory();
   const logStart = existsSync(coreApiLogPath) ? statSync(coreApiLogPath).size : 0;
   const logFd = openSync(coreApiLogPath, 'a', 0o600);
-  const command = childCommands().gradle;
+  const command = childCommands().coreApi;
   let child;
   try {
     child = spawn(command.command, command.args, {
@@ -287,8 +301,8 @@ async function ensureCoreApiAttempt(environment, config, lifecycle = {}) {
   lifecycle.onStarted?.(started);
   try {
     if (lifecycle.isStopping?.()) throw new Error('Core API startup was interrupted');
-    if (!await coreApiHealth(config.coreApiUrl)) {
-      await waitForHealth(() => coreApiHealth(config.coreApiUrl), {
+    if (!await coreApiHealth(config.coreApiInternalUrl)) {
+      await waitForHealth(() => coreApiHealth(config.coreApiInternalUrl), {
         isAlive: () => !lifecycle.isStopping?.() && (!started.process || isProcessAlive(started.pid)),
       });
     }
@@ -299,6 +313,56 @@ async function ensureCoreApiAttempt(environment, config, lifecycle = {}) {
       error.taskpilotCoreApiStartup = started;
       error.taskpilotCoreApiLog = readLogSince(coreApiLogPath, started.logStart);
       error.message = `${error.message}. See ${coreApiLogPath}`;
+    }
+    throw error;
+  }
+}
+
+
+async function startGateway(environment, config) {
+  const existing = inspectGateway();
+  if (existing.status === 'owned') return { process: null, started: false, pid: existing.pid };
+  if (existing.status === 'stale') forgetService('gateway');
+  if (existing.status === 'unowned') {
+    throw new Error(`Recorded Gateway PID ${existing.pid} is alive but does not belong to this checkout. Refusing to replace or stop it.`);
+  }
+  ensureStateDirectory();
+  const logStart = existsSync(gatewayLogPath) ? statSync(gatewayLogPath).size : 0;
+  const logFd = openSync(gatewayLogPath, 'a', 0o600);
+  const command = childCommands().gateway;
+  let child;
+  try {
+    child = spawn(command.command, command.args, {
+      cwd: repositoryRoot,
+      env: { ...environment, SERVER_PORT: String(config.gatewayPort) },
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', logFd, logFd],
+      windowsHide: true,
+    });
+  } finally {
+    closeSync(logFd);
+  }
+  await recordStartedProcess('gateway', child, { logPath: gatewayLogPath }, 'Gateway');
+  return { process: child, started: true, pid: child.pid, config, logStart };
+}
+
+async function ensureGateway(environment, config, lifecycle = {}) {
+  await assertGatewayPortAvailable(config);
+  const started = await startGateway(environment, config);
+  lifecycle.onStarted?.(started);
+  try {
+    if (lifecycle.isStopping?.()) throw new Error('Gateway startup was interrupted');
+    if (!await gatewayReadiness(config.gatewayUrl)) {
+      await waitForHealth(() => gatewayReadiness(config.gatewayUrl), {
+        isAlive: () => !lifecycle.isStopping?.() && (!started.process || isProcessAlive(started.pid)),
+      });
+    }
+    return started;
+  } catch (error) {
+    if (started.started) {
+      if (lifecycle.cleanupOnFailure !== false) await stopOwnedChild('gateway', started.process);
+      error.taskpilotGatewayStartup = started;
+      error.message = `${error.message}. See ${gatewayLogPath}`;
     }
     throw error;
   }
@@ -442,9 +506,14 @@ async function startDesktop(environment, lifecycle = {}) {
     throw new Error(`Recorded Desktop PID ${existing.pid} is alive but ownership cannot be proven.`);
   }
   const command = childCommands().desktopDev;
+  const desktopEnvironment = { ...environment };
+  delete desktopEnvironment.TASKPILOT_CORE_API_URL;
+  delete desktopEnvironment.TASKPILOT_CORE_API_INTERNAL_URL;
+  delete desktopEnvironment.TASKPILOT_CORE_API_PORT;
+  delete desktopEnvironment.SERVER_PORT;
   const desktop = spawn(command.command, command.args, {
     cwd: repositoryRoot,
-    env: environment,
+    env: desktopEnvironment,
     detached: process.platform !== 'win32',
     stdio: 'inherit',
     windowsHide: true,
@@ -501,17 +570,17 @@ async function commandApi() {
   const { config, environment } = environmentAndConfig();
   await startInfrastructure(config, environment);
   let core;
+  let gateway;
   let stopping = false;
-  let cleanupPromise;
-  const cleanup = () => {
+  const cleanup = async () => {
     stopping = true;
-    if (!core?.started || !core.process) return Promise.resolve();
-    return cleanupPromise ??= stopOwnedChild('coreApi', core.process);
+    if (gateway?.started && gateway.process) await stopOwnedChild('gateway', gateway.process);
+    if (core?.started && core.process) await stopOwnedChild('coreApi', core.process);
   };
   const onSignal = signal => {
     if (stopping) return;
-    console.log(`\nReceived ${signal}; stopping Core API. PostgreSQL remains running.`);
-    void cleanup().catch(error => console.error(`Core API cleanup failed: ${error.message}`));
+    console.log(`\nReceived ${signal}; stopping Gateway then Core API. PostgreSQL remains running.`);
+    void cleanup().catch(error => console.error(`API stack cleanup failed: ${error.message}`));
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -522,27 +591,45 @@ async function commandApi() {
       cleanupOnFailure: false,
       autoRecoverDatabase: true,
     });
-    console.log(`Core API is healthy: ${config.coreApiUrl}`);
+    console.log(`Core API is healthy on its internal origin: ${config.coreApiInternalUrl}`);
     console.log(`Core API log: ${coreApiLogPath}`);
-    if (!core.started) {
-      console.log('Core API was already running for this checkout.');
+    gateway = await ensureGateway(environment, config, {
+      isStopping: () => stopping,
+      onStarted: started => { gateway = started; },
+      cleanupOnFailure: false,
+    });
+    console.log(`Gateway is ready: ${config.gatewayUrl}`);
+    console.log(`Gateway log: ${gatewayLogPath}`);
+    const startedProcesses = [gateway, core].filter(service => service?.started && service.process);
+    if (startedProcesses.length === 0) {
+      console.log('Core API and Gateway were already running for this checkout.');
       return;
     }
-    const exit = await waitForChild(core.process);
-    if (childExitedUnexpectedly(exit, stopping)) throw new Error(`Core API exited unexpectedly with ${exitDescription(exit)}`);
+    const exits = startedProcesses.map(service => waitForChild(service.process).then(exit => ({ service, exit })));
+    const { service, exit } = await Promise.race(exits);
+    if (childExitedUnexpectedly(exit, stopping)) {
+      const label = service === gateway ? 'Gateway' : 'Core API';
+      throw new Error(`${label} exited unexpectedly with ${exitDescription(exit)}`);
+    }
   } finally {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
-    if (core?.started) await cleanup();
+    await cleanup();
   }
 }
 
-export function assertDesktopCoreApi(recorded, healthy, coreApiUrl) {
-  if (recorded.status !== 'owned') {
-    throw new Error(`Core API ownership is not recorded for this checkout at ${coreApiUrl}. Run pnpm dev:api or pnpm dev.`);
+export function assertDesktopGatewayStack(core, coreHealthy, gateway, gatewayReady, config) {
+  if (core.status !== 'owned') {
+    throw new Error(`Core API ownership is not recorded for this checkout at ${config.coreApiInternalUrl}. Run pnpm dev:api or pnpm dev.`);
   }
-  if (!healthy) {
-    throw new Error(`Core API is not healthy at ${coreApiUrl}. Run pnpm dev:api or pnpm dev.`);
+  if (!coreHealthy) {
+    throw new Error(`Core API is not healthy on its internal origin ${config.coreApiInternalUrl}. Run pnpm dev:api or pnpm dev.`);
+  }
+  if (gateway.status !== 'owned') {
+    throw new Error(`Gateway ownership is not recorded for this checkout at ${config.gatewayUrl}. Run pnpm dev:api or pnpm dev.`);
+  }
+  if (!gatewayReady) {
+    throw new Error(`Gateway is not ready at ${config.gatewayUrl}. Run pnpm dev:api or pnpm dev.`);
   }
 }
 
@@ -550,7 +637,14 @@ async function commandDesktop() {
   assertProjectDependencies();
   const { config, environment } = environmentAndConfig();
   const recordedCoreApi = inspectCoreApi();
-  assertDesktopCoreApi(recordedCoreApi, await coreApiHealth(config.coreApiUrl), config.coreApiUrl);
+  const recordedGateway = inspectGateway();
+  assertDesktopGatewayStack(
+    recordedCoreApi,
+    await coreApiHealth(config.coreApiInternalUrl),
+    recordedGateway,
+    await gatewayReadiness(config.gatewayUrl),
+    config,
+  );
   await assertDesktopPortAvailable(config);
   let desktop;
   let stopping = false;
@@ -590,26 +684,22 @@ async function commandStart() {
     inspectRecordedService('desktop'),
     config.desktopDevServerPort,
   );
-  await replaceRecordedHostServices(['desktop', 'coreApi']);
+  await replaceRecordedHostServices(['desktop', 'gateway', 'coreApi']);
   await assertDesktopPortAvailable(config);
   await startInfrastructure(config, environment);
   let core;
+  let gateway;
   let desktop;
   let stopping = false;
-  let desktopCleanupPromise;
-  let coreCleanupPromise;
   const cleanup = async () => {
     stopping = true;
-    const stops = [];
-    if (desktop) stops.push(desktopCleanupPromise ??= stopOwnedChild('desktop', desktop));
-    if (core?.started && core.process) stops.push(coreCleanupPromise ??= stopOwnedChild('coreApi', core.process));
-    const results = await Promise.allSettled(stops);
-    const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
-    if (failures.length) throw new AggregateError(failures, 'One or more TaskPilot host processes failed to stop.');
+    if (desktop) await stopOwnedChild('desktop', desktop);
+    if (gateway?.started && gateway.process) await stopOwnedChild('gateway', gateway.process);
+    if (core?.started && core.process) await stopOwnedChild('coreApi', core.process);
   };
   const onSignal = signal => {
     if (stopping) return;
-    console.log(`\nReceived ${signal}; stopping TaskPilot host processes. PostgreSQL remains running.`);
+    console.log(`\nReceived ${signal}; stopping Desktop, Gateway, then Core API. PostgreSQL remains running.`);
     void cleanup().catch(error => console.error(`Host-process cleanup failed: ${error.message}`));
   };
   process.on('SIGINT', onSignal);
@@ -621,8 +711,15 @@ async function commandStart() {
       cleanupOnFailure: false,
       autoRecoverDatabase: true,
     });
-    console.log(`Core API is healthy: ${config.coreApiUrl}`);
+    console.log(`Core API is healthy on its internal origin: ${config.coreApiInternalUrl}`);
     console.log(`Core API log: ${coreApiLogPath}`);
+    gateway = await ensureGateway(environment, config, {
+      isStopping: () => stopping,
+      onStarted: started => { gateway = started; },
+      cleanupOnFailure: false,
+    });
+    console.log(`Gateway is ready: ${config.gatewayUrl}`);
+    console.log(`Gateway log: ${gatewayLogPath}`);
     desktop = await startDesktop(environment, {
       isStopping: () => stopping,
       onStarted: started => { desktop = started; },
@@ -644,16 +741,23 @@ function stopResult(name, result) {
   else console.log(`${name} was not recorded as running.`);
 }
 
-export function stopHostServices(stopService = stopRecordedService) {
-  return Promise.allSettled([
-    Promise.resolve().then(() => stopService('desktop')).then(result => ({ label: 'Desktop', result })),
-    Promise.resolve().then(() => stopService('coreApi')).then(result => ({ label: 'Core API', result })),
-  ]);
+export async function stopHostServices(stopService = stopRecordedService) {
+  const results = [];
+  for (const [name, label] of [['desktop', 'Desktop'], ['gateway', 'Gateway'], ['coreApi', 'Core API']]) {
+    try {
+      const result = await stopService(name);
+      results.push({ status: 'fulfilled', value: { label, result } });
+    } catch (reason) {
+      results.push({ status: 'rejected', reason });
+    }
+  }
+  return results;
 }
 
 async function commandStop({ stopInfrastructure = true } = {}) {
   const inspections = {
     desktop: inspectRecordedService('desktop'),
+    gateway: inspectRecordedService('gateway'),
     coreApi: inspectRecordedService('coreApi'),
   };
   const unsafe = Object.entries(inspections).filter(([, result]) => result.status === 'unowned');
@@ -718,10 +822,12 @@ async function commandStatus() {
   }
   const compose = composeStatus(local.environment);
   const core = inspectCoreApi();
+  const gateway = inspectGateway();
   const desktop = inspectRecordedService('desktop');
-  const [infrastructure, coreHealthy] = await Promise.all([
+  const [infrastructure, coreHealthy, gatewayReady] = await Promise.all([
     compose,
-    coreApiHealth(local.config.coreApiUrl),
+    coreApiHealth(local.config.coreApiInternalUrl),
+    gatewayReadiness(local.config.gatewayUrl),
   ]);
   console.log(`TaskPilot local status (${local.config.composeProject})`);
   if (infrastructure.ownership === 'unowned') {
@@ -731,8 +837,9 @@ async function commandStatus() {
   }
   console.log(`- PostgreSQL: ${infrastructure.postgres ? 'container running' : 'not running'} (127.0.0.1:${local.config.postgresPort})`);
   console.log(`- Redis: ${infrastructure.redis ? 'container running' : 'not running'} (127.0.0.1:${local.config.redisPort})`);
-  console.log(`- Core API: ${serviceLabel(core)}; HTTP ${coreHealthy ? 'UP' : 'not ready'} (${local.config.coreApiUrl})`);
-  console.log(`- GitHub login configuration: ${local.federated.enabled ? 'enabled' : 'disabled (fail closed)'}`);
+  console.log(`- Core API (internal): ${serviceLabel(core)}; HTTP ${coreHealthy ? 'UP' : 'not ready'} (${local.config.coreApiInternalUrl})`);
+  console.log(`- Gateway (public): ${serviceLabel(gateway)}; readiness ${gatewayReady ? 'UP' : 'not ready'} (${local.config.gatewayUrl})`);
+  console.log(`- GitHub login configuration: ${local.federated.enabled ? 'enabled' : `disabled (fail closed: ${local.federated.reason})`}`);
   console.log(`- Desktop: ${serviceLabel(desktop)}; Vite ${local.config.desktopDevServerUrl}`);
 }
 
@@ -788,7 +895,8 @@ async function commandDoctor() {
     const ports = [
       [config.postgresPort, 'PostgreSQL'],
       [config.redisPort, 'Redis'],
-      [config.coreApiPort, 'Core API'],
+      [config.coreApiPort, 'Core API (internal)'],
+      [config.gatewayPort, 'Gateway (public)'],
       [config.desktopDevServerPort, 'Desktop Vite'],
     ];
     for (const [port, purpose] of ports) {
@@ -808,8 +916,10 @@ async function commandDoctor() {
   const dependencies = projectDependencyChecks();
   for (const check of dependencies) console.log(`- ${check.ok ? 'PASS' : 'FAIL'} ${check.name}: ${check.ok ? 'installed' : `missing (${check.target})`}`);
   const core = inspectCoreApi();
+  const gateway = inspectGateway();
   const desktop = inspectRecordedService('desktop');
   console.log(`- INFO recorded Core API: ${serviceLabel(core)}`);
+  console.log(`- INFO recorded Gateway: ${serviceLabel(gateway)}`);
   console.log(`- INFO recorded Desktop: ${serviceLabel(desktop)}`);
   if (doctorHasBlockingProblems(checks, envState, dependencies)) {
     throw new Error('Doctor found one or more blocking problems.');
@@ -839,11 +949,13 @@ async function followFile(file) {
 }
 
 async function commandLogs(service, follow) {
-  if (service === 'core-api') {
-    if (!existsSync(coreApiLogPath)) throw new Error(`Core API log does not exist yet: ${coreApiLogPath}`);
-    const tail = readLastLines(coreApiLogPath);
+  if (service === 'core-api' || service === 'gateway') {
+    const logPath = service === 'gateway' ? gatewayLogPath : coreApiLogPath;
+    const label = service === 'gateway' ? 'Gateway' : 'Core API';
+    if (!existsSync(logPath)) throw new Error(`${label} log does not exist yet: ${logPath}`);
+    const tail = readLastLines(logPath);
     if (tail) console.log(tail);
-    if (follow) await followFile(coreApiLogPath);
+    if (follow) await followFile(logPath);
     return;
   }
   if (!existsSync(localEnvironmentPath)) throw new Error('Missing .env.local; there is no local infrastructure log context.');
@@ -855,8 +967,9 @@ async function commandLogs(service, follow) {
 }
 
 
-export function isolatedSmokeEnvironment(environment, coreApiPort) {
-  const coreApiUrl = `http://127.0.0.1:${coreApiPort}`;
+export function isolatedSmokeEnvironment(environment, coreApiPort, gatewayPort) {
+  const coreApiInternalUrl = `http://127.0.0.1:${coreApiPort}`;
+  const gatewayUrl = `http://127.0.0.1:${gatewayPort}`;
   return {
     ...environment,
     TASKPILOT_GITHUB_CLIENT_ID: '',
@@ -865,8 +978,9 @@ export function isolatedSmokeEnvironment(environment, coreApiPort) {
     TASKPILOT_FEDERATED_HMAC_KEY_BASE64: '',
     TASKPILOT_FEDERATED_AEAD_KEY_BASE64: '',
     TASKPILOT_CORE_API_PORT: String(coreApiPort),
-    TASKPILOT_CORE_API_URL: coreApiUrl,
-    SERVER_PORT: String(coreApiPort),
+    TASKPILOT_CORE_API_INTERNAL_URL: coreApiInternalUrl,
+    TASKPILOT_GATEWAY_PORT: String(gatewayPort),
+    TASKPILOT_GATEWAY_URL: gatewayUrl,
   };
 }
 
@@ -879,7 +993,7 @@ export function reserveLoopbackPort() {
       const address = server.address();
       if (!address || typeof address === 'string') {
         server.close();
-        reject(new Error('Unable to reserve an isolated Core API smoke port.'));
+        reject(new Error('Unable to reserve an isolated local service port.'));
         return;
       }
       server.close((error) => error ? reject(error) : resolve(address.port));
@@ -891,12 +1005,12 @@ async function startIsolatedSmokeCoreApi(environment, coreApiUrl) {
   ensureStateDirectory();
   const logPath = path.join(path.dirname(coreApiLogPath), 'core-api-smoke.log');
   const logFd = openSync(logPath, 'w', 0o600);
-  const command = childCommands().gradle;
+  const command = childCommands().coreApi;
   let child;
   try {
     child = spawn(command.command, command.args, {
       cwd: repositoryRoot,
-      env: environment,
+      env: { ...environment, SERVER_PORT: environment.TASKPILOT_CORE_API_PORT },
       detached: process.platform !== 'win32',
       stdio: ['ignore', logFd, logFd],
       windowsHide: true,
@@ -917,11 +1031,53 @@ async function startIsolatedSmokeCoreApi(environment, coreApiUrl) {
   }
 }
 
-export async function stopIsolatedSmokeCoreApi(core, stopProcess = stopProcessAndWait) {
-  const stopped = await stopProcess(core.child.pid);
-  if (!stopped) {
-    throw new Error(`Failed to stop isolated fail-closed Core API PID ${core.child.pid}. See ${core.logPath}`);
+export function resolvePackagedGatewayJar(libsDirectory = path.join(repositoryRoot, 'services', 'gateway', 'build', 'libs')) {
+  const candidates = readdirSync(libsDirectory)
+    .filter(name => name.endsWith('.jar') && !name.endsWith('-plain.jar'))
+    .map(name => path.join(libsDirectory, name));
+  if (candidates.length !== 1) {
+    throw new Error(`Expected exactly one packaged Gateway boot jar in ${libsDirectory}, found ${candidates.length}.`);
   }
+  return candidates[0];
+}
+
+async function startIsolatedSmokeGateway(environment, gatewayUrl) {
+  ensureStateDirectory();
+  const logPath = path.join(path.dirname(gatewayLogPath), 'gateway-smoke.log');
+  const logFd = openSync(logPath, 'w', 0o600);
+  const jarPath = resolvePackagedGatewayJar();
+  let child;
+  try {
+    child = spawn('java', ['-jar', jarPath], {
+      cwd: repositoryRoot,
+      env: { ...environment, SERVER_PORT: environment.TASKPILOT_GATEWAY_PORT },
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', logFd, logFd],
+      windowsHide: true,
+    });
+  } finally {
+    closeSync(logFd);
+  }
+  await waitForSpawn(child, 'Isolated packaged Gateway');
+  try {
+    await waitForHealth(() => gatewayReadiness(gatewayUrl), {
+      isAlive: () => isProcessAlive(child.pid),
+    });
+    return { child, logPath };
+  } catch (error) {
+    await stopProcessAndWait(child.pid);
+    const detail = readLogSince(logPath).trim();
+    throw new Error(`Isolated packaged Gateway failed to start. See ${logPath}${detail ? `\n${detail}` : ''}`, { cause: error });
+  }
+}
+
+export async function stopIsolatedSmokeService(service, label, stopProcess = stopProcessAndWait) {
+  const stopped = await stopProcess(service.child.pid);
+  if (!stopped) throw new Error(`Failed to stop isolated ${label} PID ${service.child.pid}. See ${service.logPath}`);
+}
+
+export async function stopIsolatedSmokeCoreApi(core, stopProcess = stopProcessAndWait) {
+  await stopIsolatedSmokeService(core, 'fail-closed Core API', stopProcess);
   console.log(`Stopped isolated fail-closed Core API; existing dev processes and .env.local were unchanged. Log: ${core.logPath}`);
 }
 
@@ -929,31 +1085,41 @@ async function commandSmoke() {
   assertPrerequisites();
   const { config, environment } = environmentAndConfig();
   await startInfrastructure(config, environment);
-  const port = await reserveLoopbackPort();
-  const smokeEnvironment = isolatedSmokeEnvironment(environment, port);
-  const coreApiUrl = smokeEnvironment.TASKPILOT_CORE_API_URL;
-  const core = await startIsolatedSmokeCoreApi(smokeEnvironment, coreApiUrl);
+  const coreApiPort = await reserveLoopbackPort();
+  const gatewayPort = await reserveLoopbackPort();
+  const smokeEnvironment = isolatedSmokeEnvironment(environment, coreApiPort, gatewayPort);
+  const core = await startIsolatedSmokeCoreApi(smokeEnvironment, smokeEnvironment.TASKPILOT_CORE_API_INTERNAL_URL);
+  let gateway;
   let smokeError;
   try {
+    const gradle = childCommands().gatewayCompile;
+    run(gradle.command, ['--project-dir', repositoryRoot, ':services:gateway:bootJar'], {
+      env: smokeEnvironment,
+      stdio: 'inherit',
+    });
+    gateway = await startIsolatedSmokeGateway(smokeEnvironment, smokeEnvironment.TASKPILOT_GATEWAY_URL);
     const result = run(process.execPath, [path.join(repositoryRoot, 'tools/dev/local-federated-smoke.mjs')], {
       env: smokeEnvironment,
       stdio: 'inherit',
     });
-    if (result.status !== 0) throw new Error('Local federated capability smoke failed.');
+    if (result.status !== 0) throw new Error('Local Gateway capability smoke failed.');
   } catch (error) {
     smokeError = error;
   }
-  try {
-    await stopIsolatedSmokeCoreApi(core);
-  } catch (cleanupError) {
-    if (!smokeError) throw cleanupError;
-    console.error(`Smoke cleanup also failed: ${cleanupError.message}`);
+  for (const [service, label] of [[gateway, 'packaged Gateway'], [core, 'fail-closed Core API']]) {
+    if (!service) continue;
+    try {
+      await stopIsolatedSmokeService(service, label);
+    } catch (cleanupError) {
+      if (!smokeError) smokeError = cleanupError;
+      else console.error(`Smoke cleanup also failed: ${cleanupError.message}`);
+    }
   }
   if (smokeError) throw smokeError;
 }
 
 function printHelp() {
-  console.log(`TaskPilot local development\n\nCommands:\n  pnpm bootstrap        Install locked dependencies, compile Core API, and pull missing images\n  pnpm dev              Start infrastructure and Core API, then open Desktop\n  pnpm dev:api          Start infrastructure and Core API only\n  pnpm dev:desktop      Open Desktop against this checkout's running Core API\n  pnpm dev:stop         Stop this checkout's Desktop/Core API and Compose services\n  pnpm dev:restart      Stop and start the complete local stack\n  pnpm dev:status       Show state, ownership, health, and local URLs\n  pnpm dev:logs         Show Core API logs (add --follow)\n  pnpm dev:doctor       Diagnose tools, dependencies, ports, and stale state\n  pnpm dev:smoke        Verify PostgreSQL/Redis/Core API health and fail-closed GitHub capability without contacting GitHub\n  pnpm check            Run complete launcher, Desktop, and Core API quality gates\n\nLog options:\n  --service core-api|postgres|redis\n  --follow, -f`);
+  console.log(`TaskPilot local development\n\nCommands:\n  pnpm bootstrap        Install locked dependencies, compile Core API and Gateway, and pull missing images\n  pnpm dev              Start infrastructure, Core API, and Gateway, then open Desktop\n  pnpm dev:api          Start infrastructure, Core API, and Gateway only\n  pnpm dev:desktop      Open Desktop against this checkout's running Gateway\n  pnpm dev:stop         Stop this checkout's Desktop/Gateway/Core API and Compose services\n  pnpm dev:restart      Stop and start the complete local stack\n  pnpm dev:status       Show state, ownership, health, and local URLs\n  pnpm dev:logs         Show Core API or Gateway logs (add --follow)\n  pnpm dev:doctor       Diagnose tools, dependencies, ports, and stale state\n  pnpm dev:smoke        Verify PostgreSQL/Redis/Core API/Gateway health and fail-closed GitHub capability without contacting GitHub\n  pnpm check            Run complete hooks, launcher, Desktop, Core API, and Gateway quality gates\n\nLog options:\n  --service core-api|gateway|postgres|redis\n  --follow, -f`);
 }
 
 export async function runCli(argv = process.argv.slice(2)) {

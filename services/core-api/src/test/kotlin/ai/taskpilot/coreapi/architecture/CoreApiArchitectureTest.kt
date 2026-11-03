@@ -19,6 +19,14 @@ class CoreApiArchitectureTest {
             productionClasses.any { it.name == "ai.taskpilot.coreapi.CoreApiArchitectureRoot" },
             "expected the stable Core API architecture root to be imported",
         )
+        assertTrue(
+            productionClasses.any { source ->
+                source.directDependenciesFromSelf.any { dependency ->
+                    dependency.targetClass.packageName.startsWith("ai.taskpilot.contract.generated")
+                }
+            },
+            "expected production HTTP adapters to depend on generated transport types",
+        )
         CoreApiArchitectureRules.rules.values.forEach { it.check(classes) }
     }
 }

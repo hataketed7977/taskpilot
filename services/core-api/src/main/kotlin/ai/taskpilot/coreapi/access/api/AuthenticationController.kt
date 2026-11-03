@@ -1,47 +1,45 @@
 package ai.taskpilot.coreapi.access.api
 
+import ai.taskpilot.contract.generated.api.SessionApi
+import ai.taskpilot.contract.generated.model.CurrentUserResponse
+import ai.taskpilot.contract.generated.model.RefreshRequest
+import ai.taskpilot.contract.generated.model.SessionResponse
+import ai.taskpilot.coreapi.AuthenticationProblemException
 import ai.taskpilot.coreapi.access.application.RefreshSessionResult
 import ai.taskpilot.coreapi.access.application.SessionUseCases
+import ai.taskpilot.coreapi.currentAuthenticatedActor
+import ai.taskpilot.coreapi.currentHttpRequest
 import jakarta.servlet.http.HttpServletRequest
-import jakarta.validation.Valid
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.security.core.annotation.AuthenticationPrincipal
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@RequestMapping("/desktop/v1")
 @ConditionalOnProperty(prefix = "taskpilot.authentication", name = ["enabled"], havingValue = "true")
 class AuthenticationController(
     private val sessions: SessionUseCases,
-) {
-    @PostMapping("/auth/session/refresh")
-    fun refresh(
-        @Valid @RequestBody body: RefreshRequest,
-    ): SessionResponse =
-        when (val result = sessions.refresh(body.refreshToken)) {
-            is RefreshSessionResult.Refreshed -> SessionResponse.from(result.session)
+) : SessionApi {
+    override fun refresh(refreshRequest: RefreshRequest): ResponseEntity<SessionResponse> =
+        when (val result = sessions.refresh(refreshRequest.refreshToken)) {
+            is RefreshSessionResult.Refreshed -> ResponseEntity.ok(result.session.toWireResponse())
             RefreshSessionResult.AuthenticationRequired -> fail(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED")
         }
 
-    @PostMapping("/auth/session/logout")
-    fun logout(request: HttpServletRequest): ResponseEntity<Void> {
+    override fun logout(): ResponseEntity<Unit> {
         val accessToken =
-            request.strictBearerToken()
+            currentHttpRequest().strictBearerToken()
                 ?: fail(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED")
         sessions.logout(accessToken)
         return ResponseEntity.noContent().build()
     }
 
-    @GetMapping("/me")
-    fun currentUser(
-        @AuthenticationPrincipal principal: DesktopPrincipal,
-    ): CurrentUserResponse = principal.user
+    override fun currentUser(): ResponseEntity<CurrentUserResponse> {
+        val principal =
+            currentAuthenticatedActor() as? DesktopPrincipal
+                ?: fail(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED")
+        return ResponseEntity.ok(principal.user)
+    }
 
     @Suppress("ReturnCount") // Each malformed bearer shape must fail closed immediately.
     private fun HttpServletRequest.strictBearerToken(): String? {

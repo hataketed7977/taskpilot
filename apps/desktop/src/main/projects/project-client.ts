@@ -38,7 +38,7 @@ export class WorkspaceProjectClient implements WorkspaceProjectPort {
   constructor(private readonly transport: HttpTransport) {}
 
   async listWorkspaces(accessToken: string) {
-    return z.array(personalWorkspace).parse(await this.transport.request({ method: 'GET', path: '/desktop/v1/workspaces', accessToken }));
+    return z.array(personalWorkspace).parse(await this.transport.request({ method: 'GET', path: '/v1/workspaces', accessToken }));
   }
   async listProjects(accessToken: string, input: ProjectListInput) {
     const query = new URLSearchParams({ status: input.status, limit: String(input.limit ?? 50) });
@@ -60,12 +60,12 @@ export class WorkspaceProjectClient implements WorkspaceProjectPort {
   async restoreProject(accessToken: string, input: ProjectStatusInput) { return this.statusAction(accessToken, input, 'restore'); }
   async permanentlyDeleteProject(accessToken: string, input: DeleteProjectInput) {
     const { workspaceId, projectId, ...body } = input;
-    await this.transport.request({ method: 'POST', path: `${this.item({ workspaceId, projectId })}/permanent-deletion`, body, accessToken });
+    await this.transport.request({ method: 'POST', path: `${this.item({ workspaceId, projectId })}:permanentlyDelete`, body, accessToken });
   }
   private async statusAction(accessToken: string, input: ProjectStatusInput, action: 'archive' | 'restore') {
     const { workspaceId, projectId, ...body } = input;
-    return project.parse(await this.transport.request({ method: 'POST', path: `${this.item({ workspaceId, projectId })}/${action}`, body, accessToken }));
+    return project.parse(await this.transport.request({ method: 'POST', path: `${this.item({ workspaceId, projectId })}:${action}`, body, accessToken }));
   }
-  private collection(workspaceId: string) { return `/desktop/v1/workspaces/${workspaceId}/projects`; }
-  private item(input: ProjectLocationInput) { return `${this.collection(input.workspaceId)}/${input.projectId}`; }
+  private collection(workspaceId: string) { return `/v1/workspaces/${workspaceId}/projects`; }
+  private item(input: ProjectLocationInput) { return `/v1/projects/${input.projectId}`; }
 }

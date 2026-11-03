@@ -36,8 +36,10 @@ export function bootstrap({
   }
   const pnpm = platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
   run(pnpm, ['install', '--frozen-lockfile', '--prefer-offline'], 'Install locked JavaScript dependencies', environment, spawn);
-  const compile = commands(platform, repositoryRoot).gradleCompile;
-  run(compile.command, compile.args, 'Resolve Gradle dependencies and compile Core API', environment, spawn);
+  const coreCompile = commands(platform, repositoryRoot).coreApiCompile;
+  run(coreCompile.command, coreCompile.args, 'Resolve Gradle dependencies and compile Core API', environment, spawn);
+  const gatewayCompile = commands(platform, repositoryRoot).gatewayCompile;
+  run(gatewayCompile.command, gatewayCompile.args, 'Resolve Gradle dependencies and compile Gateway', environment, spawn);
   const desktopBuild = commands(platform, repositoryRoot).desktopBuild;
   run(desktopBuild.command, desktopBuild.args, 'Compile Desktop', environment, spawn);
   run('docker', ['compose', '--env-file', '.env.local', 'pull', '--policy', 'missing'], 'Pull missing local infrastructure images', composeEnvironment, spawn);

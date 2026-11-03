@@ -28,14 +28,14 @@ class FederatedCapabilityDisabledHttpIntegrationTest(
 
     @Test
     fun `missing GitHub configuration disables capability and attempt fails closed`() {
-        val capability = request("GET", "/desktop/v1/auth/capabilities")
+        val capability = request("GET", "/v1/authentication-capabilities")
         assertEquals(200, capability.status)
         assertEquals(false, capability.json().nested("github")["enabled"])
 
         val attempt =
             request(
                 "POST",
-                "/desktop/v1/auth/federated/attempts",
+                "/v1/federated-login-attempts",
                 """
                 {
                   "provider":"github",
@@ -104,7 +104,7 @@ class FederatedCapabilityDisabledHttpIntegrationTest(
             registry.add("taskpilot.authentication.legal-locales") { "zh-CN,en" }
             registry.add("taskpilot.authentication.github.client-id") { "client-id" }
             registry.add("taskpilot.authentication.github.callback-uri") {
-                "http://127.0.0.1:18080/desktop/v1/auth/federated/github/callback"
+                "http://127.0.0.1:18080/v1/provider-callbacks/github/oauth"
             }
             registry.add("taskpilot.authentication.github.hmac-key-base64") { hmacKey }
             registry.add("taskpilot.authentication.github.aead-key-base64") { aeadKey }

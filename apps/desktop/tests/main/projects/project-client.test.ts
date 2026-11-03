@@ -13,9 +13,9 @@ const project = {
 describe('WorkspaceProjectClient', () => {
   it('uses fixed typed Workspace and Project contracts', async () => {
     const request = vi.fn(async input => {
-      if (input.path === '/desktop/v1/workspaces') return [{ workspaceId, type: 'PERSONAL', role: 'OWNER', createdAt: project.createdAt, updatedAt: project.updatedAt }];
+      if (input.path === '/v1/workspaces') return [{ workspaceId, type: 'PERSONAL', role: 'OWNER', createdAt: project.createdAt, updatedAt: project.updatedAt }];
       if (input.method === 'GET' && input.path.includes('?')) return { items: [project], nextCursor: null };
-      if (input.path.endsWith('/permanent-deletion')) return undefined;
+      if (input.path.endsWith(':permanentlyDelete')) return undefined;
       return project;
     });
     const client = new WorkspaceProjectClient({ request } as HttpTransport);
@@ -31,14 +31,14 @@ describe('WorkspaceProjectClient', () => {
     await client.permanentlyDeleteProject(token, { workspaceId, projectId, expectedVersion: 4, confirmationName: 'Beta' });
 
     expect(request.mock.calls.map(([value]) => `${value.method} ${value.path}`)).toEqual([
-      'GET /desktop/v1/workspaces',
-      `GET /desktop/v1/workspaces/${workspaceId}/projects?status=ACTIVE&limit=50&cursor=opaque%2Fcursor%2B`,
-      `GET /desktop/v1/workspaces/${workspaceId}/projects/${projectId}`,
-      `POST /desktop/v1/workspaces/${workspaceId}/projects`,
-      `PATCH /desktop/v1/workspaces/${workspaceId}/projects/${projectId}`,
-      `POST /desktop/v1/workspaces/${workspaceId}/projects/${projectId}/archive`,
-      `POST /desktop/v1/workspaces/${workspaceId}/projects/${projectId}/restore`,
-      `POST /desktop/v1/workspaces/${workspaceId}/projects/${projectId}/permanent-deletion`,
+      'GET /v1/workspaces',
+      `GET /v1/workspaces/${workspaceId}/projects?status=ACTIVE&limit=50&cursor=opaque%2Fcursor%2B`,
+      `GET /v1/projects/${projectId}`,
+      `POST /v1/workspaces/${workspaceId}/projects`,
+      `PATCH /v1/projects/${projectId}`,
+      `POST /v1/projects/${projectId}:archive`,
+      `POST /v1/projects/${projectId}:restore`,
+      `POST /v1/projects/${projectId}:permanentlyDelete`,
     ]);
     expect(request.mock.calls[3]?.[0]).toMatchObject({ accessToken: token, body: { requestId, name: 'Alpha', description: '' } });
   });

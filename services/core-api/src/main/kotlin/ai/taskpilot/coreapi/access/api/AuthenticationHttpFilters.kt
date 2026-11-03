@@ -1,5 +1,6 @@
 package ai.taskpilot.coreapi.access.api
 
+import ai.taskpilot.contract.generated.model.CurrentUserResponse
 import ai.taskpilot.coreapi.access.DesktopActor
 import ai.taskpilot.coreapi.access.application.CurrentUserResult
 import ai.taskpilot.coreapi.access.application.SessionUseCases
@@ -43,7 +44,7 @@ class DesktopBearerAuthenticationFilter(
         if (!bearer.isNullOrBlank()) {
             val current = sessions.currentUser(bearer)
             if (current is CurrentUserResult.Authenticated) {
-                val principal = DesktopPrincipal(bearer, CurrentUserResponse.from(current.currentUser))
+                val principal = DesktopPrincipal(bearer, current.currentUser.toWireResponse())
                 SecurityContextHolder.getContext().authentication =
                     UsernamePasswordAuthenticationToken.authenticated(principal, null, emptyList())
             }

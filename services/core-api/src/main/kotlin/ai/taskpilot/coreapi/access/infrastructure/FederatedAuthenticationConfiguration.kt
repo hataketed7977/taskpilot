@@ -60,7 +60,7 @@ data class FederatedAuthenticationProperties(
     private fun validCallback(uri: URI?): Boolean =
         uri != null && uri.scheme == "http" && uri.host == "127.0.0.1" &&
             uri.port in CALLBACK_PORT_MIN..CALLBACK_PORT_MAX &&
-            uri.path == "/desktop/v1/auth/federated/github/callback" && uri.query == null &&
+            uri.path == "/v1/provider-callbacks/github/oauth" && uri.query == null &&
             uri.fragment == null && uri.userInfo == null
 
     private fun decoded(value: String): ByteArray? =

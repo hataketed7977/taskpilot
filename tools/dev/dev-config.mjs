@@ -8,6 +8,7 @@ export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.met
 export const stateDirectory = path.join(repositoryRoot, '.taskpilot', 'dev');
 export const statePath = path.join(stateDirectory, 'state.json');
 export const coreApiLogPath = path.join(stateDirectory, 'core-api.log');
+export const gatewayLogPath = path.join(stateDirectory, 'gateway.log');
 
 function port(value, fallback, key) {
   const parsed = Number(value ?? fallback);
@@ -22,8 +23,9 @@ export function localConfiguration(values, root = repositoryRoot) {
   const postgresPort = port(values.TASKPILOT_POSTGRES_PORT, defaults.TASKPILOT_POSTGRES_PORT, 'TASKPILOT_POSTGRES_PORT');
   const redisPort = port(values.TASKPILOT_REDIS_PORT, defaults.TASKPILOT_REDIS_PORT, 'TASKPILOT_REDIS_PORT');
   const coreApiPort = port(values.TASKPILOT_CORE_API_PORT, defaults.TASKPILOT_CORE_API_PORT, 'TASKPILOT_CORE_API_PORT');
+  const gatewayPort = port(values.TASKPILOT_GATEWAY_PORT, defaults.TASKPILOT_GATEWAY_PORT, 'TASKPILOT_GATEWAY_PORT');
   const desktopDevServerPort = port(values.TASKPILOT_DESKTOP_DEV_SERVER_PORT, defaults.TASKPILOT_DESKTOP_DEV_SERVER_PORT, 'TASKPILOT_DESKTOP_DEV_SERVER_PORT');
-  const allPorts = [postgresPort, redisPort, coreApiPort, desktopDevServerPort];
+  const allPorts = [postgresPort, redisPort, coreApiPort, gatewayPort, desktopDevServerPort];
   if (new Set(allPorts).size !== allPorts.length) throw new Error('TaskPilot local services must use distinct ports');
   const composeProject = values.TASKPILOT_COMPOSE_PROJECT ?? defaults.TASKPILOT_COMPOSE_PROJECT;
   if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(composeProject)) {
@@ -34,8 +36,10 @@ export function localConfiguration(values, root = repositoryRoot) {
     postgresPort,
     redisPort,
     coreApiPort,
+    gatewayPort,
     desktopDevServerPort,
-    coreApiUrl: `http://127.0.0.1:${coreApiPort}`,
+    coreApiInternalUrl: `http://127.0.0.1:${coreApiPort}`,
+    gatewayUrl: `http://127.0.0.1:${gatewayPort}`,
     desktopDevServerUrl: `http://127.0.0.1:${desktopDevServerPort}`,
   };
 }
@@ -48,13 +52,21 @@ export function readConfiguration(environmentPath) {
 
 export function childCommands(platform = process.platform, root = repositoryRoot) {
   return {
-    gradle: {
+    coreApi: {
       command: platform === 'win32' ? path.join(root, 'gradlew.bat') : path.join(root, 'gradlew'),
       args: ['--project-dir', root, ':services:core-api:bootRun'],
     },
-    gradleCompile: {
+    coreApiCompile: {
       command: platform === 'win32' ? path.join(root, 'gradlew.bat') : path.join(root, 'gradlew'),
       args: ['--project-dir', root, ':services:core-api:classes'],
+    },
+    gateway: {
+      command: platform === 'win32' ? path.join(root, 'gradlew.bat') : path.join(root, 'gradlew'),
+      args: ['--project-dir', root, ':services:gateway:bootRun'],
+    },
+    gatewayCompile: {
+      command: platform === 'win32' ? path.join(root, 'gradlew.bat') : path.join(root, 'gradlew'),
+      args: ['--project-dir', root, ':services:gateway:classes'],
     },
     desktopDev: {
       command: platform === 'win32' ? 'pnpm.cmd' : 'pnpm',

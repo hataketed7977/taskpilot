@@ -4,7 +4,8 @@ import { bootstrap } from './bootstrap.mjs';
 
 function fakeCommands() {
   return {
-    gradleCompile: { command: './gradlew', args: [':services:core-api:classes'] },
+    coreApiCompile: { command: './gradlew', args: [':services:core-api:classes'] },
+    gatewayCompile: { command: './gradlew', args: [':services:gateway:classes'] },
     desktopBuild: { command: 'pnpm', args: ['--filter', '@taskpilot/desktop', 'build'] },
   };
 }
@@ -25,6 +26,7 @@ test('bootstrap installs checkout hooks before dependency and build commands', (
     'hooks',
     'pnpm install --frozen-lockfile --prefer-offline',
     './gradlew :services:core-api:classes',
+    './gradlew :services:gateway:classes',
     'pnpm --filter @taskpilot/desktop build',
     'docker compose --env-file .env.local pull --policy missing',
   ]);

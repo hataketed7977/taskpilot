@@ -21,8 +21,8 @@ describe('ProjectWorkClient', () => {
       if (input.method === 'GET' && input.path.endsWith('/boards')) return [{ boardId, projectId, name: 'Board', description: '', version: 0, createdAt: now, updatedAt: now }];
       if (input.method === 'DELETE') return undefined;
       if (input.path.endsWith('/work-items') && input.method === 'POST') return { workItem, board };
-      if (input.path.includes('/work-items/') && input.method === 'PATCH') return { workItem, board };
-      if (input.path.includes('/work-items/')) return workItem;
+      if (input.path.startsWith('/v1/work-items/') && input.method === 'PATCH') return { workItem, board };
+      if (input.path.startsWith('/v1/work-items/')) return workItem;
       return board;
     });
     const client = new ProjectWorkClient({ request } as HttpTransport);
@@ -52,14 +52,20 @@ describe('ProjectWorkClient', () => {
     });
     await client.moveCard(token, { ...location, workItemId, expectedBoardVersion: 5, expectedPlacementVersion: 0, targetColumnId: columnId });
 
-    const root = `/desktop/v1/workspaces/${workspaceId}/projects/${projectId}`;
     expect(request.mock.calls.map(([value]) => `${value.method} ${value.path}`)).toEqual([
-      `GET ${root}/boards`, `GET ${root}/boards/${boardId}`, `POST ${root}/boards`, `PATCH ${root}/boards/${boardId}`,
-      `POST ${root}/boards/${boardId}/permanent-deletion`, `POST ${root}/boards/${boardId}/columns`, `PATCH ${root}/boards/${boardId}/columns/${columnId}`,
-      `PUT ${root}/boards/${boardId}/column-order`,
-      `DELETE ${root}/boards/${boardId}/columns/${columnId}?expectedBoardVersion=4&expectedColumnVersion=1`,
-      `POST ${root}/boards/${boardId}/work-items`, `GET ${root}/work-items/${workItemId}`,
-      `PATCH ${root}/work-items/${workItemId}`, `POST ${root}/boards/${boardId}/placements/${workItemId}/move`,
+      `GET /v1/projects/${projectId}/boards`,
+      `GET /v1/boards/${boardId}`,
+      `POST /v1/projects/${projectId}/boards`,
+      `PATCH /v1/boards/${boardId}`,
+      `POST /v1/boards/${boardId}:permanentlyDelete`,
+      `POST /v1/boards/${boardId}/columns`,
+      `PATCH /v1/columns/${columnId}`,
+      `PUT /v1/boards/${boardId}/column-order`,
+      `DELETE /v1/columns/${columnId}?expectedBoardVersion=4&expectedColumnVersion=1`,
+      `POST /v1/boards/${boardId}/work-items`,
+      `GET /v1/work-items/${workItemId}`,
+      `PATCH /v1/work-items/${workItemId}`,
+      `POST /v1/boards/${boardId}/placements/${workItemId}:move`,
     ]);
     expect(request.mock.calls[2]?.[0]).toMatchObject({ accessToken: token, body: { requestId, name: 'Delivery', locale: 'en' } });
     expect(request.mock.calls[4]?.[0]).toMatchObject({

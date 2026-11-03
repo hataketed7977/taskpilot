@@ -3,9 +3,9 @@
 TaskPilot is a SaaS-ready task and ticket management product under active
 implementation. Its first-party Windows and macOS Desktop client is designed to
 coordinate Agents working on explicitly selected local projects. The repository
-currently includes a runnable Desktop and Core API covering sign-in, personal
-Workspace and Project management, and basic Boards and Work Items; workflow and
-Agent-execution capabilities remain approved Target design.
+currently includes a runnable Desktop, Gateway, and Core API covering sign-in,
+personal Workspace and Project management, and basic Boards and Work Items;
+workflow and Agent-execution capabilities remain approved Target design.
 
 ## Target Architecture
 
@@ -18,7 +18,8 @@ monorepo:
   Agent/tool adaptation, process/PTY execution, logs, Diff, and artifacts.
 - Kotlin and Spring for the API Gateway and Core API control plane.
 - Spring Modulith for enforceable modular-monolith backend boundaries.
-- Separate first-party Desktop API and public HTTP API surfaces.
+- One canonical resource-oriented Core API, with technical client/credential
+  surfaces separated only where their trust contracts differ.
 - PostgreSQL as business truth; the Agent Runtime submits execution evidence
   and never writes Core API business tables directly.
 
@@ -43,9 +44,12 @@ at project-summary level.
 The Core API currently implements GitHub federated authentication and opaque
 sessions. PostgreSQL/Flyway stores the durable `User`, provider-neutral
 `ExternalIdentity`, and legal acceptance facts; Redis stores expiring OAuth
-attempts, login rate limits, and session state. Runtime OpenAPI is available in
-non-production profiles, and `:services:core-api:qualityCheck` is the complete
-Core API gate. GitHub proves control of an external identity while TaskPilot
+attempts, login rate limits, and session state. Core exposes its canonical
+runtime OpenAPI only from its internal origin in non-production profiles. The
+Kotlin/Spring Cloud Gateway is the current client ingress, forwards an explicit
+canonical method/path catalog, and does not expose Swagger/OpenAPI or own
+business authorization. `:services:core-api:qualityCheck` and
+`:services:gateway:qualityCheck` are the service gates. GitHub proves control of an external identity while TaskPilot
 keeps its own stable `UserId` and authorization boundary.
 
 First registration also provisions one `PERSONAL` Workspace and one ordinary
@@ -60,9 +64,9 @@ login, first-registration confirmation, OS-credential-backed session restore,
 refresh, and logout through hardened Main/Preload/Renderer boundaries, followed
 by the Project home and Board workspace for these capabilities. Work Item types,
 custom fields, assignments, workflows, Agent configuration and execution,
-approvals, `TEAM` Workspaces, Agent Runtime, Gateway, signed installers,
-production deployment, and cross-platform native release evidence remain Target
-only.
+approvals, `TEAM` Workspaces, Agent Runtime, signed installers, production
+deployment, production Core network-isolation evidence, and cross-platform
+native release evidence remain Target only.
 
 ## Local Development
 
@@ -76,15 +80,18 @@ pnpm dev
 
 `bootstrap` validates tools, creates or normalizes the Git-ignored `.env.local`
 without replacing existing values, installs this checkout's repository-managed
-Git hooks, installs the locked JavaScript graph, compiles Desktop and Core API,
+Git hooks, installs the locked JavaScript graph, compiles Desktop, Core API, and Gateway,
 and pulls the PostgreSQL and Redis images. The local file
 uses the same documented sections and key order as `.env.local.example`;
-checkout values and secrets are preserved by key during upgrades. Settings from
+checkout values and secrets are preserved by key during upgrades, except that the exact
+legacy generated Core callback is migrated to the checkout Gateway callback and
+reported so the GitHub OAuth App can be updated. Settings from
 the retired email-authentication stack are moved to the Git-ignored
 `.env.local.retired` file instead of remaining active or being discarded. `dev` starts the
-checkout-scoped PostgreSQL 17 and Redis 7.4 containers, runs Core API and Flyway through the
-Gradle Wrapper, waits for health, and then opens Electron. Re-running `pnpm dev`
-first stops and replaces Desktop/Core API processes whose ownership can be
+checkout-scoped PostgreSQL 17 and Redis 7.4 containers, runs Core API/Flyway and
+Gateway through the Gradle Wrapper, waits for both service boundaries, and then
+opens Electron. Re-running `pnpm dev` first stops and replaces
+Desktop/Gateway/Core API processes whose ownership can be
 proved for this checkout; it never kills an unknown process merely because it
 uses a configured port. `Ctrl+C` stops only host processes started by that
 invocation; PostgreSQL and Redis remain available.
@@ -92,7 +99,8 @@ invocation; PostgreSQL and Redis remain available.
 ### GitHub OAuth App
 
 Without GitHub credentials the stack deliberately stays healthy and
-`GET /desktop/v1/auth/capabilities` reports GitHub login disabled. For a real
+`GET /v1/authentication-capabilities` through Gateway reports GitHub login
+disabled. For a real
 manual login, create a dedicated development GitHub OAuth App and set its
 Authorization callback URL to the exact `TASKPILOT_GITHUB_CALLBACK_URI` written
 to `.env.local`. `pnpm bootstrap` also writes two explicit empty credential
@@ -112,15 +120,15 @@ rather than preventing Core API health.
 ### Lifecycle commands
 
 ```bash
-pnpm dev:api          # PostgreSQL + Redis + Gradle/Spring Boot Core API, no Desktop
-pnpm dev:desktop      # Desktop only; requires this checkout's healthy Core API
+pnpm dev:api          # PostgreSQL + Redis + Core API + Gateway, no Desktop
+pnpm dev:desktop      # Desktop only; requires this checkout's healthy Gateway
 pnpm dev:doctor       # read-only tools, ports, ownership, and stale-state diagnosis
 pnpm dev:status       # process/container ownership, health, URLs, auth capability
-pnpm dev:logs         # Core API log; add --follow or --service postgres
+pnpm dev:logs         # Core/Gateway log; add --follow or --service gateway|postgres
 pnpm dev:restart      # stop this checkout, then start the complete local stack
 pnpm dev:stop         # stop owned processes/containers; keep database data
-pnpm dev:smoke        # health + disabled GitHub capability; never contacts GitHub
-pnpm check            # launcher, Desktop, and Core API quality gates
+pnpm dev:smoke        # real Core+Gateway health/routes; never contacts GitHub
+pnpm check            # hooks, launcher, Desktop, Core API, and Gateway gates
 ```
 
 ### Commit quality gates
@@ -166,8 +174,10 @@ them in this order:
 | `.githooks/**`, `tools/git-hooks/**` | `pnpm hooks:test` |
 | `tools/dev/**`, `compose.yaml`, `.env.local.example` | `pnpm dev:test` |
 | `apps/desktop/**` executable/configuration paths | `pnpm --filter @taskpilot/desktop qualityCheck` |
-| `services/core-api/**`, root Gradle files, `gradle/**` | `./gradlew --no-daemon :services:core-api:qualityCheck` |
-| Root `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Hook tooling, dev tooling, and Desktop gates |
+| `services/core-api/**` | `./gradlew --no-daemon :services:core-api:qualityCheck` |
+| `services/gateway/**` | `./gradlew --no-daemon :services:gateway:qualityCheck` |
+| Root Gradle files, `gradle/**` | Core API and Gateway quality gates in one serial Gradle invocation |
+| Root `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Hook tooling, dev tooling, Desktop, Core API, and Gateway gates |
 | Markdown, OpenSpec, Agent instructions, known repository metadata | Explicitly exempt |
 
 An unmapped executable path is rejected until its owner and quality command are
@@ -192,8 +202,8 @@ paths, command, and next step. These local hooks are fast feedback, not a
 security boundary: Git's native `git commit --no-verify` can bypass them, and
 CI/release checks remain independently responsible for enforced quality.
 
-`dev:desktop` refuses to start unless the Core API is healthy and recorded as
-owned by this checkout. The controller waits for a replaced launcher to exit
+`dev:desktop` refuses to start unless the Gateway is healthy and recorded as
+owned by this checkout; Desktop receives no Core origin or fallback. The controller waits for a replaced launcher to exit
 before starting its successor, and never takes over or stops an unrecognized
 process. Runtime ownership state and Core API logs live in Git-ignored
 `.taskpilot/dev/` and contain no credentials; all local services bind to

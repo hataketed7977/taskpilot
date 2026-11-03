@@ -36,11 +36,11 @@ describe('FederatedAuthClient', () => {
     await client.cancel('attempt', 'poll-secret-value');
 
     expect(request.mock.calls.map(([input]) => `${input.method} ${input.path}`)).toEqual([
-      'GET /desktop/v1/auth/capabilities',
-      'POST /desktop/v1/auth/federated/attempts',
-      'POST /desktop/v1/auth/federated/attempts/attempt/poll',
-      'POST /desktop/v1/auth/federated/registrations',
-      'POST /desktop/v1/auth/federated/attempts/attempt/cancel',
+      'GET /v1/authentication-capabilities',
+      'POST /v1/federated-login-attempts',
+      'POST /v1/federated-login-attempts/attempt:poll',
+      'POST /v1/federated-registrations',
+      'POST /v1/federated-login-attempts/attempt:cancel',
     ]);
     expect(request.mock.calls[1]?.[0]).toMatchObject({ body: { provider: 'github' } });
     expect(request.mock.calls[2]?.[0].body).toEqual({

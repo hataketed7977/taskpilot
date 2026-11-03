@@ -1,13 +1,13 @@
 package ai.taskpilot.coreapi.access
 
+import ai.taskpilot.contract.generated.model.RefreshRequest
+import ai.taskpilot.coreapi.AuthenticationProblemException
 import ai.taskpilot.coreapi.access.api.AuthenticationController
-import ai.taskpilot.coreapi.access.api.AuthenticationProblemException
 import ai.taskpilot.coreapi.access.api.AuthenticationProblemHandler
-import ai.taskpilot.coreapi.access.api.CurrentUserResponse
 import ai.taskpilot.coreapi.access.api.DesktopBearerAuthenticationFilter
 import ai.taskpilot.coreapi.access.api.DesktopPrincipal
 import ai.taskpilot.coreapi.access.api.DesktopRequestGuardFilter
-import ai.taskpilot.coreapi.access.api.RefreshRequest
+import ai.taskpilot.coreapi.access.api.toWireResponse
 import ai.taskpilot.coreapi.access.application.CurrentUserResult
 import ai.taskpilot.coreapi.access.application.CurrentUserView
 import ai.taskpilot.coreapi.access.application.IssuedSession
@@ -23,6 +23,10 @@ import org.springframework.dao.DataAccessResourceFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.web.context.request.RequestContextHolder
+import org.springframework.web.context.request.ServletRequestAttributes
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
@@ -58,7 +62,7 @@ class AuthenticationApiBranchTest {
         val request = RefreshRequest("refresh-token")
 
         sessions.refreshResult = RefreshSessionResult.Refreshed(session)
-        assertEquals("access-token", controller.refresh(request).accessToken)
+        assertEquals("access-token", controller.refresh(request).body?.accessToken)
 
         sessions.refreshResult = RefreshSessionResult.AuthenticationRequired
         assertProblem("AUTHENTICATION_REQUIRED") { controller.refresh(request) }
@@ -67,9 +71,11 @@ class AuthenticationApiBranchTest {
     @Test
     fun `current user projects the authenticated principal`() {
         val controller = AuthenticationController(StubSessions())
-        val principal = DesktopPrincipal("access-token", CurrentUserResponse.from(currentUser))
+        val principal = DesktopPrincipal("access-token", currentUser.toWireResponse())
 
-        assertEquals(CurrentUserResponse.from(currentUser), controller.currentUser(principal))
+        withRequestContext(MockHttpServletRequest(), principal) {
+            assertEquals(currentUser.toWireResponse(), controller.currentUser().body)
+        }
     }
 
     @Test
@@ -80,17 +86,19 @@ class AuthenticationApiBranchTest {
         listOf(null, "Basic token", "Bearer ", "Bearer one two", "Bearer ${"x".repeat(513)}").forEach { authorization ->
             val request = MockHttpServletRequest()
             authorization?.let { request.addHeader("Authorization", it) }
-            assertProblem("AUTHENTICATION_REQUIRED") { controller.logout(request) }
+            assertProblem("AUTHENTICATION_REQUIRED") {
+                withRequestContext(request) { controller.logout() }
+            }
         }
         val valid = MockHttpServletRequest().apply { addHeader("Authorization", "Bearer access-token") }
-        assertEquals(HttpStatus.NO_CONTENT, controller.logout(valid).statusCode)
+        assertEquals(HttpStatus.NO_CONTENT, withRequestContext(valid) { controller.logout() }.statusCode)
         assertEquals("access-token", sessions.loggedOut)
     }
 
     @Test
     fun `problem handler emits safe stable details and optional properties`() {
         val handler = AuthenticationProblemHandler()
-        val request = requestWithCorrelation().apply { requestURI = "/desktop/v1/auth/test" }
+        val request = requestWithCorrelation().apply { requestURI = "/v1/auth/test" }
 
         val response =
             handler.authenticationProblem(
@@ -206,6 +214,24 @@ class AuthenticationApiBranchTest {
         block: () -> Unit,
     ) {
         assertEquals(expectedCode, assertFailsWith<AuthenticationProblemException>(block = block).code)
+    }
+
+    private fun <T> withRequestContext(
+        request: MockHttpServletRequest,
+        principal: DesktopPrincipal? = null,
+        block: () -> T,
+    ): T {
+        RequestContextHolder.setRequestAttributes(ServletRequestAttributes(request))
+        if (principal != null) {
+            SecurityContextHolder.getContext().authentication =
+                UsernamePasswordAuthenticationToken.authenticated(principal, null, emptyList())
+        }
+        return try {
+            block()
+        } finally {
+            SecurityContextHolder.clearContext()
+            RequestContextHolder.resetRequestAttributes()
+        }
     }
 
     private class StubSessions : SessionUseCases {

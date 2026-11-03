@@ -112,7 +112,7 @@ describe('SessionCoordinator', () => {
     expect(coordinator.view()).toEqual({ status: 'signedOut' });
   });
 
-  it('fails closed after an ambiguous refresh network result', async () => {
+  it('keeps a potentially valid credential after an ambiguous refresh network result', async () => {
     const store = new MemoryCredentialStore();
     const coordinator = new SessionCoordinator('production', store, {
       refresh: vi.fn().mockRejectedValue(new TypeError('offline')), logout: vi.fn(),
@@ -121,8 +121,11 @@ describe('SessionCoordinator', () => {
 
     await expect(coordinator.refresh()).rejects.toBeInstanceOf(TypeError);
 
-    expect(await store.loadCurrent('production')).toBeUndefined();
-    expect(coordinator.view()).toEqual({ status: 'signedOut' });
+    expect(await store.loadCurrent('production')).toEqual(expect.objectContaining({
+      userId: '11111111-1111-4111-8111-111111111111',
+      refreshToken: 'refresh-1',
+    }));
+    expect(coordinator.view()).toEqual({ status: 'temporarilyUnavailable' });
   });
 
   it('fails closed and revokes the rotated session when saving it fails', async () => {

@@ -1,141 +1,124 @@
 package ai.taskpilot.coreapi.project.api
 
-import ai.taskpilot.coreapi.access.DesktopActor
+import ai.taskpilot.contract.generated.api.ProjectApi
+import ai.taskpilot.contract.generated.model.CreateProjectRequest
+import ai.taskpilot.contract.generated.model.DeleteProjectRequest
+import ai.taskpilot.contract.generated.model.EditProjectRequest
+import ai.taskpilot.contract.generated.model.ProjectPage
+import ai.taskpilot.contract.generated.model.ProjectStatusRequest
+import ai.taskpilot.contract.generated.model.ProjectView
+import ai.taskpilot.coreapi.currentAuthenticatedActor
 import ai.taskpilot.coreapi.project.CreateProjectCommand
 import ai.taskpilot.coreapi.project.DeleteProjectCommand
 import ai.taskpilot.coreapi.project.EditProjectCommand
-import ai.taskpilot.coreapi.project.ProjectPage
+import ai.taskpilot.coreapi.project.ProjectResourceScope
 import ai.taskpilot.coreapi.project.ProjectStatus
 import ai.taskpilot.coreapi.project.ProjectStatusCommand
 import ai.taskpilot.coreapi.project.ProjectUseCases
-import ai.taskpilot.coreapi.project.ProjectView
+import ai.taskpilot.coreapi.project.ProjectValidationFailed
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.security.core.annotation.AuthenticationPrincipal
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PatchMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
 @RestController
-@RequestMapping("/desktop/v1/workspaces/{workspaceId}/projects")
 @ConditionalOnProperty(prefix = "taskpilot.authentication", name = ["enabled"], havingValue = "true")
 class ProjectController(
     private val projects: ProjectUseCases,
-) {
-    @GetMapping
-    fun list(
-        @AuthenticationPrincipal actor: DesktopActor,
-        @PathVariable workspaceId: UUID,
-        @RequestParam(defaultValue = "ACTIVE") status: ProjectStatus,
-        @RequestParam(defaultValue = "50") limit: Int,
-        @RequestParam(required = false) cursor: String?,
-    ): ProjectPage = projects.list(actor.userId, workspaceId, status, limit, cursor)
+    private val scopes: ProjectResourceScope,
+) : ProjectApi {
+    override fun list(
+        workspaceId: UUID,
+        status: String,
+        limit: Int,
+        cursor: String?,
+    ): ResponseEntity<ProjectPage> {
+        val projectStatus =
+            ProjectStatus.entries.firstOrNull { it.name == status }
+                ?: throw ProjectValidationFailed("status")
+        val page = projects.list(currentAuthenticatedActor().userId, workspaceId, projectStatus, limit, cursor)
+        return ResponseEntity.ok(page.toWireResponse())
+    }
 
-    @PostMapping
-    fun create(
-        @AuthenticationPrincipal actor: DesktopActor,
-        @PathVariable workspaceId: UUID,
-        @RequestBody body: CreateProjectRequest,
-    ): ResponseEntity<ProjectView> =
-        ResponseEntity.status(HttpStatus.CREATED).body(
+    override fun create(
+        workspaceId: UUID,
+        createProjectRequest: CreateProjectRequest,
+    ): ResponseEntity<ProjectView> {
+        val actor = currentAuthenticatedActor()
+        val created =
             projects.create(
                 CreateProjectCommand(
                     actor.userId,
                     workspaceId,
-                    body.requestId,
-                    body.name,
-                    body.description,
-                    body.locale,
+                    createProjectRequest.requestId,
+                    createProjectRequest.name,
+                    createProjectRequest.description,
+                    createProjectRequest.locale ?: "en",
                 ),
-            ),
-        )
+            )
+        return ResponseEntity.status(HttpStatus.CREATED).body(created.toWireResponse())
+    }
 
-    @GetMapping("/{projectId}")
-    fun detail(
-        @AuthenticationPrincipal actor: DesktopActor,
-        @PathVariable workspaceId: UUID,
-        @PathVariable projectId: UUID,
-    ): ProjectView = projects.detail(actor.userId, workspaceId, projectId)
+    override fun detail(projectId: UUID): ResponseEntity<ProjectView> {
+        val scope = scopes.project(projectId)
+        val project = projects.detail(currentAuthenticatedActor().userId, scope.workspaceId, projectId)
+        return ResponseEntity.ok(project.toWireResponse())
+    }
 
-    @PatchMapping("/{projectId}")
-    fun edit(
-        @AuthenticationPrincipal actor: DesktopActor,
-        @PathVariable workspaceId: UUID,
-        @PathVariable projectId: UUID,
-        @RequestBody body: EditProjectRequest,
-    ): ProjectView =
-        projects.edit(
-            EditProjectCommand(
-                actor.userId,
-                workspaceId,
-                projectId,
-                body.expectedVersion,
-                body.name,
-                body.description,
-            ),
-        )
+    override fun edit(
+        projectId: UUID,
+        editProjectRequest: EditProjectRequest,
+    ): ResponseEntity<ProjectView> {
+        val scope = scopes.project(projectId)
+        val edited =
+            projects.edit(
+                EditProjectCommand(
+                    currentAuthenticatedActor().userId,
+                    scope.workspaceId,
+                    projectId,
+                    editProjectRequest.expectedVersion,
+                    editProjectRequest.name,
+                    editProjectRequest.description,
+                ),
+            )
+        return ResponseEntity.ok(edited.toWireResponse())
+    }
 
-    @PostMapping("/{projectId}/archive")
-    fun archive(
-        @AuthenticationPrincipal actor: DesktopActor,
-        @PathVariable workspaceId: UUID,
-        @PathVariable projectId: UUID,
-        @RequestBody body: ProjectStatusRequest,
-    ): ProjectView = projects.archive(ProjectStatusCommand(actor.userId, workspaceId, projectId, body.expectedVersion))
+    override fun archive(
+        projectId: UUID,
+        projectStatusRequest: ProjectStatusRequest,
+    ): ResponseEntity<ProjectView> = projectStatusChange(projectId, projectStatusRequest, projects::archive)
 
-    @PostMapping("/{projectId}/restore")
-    fun restore(
-        @AuthenticationPrincipal actor: DesktopActor,
-        @PathVariable workspaceId: UUID,
-        @PathVariable projectId: UUID,
-        @RequestBody body: ProjectStatusRequest,
-    ): ProjectView = projects.restore(ProjectStatusCommand(actor.userId, workspaceId, projectId, body.expectedVersion))
+    override fun restore(
+        projectId: UUID,
+        projectStatusRequest: ProjectStatusRequest,
+    ): ResponseEntity<ProjectView> = projectStatusChange(projectId, projectStatusRequest, projects::restore)
 
-    @PostMapping("/{projectId}/permanent-deletion")
-    fun permanentlyDelete(
-        @AuthenticationPrincipal actor: DesktopActor,
-        @PathVariable workspaceId: UUID,
-        @PathVariable projectId: UUID,
-        @RequestBody body: DeleteProjectRequest,
-    ): ResponseEntity<Void> {
+    override fun permanentlyDelete(
+        projectId: UUID,
+        deleteProjectRequest: DeleteProjectRequest,
+    ): ResponseEntity<Unit> {
+        val scope = scopes.project(projectId)
         projects.permanentlyDelete(
             DeleteProjectCommand(
-                actor.userId,
-                workspaceId,
+                currentAuthenticatedActor().userId,
+                scope.workspaceId,
                 projectId,
-                body.expectedVersion,
-                body.confirmationName,
+                deleteProjectRequest.expectedVersion,
+                deleteProjectRequest.confirmationName,
             ),
         )
         return ResponseEntity.noContent().build()
     }
+
+    private fun projectStatusChange(
+        projectId: UUID,
+        request: ProjectStatusRequest,
+        operation: (ProjectStatusCommand) -> ai.taskpilot.coreapi.project.ProjectView,
+    ): ResponseEntity<ProjectView> {
+        val scope = scopes.project(projectId)
+        val command = ProjectStatusCommand(currentAuthenticatedActor().userId, scope.workspaceId, projectId, request.expectedVersion)
+        return ResponseEntity.ok(operation(command).toWireResponse())
+    }
 }
-
-data class CreateProjectRequest(
-    val requestId: UUID,
-    val name: String,
-    val description: String?,
-    val locale: String = "en",
-)
-
-data class EditProjectRequest(
-    val expectedVersion: Long,
-    val name: String,
-    val description: String?,
-)
-
-data class ProjectStatusRequest(
-    val expectedVersion: Long,
-)
-
-data class DeleteProjectRequest(
-    val expectedVersion: Long,
-    val confirmationName: String,
-)

@@ -10,7 +10,7 @@
 每个 Work Item SHALL 具有稳定 `workItemId`、唯一 `projectId` 引用、必填标题、可选描述、版本、创建者和审计时间。当前实现尚未实现业务模型已批准的 Target Work Item 状态机；当前 Work Item 与 Card 的持久化模型和 API response MUST NOT 包含固定 `OPEN`、`lifecycle`、`status` 或等价占位字段，也 MUST NOT 暴露完成、关闭、取消或重开动作。在 Work Item Type 与自定义字段尚未实现时不要求类型版本；未来使用类型化字段的 Work Item SHALL 通过后续 Change 固定不可变 Work Item Type Version。标题 SHALL 去除首尾空白并规范化为 Unicode NFC，规范化结果 MUST 为 1 至 300 个 Unicode code point；描述 SHALL 去除首尾空白、规范化为 Unicode NFC 并限制为最多 10000 个 Unicode code point。
 
 #### Scenario: 读取 Work Item
-- **WHEN** Project OWNER 读取当前 Project 的 Work Item
+- **WHEN** Project OWNER 通过 canonical user resource API 读取当前 Project 的 Work Item
 - **THEN** 响应以 `workItemId` 标识权威记录，并返回标题、描述、版本和审计时间，且不返回 lifecycle 或 status
 
 #### Scenario: 同名 Work Item
@@ -18,7 +18,7 @@
 - **THEN** 系统以不同 `workItemId` 保存两条记录，不以标题作为身份或唯一键
 
 #### Scenario: 未支持的生命周期动作
-- **WHEN** 客户端尝试通过当前 Desktop API 完成、关闭、取消或重开 Work Item
+- **WHEN** 客户端尝试通过当前 canonical user resource API 完成、关闭、取消或重开 Work Item
 - **THEN** 当前 API 不提供该动作，也不通过 Card 移动隐式创建或改变状态
 
 #### Scenario: 当前实现没有状态能力
@@ -72,15 +72,15 @@ Project OWNER SHALL 能按稳定 ID 查看 Work Item，并以当前版本修改�
 - **THEN** Core API 返回 not-found，Work Item 内容与 Placement 全部保持不变，且不泄露资源真实归属
 
 ### Requirement: 当前切片不提供 Work Item 独立删除
-当前 Desktop API 和 UI MUST NOT 提供单独永久删除 Work Item 的动作。经 Project Danger Zone 显式确认的 Project 永久删除 MAY 按 Project 拥有关系删除其 Work Item；除此之外，未知或受保护依赖 SHALL 继续阻止无语义的数据删除。
+当前 canonical user resource API 和 UI MUST NOT 提供单独永久删除 Work Item 的动作。经 Project Danger Zone 显式确认的 Project 永久删除 MAY 按 Project 拥有关系删除其 Work Item；除此之外，未知或受保护依赖 SHALL 继续阻止无语义的数据删除。
 
 #### Scenario: 查找独立删除动作
-- **WHEN** 用户或契约测试检查当前 Work Item 操作
-- **THEN** 不存在独立删除 endpoint 或 UI 动作
+- **WHEN** 用户打开 Work Item 详情、Card 菜单或调用当前 canonical user resource API
+- **THEN** 系统不提供 Work Item 独立永久删除入口或 endpoint
 
 #### Scenario: 永久删除所属 Project
-- **WHEN** Project 永久删除已通过名称、版本、权限和依赖校验
-- **THEN** 该 Project 的 Work Item 与 Board 子资源在同一事务内被显式删除，或任一步失败时全部保留
+- **WHEN** Project OWNER 按 Project 删除规格永久删除拥有该 Work Item 的 Project
+- **THEN** Work Item 可作为已批准的 Project 子资源在同一事务被删除
 
 ### Requirement: Card 先打开权威只读 Work Item 详情
 Desktop SHALL 在用户激活 Card 后按稳定 `workItemId` 读取当前 Workspace 与 Project 范围内的权威 Work Item，并始终以实际 Work Item 标题作为 Dialog 的唯一可访问 heading 和名称，展示描述及紧凑审计时间；MUST NOT 使用“工作项详情”替代对象标题、重复渲染第二份标题字段、展示虚构的“当前看板”、展示 Placement/Column 属性行或展示 lifecycle/status。详情 SHALL 使用 content-adaptive、viewport-bounded 的稳定面板：普通短内容不得因固定高度产生大块无效留白；关闭按钮与审计 footer 在内容和字段模式切换时保持可达且位置稳定；超长内容 SHALL 由明确的内部滚动区域吸收，不得通过整面板反复调整尺寸或重新居中呈现。详情打开时 MUST NOT 自动把全部字段变为输入控件。详情的加载、not-found、暂时错误与迟到响应 SHALL 保持当前 Board 可用，不得用 Card 快照伪造一次成功详情或覆盖较新的选择。关闭详情 SHALL 把焦点恢复到原 Card；若该 Card 已因权威布局变化而不可用，则恢复到当前 Board 内最近的可理解操作。

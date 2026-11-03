@@ -9,6 +9,7 @@ import {
   federatedAuthenticationEnvironment,
   parseLocalEnvironment,
 } from './local-environment.mjs';
+import { defaultLocalSettings } from './local-settings.mjs';
 
 const hmacKey = Buffer.alloc(32, 1).toString('base64');
 const aeadKey = Buffer.alloc(32, 2).toString('base64');
@@ -20,9 +21,10 @@ const validEnvironment = [
   '',
 ].join('\n');
 const completeFederated = {
+  TASKPILOT_GATEWAY_PORT: '35432',
   TASKPILOT_GITHUB_CLIENT_ID: 'github-client-id',
   TASKPILOT_GITHUB_CLIENT_SECRET: 'github-client-secret',
-  TASKPILOT_GITHUB_CALLBACK_URI: 'http://127.0.0.1:45432/desktop/v1/auth/federated/github/callback',
+  TASKPILOT_GITHUB_CALLBACK_URI: 'http://127.0.0.1:35432/v1/provider-callbacks/github/oauth',
   TASKPILOT_FEDERATED_HMAC_KEY_BASE64: hmacKey,
   TASKPILOT_FEDERATED_AEAD_KEY_BASE64: aeadKey,
 };
@@ -45,7 +47,7 @@ test('parser rejects missing infrastructure and session secrets, unrelated keys,
 
 test('GitHub capability fails closed for absent, partial, invalid, or reused federated configuration', () => {
   assert.equal(federatedAuthenticationEnvironment({}).enabled, false);
-  for (const key of Object.keys(completeFederated)) {
+  for (const key of Object.keys(completeFederated).filter(key => key !== 'TASKPILOT_GATEWAY_PORT')) {
     const partial = { ...completeFederated };
     delete partial[key];
     assert.equal(federatedAuthenticationEnvironment(partial).enabled, false, `${key} missing`);
@@ -53,6 +55,7 @@ test('GitHub capability fails closed for absent, partial, invalid, or reused fed
   assert.equal(federatedAuthenticationEnvironment({ ...completeFederated, TASKPILOT_FEDERATED_HMAC_KEY_BASE64: 'not-base64' }).enabled, false);
   assert.equal(federatedAuthenticationEnvironment({ ...completeFederated, TASKPILOT_FEDERATED_AEAD_KEY_BASE64: hmacKey }).enabled, false);
   assert.equal(federatedAuthenticationEnvironment({ ...completeFederated, TASKPILOT_GITHUB_CALLBACK_URI: 'https://example.com/callback' }).enabled, false);
+  assert.equal(federatedAuthenticationEnvironment({ ...completeFederated, TASKPILOT_GATEWAY_PORT: '35433' }).enabled, false);
 });
 
 test('complete placeholder GitHub configuration maps only to Core API environment variables', () => {
@@ -125,6 +128,69 @@ test('existing environments gain checkout settings and independent federated key
   }
 });
 
+test('existing generated Core callback migrates to the checkout Gateway callback', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-local-environment-callback-upgrade-'));
+  const environmentPath = path.join(directory, '.env.local');
+  const root = path.join(directory, 'checkout');
+  try {
+    writeFileSync(environmentPath, [
+      validEnvironment.trimEnd(),
+      'TASKPILOT_CORE_API_PORT=45432',
+      'TASKPILOT_GITHUB_CLIENT_ID=github-client-id',
+      'TASKPILOT_GITHUB_CLIENT_SECRET=github-client-secret',
+      'TASKPILOT_GITHUB_CALLBACK_URI=http://127.0.0.1:45432/desktop/v1/auth/federated/github/callback',
+      `TASKPILOT_FEDERATED_HMAC_KEY_BASE64=${hmacKey}`,
+      `TASKPILOT_FEDERATED_AEAD_KEY_BASE64=${aeadKey}`,
+      '',
+    ].join('\n'), { mode: 0o600 });
+
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = message => warnings.push(String(message));
+    let upgraded;
+    try {
+      upgraded = ensureLocalEnvironment(environmentPath, root);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    const expectedGatewayPort = defaultLocalSettings(root).TASKPILOT_GATEWAY_PORT;
+    assert.equal(upgraded.TASKPILOT_GATEWAY_PORT, expectedGatewayPort);
+    assert.equal(
+      upgraded.TASKPILOT_GITHUB_CALLBACK_URI,
+      `http://127.0.0.1:${expectedGatewayPort}/v1/provider-callbacks/github/oauth`,
+    );
+    assert.equal(federatedAuthenticationEnvironment(upgraded).enabled, true);
+    assert.match(warnings.join('\n'), /Update the GitHub OAuth App Authorization callback URL/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('unknown custom callback is preserved and continues to fail closed', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-local-environment-custom-callback-'));
+  const environmentPath = path.join(directory, '.env.local');
+  try {
+    writeFileSync(environmentPath, [
+      validEnvironment.trimEnd(),
+      'TASKPILOT_CORE_API_PORT=45432',
+      'TASKPILOT_GATEWAY_PORT=35432',
+      'TASKPILOT_GITHUB_CLIENT_ID=github-client-id',
+      'TASKPILOT_GITHUB_CLIENT_SECRET=github-client-secret',
+      'TASKPILOT_GITHUB_CALLBACK_URI=http://127.0.0.1:9999/custom/callback',
+      `TASKPILOT_FEDERATED_HMAC_KEY_BASE64=${hmacKey}`,
+      `TASKPILOT_FEDERATED_AEAD_KEY_BASE64=${aeadKey}`,
+      '',
+    ].join('\n'), { mode: 0o600 });
+
+    const upgraded = ensureLocalEnvironment(environmentPath, path.join(directory, 'checkout'));
+    assert.equal(upgraded.TASKPILOT_GITHUB_CALLBACK_URI, 'http://127.0.0.1:9999/custom/callback');
+    assert.equal(federatedAuthenticationEnvironment(upgraded).enabled, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('retired local values are never overwritten when an archive contains a different value', () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'taskpilot-local-environment-conflict-'));
   const environmentPath = path.join(directory, '.env.local');
@@ -154,6 +220,7 @@ test('checked-in example exactly matches the documented generated template', () 
     'Local checkout',
     'PostgreSQL',
     'Redis',
+    'Gateway',
     'Core API',
     'Desktop',
     'Legal documents',

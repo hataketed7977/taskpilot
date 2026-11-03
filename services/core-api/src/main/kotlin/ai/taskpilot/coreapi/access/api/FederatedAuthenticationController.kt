@@ -1,5 +1,17 @@
 package ai.taskpilot.coreapi.access.api
 
+import ai.taskpilot.contract.generated.api.FederatedAuthenticationApi
+import ai.taskpilot.contract.generated.model.AuthenticationCapabilitiesResponse
+import ai.taskpilot.contract.generated.model.FederatedAttemptRequest
+import ai.taskpilot.contract.generated.model.FederatedAttemptResponse
+import ai.taskpilot.contract.generated.model.FederatedAttemptSecretRequest
+import ai.taskpilot.contract.generated.model.FederatedBootstrapResponse
+import ai.taskpilot.contract.generated.model.FederatedPollRequest
+import ai.taskpilot.contract.generated.model.FederatedPollResponse
+import ai.taskpilot.contract.generated.model.FederatedRegistrationRequest
+import ai.taskpilot.contract.generated.model.GitHubCapabilityResponse
+import ai.taskpilot.contract.generated.model.RegistrationPreviewResponse
+import ai.taskpilot.coreapi.AuthenticationProblemException
 import ai.taskpilot.coreapi.access.application.CreateFederatedAttemptCommand
 import ai.taskpilot.coreapi.access.application.FederatedAttemptExpired
 import ai.taskpilot.coreapi.access.application.FederatedAuthenticationInputPolicy
@@ -16,47 +28,32 @@ import ai.taskpilot.coreapi.access.application.PollFederatedAttemptCommand
 import ai.taskpilot.coreapi.access.application.RegisterFederatedUserCommand
 import ai.taskpilot.coreapi.access.model.AttemptId
 import ai.taskpilot.coreapi.access.model.ContinuationId
-import io.swagger.v3.oas.annotations.media.Schema
-import jakarta.servlet.http.HttpServletRequest
-import jakarta.validation.Valid
-import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.NotNull
-import jakarta.validation.constraints.Size
+import ai.taskpilot.coreapi.currentHttpRequest
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.CacheControl
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.net.URI
 import java.security.SecureRandom
+import java.time.ZoneOffset
 import java.util.Base64
 import java.util.UUID
 
 @RestController
-@RequestMapping("/desktop/v1/auth")
 @ConditionalOnProperty(prefix = "taskpilot.authentication", name = ["enabled"], havingValue = "true")
 class FederatedAuthenticationController(
     private val service: FederatedAuthenticationService,
-) {
-    @GetMapping("/capabilities")
-    fun capabilities() = AuthenticationCapabilitiesResponse(GitHubCapabilityResponse(service.capabilityEnabled()))
+) : FederatedAuthenticationApi {
+    override fun capabilities(): ResponseEntity<AuthenticationCapabilitiesResponse> =
+        ResponseEntity.ok(AuthenticationCapabilitiesResponse(GitHubCapabilityResponse(service.capabilityEnabled())))
 
-    @PostMapping("/federated/attempts")
-    fun createAttempt(
-        @Valid @RequestBody body: FederatedAttemptRequest,
-        request: HttpServletRequest,
-    ): ResponseEntity<FederatedAttemptResponse> =
+    override fun createAttempt(federatedAttemptRequest: FederatedAttemptRequest): ResponseEntity<FederatedAttemptResponse> =
         mapFailures {
             val completionUri =
                 try {
-                    URI.create(body.completionUri)
+                    URI.create(federatedAttemptRequest.completionUri)
                 } catch (failure: IllegalArgumentException) {
                     throw IllegalArgumentException("completionUri", failure)
                 }
@@ -64,30 +61,26 @@ class FederatedAuthenticationController(
             val created =
                 service.createAttempt(
                     CreateFederatedAttemptCommand(
-                        body.provider,
-                        body.installationId,
+                        federatedAttemptRequest.provider.value,
+                        federatedAttemptRequest.installationId,
                         completionUri,
-                        request.remoteAddr,
+                        currentHttpRequest().remoteAddr,
                     ),
                 )
-            ResponseEntity
-                .status(
-                    HttpStatus.CREATED,
-                ).body(
-                    FederatedAttemptResponse(
-                        created.attemptId.value,
-                        created.pollSecret,
-                        created.authorizationUrl,
-                        created.expiresAt,
-                    ),
-                )
+            ResponseEntity.status(HttpStatus.CREATED).body(
+                FederatedAttemptResponse(
+                    created.attemptId.value,
+                    created.pollSecret,
+                    created.authorizationUrl,
+                    created.expiresAt.atOffset(ZoneOffset.UTC),
+                ),
+            )
         }
 
-    @GetMapping("/federated/github/callback", produces = [MediaType.TEXT_HTML_VALUE])
-    fun callback(
-        @RequestParam(required = false) code: String?,
-        @RequestParam state: String,
-        @RequestParam(required = false) error: String?,
+    override fun callback(
+        state: String,
+        code: String?,
+        error: String?,
     ): ResponseEntity<String> =
         mapFailures {
             val result = service.completeCallback(FederatedCallbackCommand(state, code, error == "access_denied"))
@@ -106,47 +99,48 @@ class FederatedAuthenticationController(
                 .body(completionPage(result.completionUri, result.completionProof, nonce))
         }
 
-    @PostMapping("/federated/attempts/{attemptId}/poll")
-    fun poll(
-        @PathVariable attemptId: UUID,
-        @Valid @RequestBody body: FederatedPollRequest,
-    ): FederatedPollResponse =
+    override fun poll(
+        attemptId: UUID,
+        federatedPollRequest: FederatedPollRequest,
+    ): ResponseEntity<FederatedPollResponse> =
         mapFailures {
-            service
-                .poll(
-                    PollFederatedAttemptCommand(AttemptId(attemptId), body.pollSecret, body.completionProof),
-                ).toResponse()
+            ResponseEntity.ok(
+                service
+                    .poll(
+                        PollFederatedAttemptCommand(
+                            AttemptId(attemptId),
+                            federatedPollRequest.pollSecret,
+                            federatedPollRequest.completionProof,
+                        ),
+                    ).toWireResponse(),
+            )
         }
 
-    @PostMapping("/federated/attempts/{attemptId}/cancel")
-    fun cancel(
-        @PathVariable attemptId: UUID,
-        @Valid @RequestBody body: FederatedAttemptSecretRequest,
-    ): ResponseEntity<Void> =
+    override fun cancel(
+        attemptId: UUID,
+        federatedAttemptSecretRequest: FederatedAttemptSecretRequest,
+    ): ResponseEntity<Unit> =
         mapFailures {
-            service.cancel(AttemptId(attemptId), body.pollSecret)
+            service.cancel(AttemptId(attemptId), federatedAttemptSecretRequest.pollSecret)
             ResponseEntity.noContent().build()
         }
 
-    @PostMapping("/federated/registrations")
-    fun register(
-        @Valid @RequestBody body: FederatedRegistrationRequest,
-    ): ResponseEntity<FederatedPollResponse> =
+    override fun register(federatedRegistrationRequest: FederatedRegistrationRequest): ResponseEntity<FederatedPollResponse> =
         mapFailures {
             val result =
                 service.register(
                     RegisterFederatedUserCommand(
-                        ContinuationId(body.continuationId),
-                        body.continuationSecret,
-                        body.displayName,
-                        requireNotNull(body.useSuggestedAvatar),
-                        body.legalBundleVersion,
-                        body.termsVersion,
-                        body.privacyVersion,
-                        body.locale,
+                        ContinuationId(federatedRegistrationRequest.continuationId),
+                        federatedRegistrationRequest.continuationSecret,
+                        federatedRegistrationRequest.displayName,
+                        requireNotNull(federatedRegistrationRequest.useSuggestedAvatar),
+                        federatedRegistrationRequest.legalBundleVersion,
+                        federatedRegistrationRequest.termsVersion,
+                        federatedRegistrationRequest.privacyVersion,
+                        federatedRegistrationRequest.locale,
                     ),
                 )
-            ResponseEntity.status(HttpStatus.CREATED).body(result.toResponse())
+            ResponseEntity.status(HttpStatus.CREATED).body(result.toWireResponse())
         }
 
     private fun <T> mapFailures(block: () -> T): T =
@@ -181,14 +175,13 @@ class FederatedAuthenticationController(
         } catch (failure: IllegalArgumentException) {
             val path =
                 failure.message?.takeIf {
-                    it in
-                        setOf("provider", "installationId", "completionUri", "displayName")
+                    it in setOf("provider", "installationId", "completionUri", "displayName")
                 }
             throw AuthenticationProblemException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", path, cause = failure)
         }
 }
 
-private fun FederatedPollResult.toResponse(): FederatedPollResponse =
+private fun FederatedPollResult.toWireResponse(): FederatedPollResponse =
     when (this) {
         FederatedPollResult.Waiting -> {
             FederatedPollResponse("WAITING")
@@ -217,7 +210,7 @@ private fun FederatedPollResult.toResponse(): FederatedPollResponse =
         is FederatedPollResult.Authenticated -> {
             FederatedPollResponse(
                 "AUTHENTICATED",
-                session = SessionResponse.from(session),
+                session = session.toWireResponse(),
                 bootstrap = bootstrap?.let { FederatedBootstrapResponse(it.workspaceId, it.projectId) },
             )
         }
@@ -225,90 +218,21 @@ private fun FederatedPollResult.toResponse(): FederatedPollResponse =
         is FederatedPollResult.RegistrationRequired -> {
             FederatedPollResponse(
                 "REGISTRATION_REQUIRED",
-                RegistrationPreviewResponse(
-                    continuationId,
-                    continuationSecret,
-                    suggestedDisplayName,
-                    suggestedAvatarUrl,
-                    legalBundleVersion,
-                    termsVersion,
-                    privacyVersion,
-                    legalLocales,
-                    expiresAt,
-                ),
+                registration =
+                    RegistrationPreviewResponse(
+                        continuationId,
+                        continuationSecret,
+                        suggestedDisplayName,
+                        legalBundleVersion,
+                        termsVersion,
+                        privacyVersion,
+                        legalLocales,
+                        expiresAt.atOffset(ZoneOffset.UTC),
+                        suggestedAvatarUrl,
+                    ),
             )
         }
     }
-
-data class AuthenticationCapabilitiesResponse(
-    val github: GitHubCapabilityResponse,
-)
-
-data class GitHubCapabilityResponse(
-    val enabled: Boolean,
-)
-
-data class FederatedAttemptRequest(
-    @field:NotBlank @field:Schema(allowableValues = ["github"]) val provider: String,
-    @field:NotBlank @field:Size(max = 200) @field:Schema(pattern = "^[A-Za-z0-9_.:-]+$") val installationId: String,
-    @field:NotBlank @field:Size(max = 2048) @field:Schema(pattern = COMPLETION_URI_OPENAPI_PATTERN) val completionUri: String,
-)
-
-data class FederatedAttemptResponse(
-    val attemptId: UUID,
-    val pollSecret: String,
-    val authorizationUrl: URI,
-    val expiresAt: java.time.Instant,
-)
-
-data class FederatedPollRequest(
-    @field:NotBlank val pollSecret: String,
-    val completionProof: String? = null,
-)
-
-data class FederatedPollResponse(
-    val status: String,
-    val registration: RegistrationPreviewResponse? = null,
-    val session: SessionResponse? = null,
-    val bootstrap: FederatedBootstrapResponse? = null,
-)
-
-data class FederatedBootstrapResponse(
-    val workspaceId: UUID,
-    val projectId: UUID,
-)
-
-data class RegistrationPreviewResponse(
-    val continuationId: UUID,
-    val continuationSecret: String,
-    val suggestedDisplayName: String,
-    val suggestedAvatarUrl: URI?,
-    val legalBundleVersion: String,
-    val termsVersion: String,
-    val privacyVersion: String,
-    val legalLocales: List<String>,
-    val expiresAt: java.time.Instant,
-)
-
-data class FederatedRegistrationRequest(
-    val continuationId: UUID,
-    @field:NotBlank @field:Size(max = 512) val continuationSecret: String,
-    @field:NotBlank @field:Size(max = 200) val displayName: String,
-    @field:NotNull val useSuggestedAvatar: Boolean?,
-    @field:NotBlank @field:Size(max = 128) val legalBundleVersion: String,
-    @field:NotBlank @field:Size(max = 128) val termsVersion: String,
-    @field:NotBlank @field:Size(max = 128) val privacyVersion: String,
-    @field:NotBlank @field:Size(max = 35) val locale: String,
-)
-
-data class FederatedAttemptSecretRequest(
-    @field:NotBlank val pollSecret: String,
-)
-
-private const val COMPLETION_URI_OPENAPI_PATTERN =
-    "^http://127\\.0\\.0\\.1:(?:49(?:15[2-9]|1[6-9][0-9]|[2-9][0-9]{2})|5[0-9]{4}|" +
-        "6(?:[0-4][0-9]{3}|5(?:[0-4][0-9]{2}|5(?:[0-2][0-9]|3[0-5]))))/taskpilot/oauth/complete/" +
-        "[A-Za-z0-9_-]{32,128}$"
 
 private fun completionPage(
     completionUri: URI,

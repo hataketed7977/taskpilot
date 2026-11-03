@@ -17,3 +17,14 @@ export async function waitForHealth(check, { timeoutMs = 120_000, intervalMs = 1
   }
   throw new Error(`Service did not become healthy within ${Math.round(timeoutMs / 1000)} seconds`);
 }
+
+
+export async function gatewayReadiness(url, fetchImpl = fetch) {
+  try {
+    const response = await fetchImpl(`${url}/actuator/health/readiness`, { signal: AbortSignal.timeout(1500) });
+    if (!response.ok) return false;
+    return (await response.json()).status === 'UP';
+  } catch {
+    return false;
+  }
+}

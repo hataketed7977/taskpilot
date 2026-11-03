@@ -1,35 +1,35 @@
 import type { DesktopError } from '../../shared/contracts.js';
 
-export const CORE_API_ORIGINS = {
-  local: 'http://127.0.0.1:8080',
+export const GATEWAY_ORIGINS = {
+  local: 'http://127.0.0.1:35432',
   production: 'https://api.taskpilot.ai',
 } as const;
-export type Environment = keyof typeof CORE_API_ORIGINS;
+export type Environment = keyof typeof GATEWAY_ORIGINS;
 
 const EXACT_PATHS = new Set([
-  '/desktop/v1/auth/capabilities', '/desktop/v1/auth/federated/attempts',
-  '/desktop/v1/auth/federated/registrations', '/desktop/v1/auth/session/refresh',
-  '/desktop/v1/auth/session/logout', '/desktop/v1/me',
+  '/v1/authentication-capabilities', '/v1/federated-login-attempts',
+  '/v1/federated-registrations', '/v1/session:refresh', '/v1/session:logout', '/v1/me',
 ]);
-const FEDERATED_ATTEMPT_PATH = /^\/desktop\/v1\/auth\/federated\/attempts\/[0-9a-f-]{36}\/(?:poll|cancel)$/i;
+const FEDERATED_ATTEMPT_PATH = /^\/v1\/federated-login-attempts\/[0-9a-f-]{36}:(?:poll|cancel)$/i;
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
-const PROJECT_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects$`, 'i');
-const PROJECT_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})$`, 'i');
-const PROJECT_ACTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/(archive|restore|permanent-deletion)$`, 'i');
-const BOARD_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards$`, 'i');
-const BOARD_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})$`, 'i');
-const BOARD_PERMANENT_DELETION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/permanent-deletion$`, 'i');
-const BOARD_COLUMN_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/columns$`, 'i');
-const BOARD_COLUMN_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/columns/(${UUID})$`, 'i');
-const BOARD_COLUMN_ORDER_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/column-order$`, 'i');
-const BOARD_WORK_ITEM_COLLECTION_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/work-items$`, 'i');
-const WORK_ITEM_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/work-items/(${UUID})$`, 'i');
-const PLACEMENT_MOVE_PATH = new RegExp(`^/desktop/v1/workspaces/(${UUID})/projects/(${UUID})/boards/(${UUID})/placements/(${UUID})/move$`, 'i');
+const PROJECT_COLLECTION_PATH = new RegExp(`^/v1/workspaces/(${UUID})/projects$`, 'i');
+const PROJECT_ITEM_PATH = new RegExp(`^/v1/projects/(${UUID})$`, 'i');
+const PROJECT_ACTION_PATH = new RegExp(`^/v1/projects/(${UUID}):(archive|restore|permanentlyDelete)$`, 'i');
+const BOARD_COLLECTION_PATH = new RegExp(`^/v1/projects/(${UUID})/boards$`, 'i');
+const BOARD_ITEM_PATH = new RegExp(`^/v1/boards/(${UUID})$`, 'i');
+const BOARD_PERMANENT_DELETION_PATH = new RegExp(`^/v1/boards/(${UUID}):permanentlyDelete$`, 'i');
+const BOARD_COLUMN_COLLECTION_PATH = new RegExp(`^/v1/boards/(${UUID})/columns$`, 'i');
+const BOARD_COLUMN_ITEM_PATH = new RegExp(`^/v1/columns/(${UUID})$`, 'i');
+const BOARD_COLUMN_ORDER_PATH = new RegExp(`^/v1/boards/(${UUID})/column-order$`, 'i');
+const BOARD_WORK_ITEM_COLLECTION_PATH = new RegExp(`^/v1/boards/(${UUID})/work-items$`, 'i');
+const WORK_ITEM_PATH = new RegExp(`^/v1/work-items/(${UUID})$`, 'i');
+const PLACEMENT_MOVE_PATH = new RegExp(`^/v1/boards/(${UUID})/placements/(${UUID}):move$`, 'i');
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const GATEWAY_TRANSPORT_PROBLEM_TYPE = 'https://taskpilot.ai/problems/gateway-transport';
 
 export interface TransportRequest { method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'; path: string; body?: unknown; accessToken?: string; idempotencyKey?: string; timeoutMs?: number; outcomeUnknownOnNetworkFailure?: boolean }
 export interface HttpTransport { request<T>(request: TransportRequest): Promise<T> }
-export class TransportError extends Error { constructor(public readonly detail: DesktopError, public readonly status?: number) { super(detail.code); } }
+export class TransportError extends Error { constructor(public readonly detail: DesktopError, public readonly status?: number, public readonly gatewayTransportFailure = false) { super(detail.code); } }
 export class OutcomeUnknownError extends Error { constructor() { super('Request outcome is unknown'); } }
 
 export class FixedHttpTransport implements HttpTransport {
@@ -62,31 +62,45 @@ export class FixedHttpTransport implements HttpTransport {
       if (!response.ok) throw mapProblem(response.status, payload);
       return payload as T;
     } catch (error) {
-      if (request.outcomeUnknownOnNetworkFailure && isNetworkFailure(error)) throw new OutcomeUnknownError();
+      if (request.outcomeUnknownOnNetworkFailure && isOutcomeUnknownFailure(error)) throw new OutcomeUnknownError();
       throw error;
     } finally { clearTimeout(timeout); }
   }
 }
 function resolveOrigin(environment: Environment, originOverride?: string): string {
-  if (originOverride === undefined) return CORE_API_ORIGINS[environment];
-  if (environment !== 'local') throw new Error('Invalid Core API origin override');
+  if (originOverride === undefined) return GATEWAY_ORIGINS[environment];
+  if (environment !== 'local') throw new Error('Invalid Gateway origin override');
   let parsed: URL;
-  try { parsed = new URL(originOverride); } catch { throw new Error('Invalid Core API origin override'); }
+  try { parsed = new URL(originOverride); } catch { throw new Error('Invalid Gateway origin override'); }
   const port = Number(parsed.port);
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1' || !Number.isInteger(port) || port < 1 || port > 65_535
     || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.origin !== originOverride) {
-    throw new Error('Invalid Core API origin override');
+    throw new Error('Invalid Gateway origin override');
   }
   return parsed.origin;
 }
 
-function isNetworkFailure(error: unknown): boolean {
-  return error instanceof TypeError || (error instanceof DOMException && error.name === 'AbortError');
+const GATEWAY_OUTCOME_UNKNOWN_CODES = new Set([
+  'GATEWAY_UPSTREAM_TIMEOUT',
+  'GATEWAY_UPSTREAM_UNAVAILABLE',
+  'GATEWAY_RESPONSE_HEADERS_TOO_LARGE',
+  'GATEWAY_RESPONSE_TOO_LARGE',
+]);
+
+function isOutcomeUnknownFailure(error: unknown): boolean {
+  return error instanceof TypeError
+    || (error instanceof DOMException && error.name === 'AbortError')
+    || (error instanceof TransportError && error.gatewayTransportFailure
+      && GATEWAY_OUTCOME_UNKNOWN_CODES.has(error.detail.code));
 }
 function mapProblem(status: number, payload: unknown): TransportError {
   const value = typeof payload === 'object' && payload !== null ? payload as Record<string, unknown> : {};
   const category: DesktopError['category'] = status === 400 ? 'validation' : status === 401 ? 'authentication' : status === 403 ? 'authorization' : status === 409 ? 'conflict' : status >= 500 ? 'temporary' : 'unknown';
-  return new TransportError({ code: typeof value.code === 'string' ? value.code : 'UNEXPECTED_RESPONSE', category, path: typeof value.path === 'string' ? value.path : undefined, retryAfterSeconds: typeof value.retryAfterSeconds === 'number' ? value.retryAfterSeconds : undefined }, status);
+  return new TransportError(
+    { code: typeof value.code === 'string' ? value.code : 'UNEXPECTED_RESPONSE', category, path: typeof value.path === 'string' ? value.path : undefined, retryAfterSeconds: typeof value.retryAfterSeconds === 'number' ? value.retryAfterSeconds : undefined },
+    status,
+    value.type === GATEWAY_TRANSPORT_PROBLEM_TYPE,
+  );
 }
 
 
@@ -95,7 +109,7 @@ function isAllowlistedRequest(request: TransportRequest): boolean {
   const [pathname, query = ''] = request.path.split('?', 2);
   if (EXACT_PATHS.has(pathname!)) return query === '' && allowedExactMethod(pathname!, request.method);
   if (FEDERATED_ATTEMPT_PATH.test(pathname!)) return query === '' && request.method === 'POST';
-  if (pathname === '/desktop/v1/workspaces') return query === '' && request.method === 'GET';
+  if (pathname === '/v1/workspaces') return query === '' && request.method === 'GET';
   if (PROJECT_COLLECTION_PATH.test(pathname!)) {
     return request.method === 'GET' ? validProjectQuery(query) : request.method === 'POST' && query === '';
   }
@@ -117,7 +131,7 @@ function isAllowlistedRequest(request: TransportRequest): boolean {
 }
 
 function allowedExactMethod(path: string, method: TransportRequest['method']): boolean {
-  return path === '/desktop/v1/auth/capabilities' || path === '/desktop/v1/me' ? method === 'GET' : method === 'POST';
+  return path === '/v1/authentication-capabilities' || path === '/v1/me' ? method === 'GET' : method === 'POST';
 }
 
 function validProjectQuery(query: string): boolean {

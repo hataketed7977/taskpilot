@@ -80,7 +80,7 @@ export class ProjectWorkClient implements ProjectWorkPort {
   async permanentlyDeleteBoard(accessToken: string, input: DeleteBoardInput) {
     await this.transport.request({
       method: 'POST',
-      path: `${this.board(input)}/permanent-deletion`,
+      path: `${this.board(input)}:permanentlyDelete`,
       body: { expectedVersion: input.expectedVersion, confirmationName: input.confirmationName },
       accessToken,
       outcomeUnknownOnNetworkFailure: true,
@@ -96,7 +96,7 @@ export class ProjectWorkClient implements ProjectWorkPort {
       expectedColumnVersion: input.expectedColumnVersion,
       name: input.name,
     };
-    return board.parse(await this.transport.request({ method: 'PATCH', path: `${this.board(input)}/columns/${input.columnId}`, body, accessToken }));
+    return board.parse(await this.transport.request({ method: 'PATCH', path: `/v1/columns/${input.columnId}`, body, accessToken }));
   }
   async reorderColumns(accessToken: string, input: ReorderColumnsInput) {
     const body = { expectedBoardVersion: input.expectedBoardVersion, columnIds: input.columnIds };
@@ -107,7 +107,7 @@ export class ProjectWorkClient implements ProjectWorkPort {
       expectedBoardVersion: String(input.expectedBoardVersion),
       expectedColumnVersion: String(input.expectedColumnVersion),
     });
-    await this.transport.request({ method: 'DELETE', path: `${this.board(input)}/columns/${input.columnId}?${query}`, accessToken });
+    await this.transport.request({ method: 'DELETE', path: `/v1/columns/${input.columnId}?${query}`, accessToken });
   }
   async createWorkItem(accessToken: string, input: CreateWorkItemInput) {
     const body = {
@@ -142,11 +142,11 @@ export class ProjectWorkClient implements ProjectWorkPort {
       targetColumnId: input.targetColumnId,
       beforeWorkItemId: input.beforeWorkItemId,
     };
-    return board.parse(await this.transport.request({ method: 'POST', path: `${this.board(input)}/placements/${input.workItemId}/move`, body, accessToken }));
+    return board.parse(await this.transport.request({ method: 'POST', path: `${this.board(input)}/placements/${input.workItemId}:move`, body, accessToken }));
   }
 
-  private projects(input: ProjectLocationInput) { return `/desktop/v1/workspaces/${input.workspaceId}/projects/${input.projectId}`; }
+  private projects(input: ProjectLocationInput) { return `/v1/projects/${input.projectId}`; }
   private boards(input: ProjectLocationInput) { return `${this.projects(input)}/boards`; }
-  private board(input: BoardLocationInput) { return `${this.boards(input)}/${input.boardId}`; }
-  private workItem(input: WorkItemLocationInput) { return `${this.projects(input)}/work-items/${input.workItemId}`; }
+  private board(input: BoardLocationInput) { return `/v1/boards/${input.boardId}`; }
+  private workItem(input: WorkItemLocationInput) { return `/v1/work-items/${input.workItemId}`; }
 }
