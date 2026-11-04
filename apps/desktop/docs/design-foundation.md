@@ -332,14 +332,14 @@ Placement/Column property row, or Work Item state. The Board canvas expresses
 location, and Board drag remains the movement entry point.
 
 The sheet uses a viewport-responsive stable work surface. At a standard desktop
-window it is approximately `760 × 480px`; width and height both contract to
+window it is approximately `760 × 620px`; width and height both contract to
 viewport-safe margins in smaller windows. Its header/close control and audit
 footer stay pinned, the description body absorbs ordinary free space, and only
-the middle content region scrolls when content is long. Entering or leaving edit mode, pending saves, saved feedback, validation
-errors, temporary failures, and conflicts never resize or recenter the shell
-unless the state introduces a genuine new content footprint. Opening the sheet
-moves semantic focus to its unique heading without visually selecting an editable
-field.
+the middle content region scrolls when content is long. Entering or leaving edit
+mode, pending saves, saved feedback, validation errors, temporary failures, and
+conflicts never resize or recenter the shell unless the state introduces a
+genuine new content footprint. Opening the sheet moves semantic focus to its
+unique heading without visually selecting an editable field.
 
 Static fields remain flat rather than permanent outlined cards or selected
 surfaces. Pointer hover may reveal a low-contrast local surface, while keyboard
@@ -350,18 +350,21 @@ read and edit surfaces. The title trigger and input use the entire width left of
 the close control, retain an approximately 16px gap, share single-line metrics,
 structural box model, and actual text origin, and truncate long read values with
 an ellipsis while preserving the full value for editing and accessibility. Title
-editing uses the same reserved full-width field boundary and caret as the read state, matching the description editor while preserving a stable text origin. The description trigger and textarea span the content width and share
-the same flexible multiline body, with an approximately `128px` minimum. Both read and edit text begin at the same left-top padded origin, so the
-surface behaves like a normal writing area rather than vertically centering short
-content; the body expands within the stable desktop sheet and contracts safely
-with the viewport. The “描述”/“Description” label stays mounted in every mode.
+editing uses the same reserved full-width field boundary and caret as the read state, matching the description editor while preserving a stable text origin. The description trigger and textarea use the same property grid as the people metadata: the “描述”/“Description” label remains in the fixed label column, while the writing surface starts on the shared value column and stays wide to the right edge of the content area. The multiline body keeps an approximately `128px` minimum. Both read and edit text begin at the same left-top padded origin, so the surface behaves like a normal writing area rather than vertically centering short content; the body expands within the stable desktop sheet and contracts safely with the viewport. The label stays mounted in every mode.
 
 Only one field becomes editable at a time, with local draft and error treatment;
 the other field stays readable. Pending state keeps the editor and draft mounted
 and shows saving feedback until the authoritative result arrives, and IME
 composition Enter never submits. The interaction follows one Quiet Precision
 direction: hover/focus reveals the editable affordance without introducing a
-permanent action bar, decorative gradient, or second design system. Title saves
+permanent action bar, decorative gradient, or second design system. The
+responsibility selector and immutable creator are secondary Work Item metadata:
+they sit in a quiet property strip directly under the title and before the
+writing body, never in a heavy card, inspector, or duplicate heading block. The selector shows Project members
+with avatar/name/role, supports unassigned as a valid business state, and treats
+missing member results as an exceptional retry/reopen state because the Project
+owner should normally be returned by the API. Creator display remains read-only
+and never implies the creator is automatically responsible. Title saves
 with `Enter` or true focus exit; description keeps ordinary `Enter` for newlines
 and saves on true focus exit or `Ctrl/Cmd+Enter`. A field `Escape` discards only
 its unsubmitted draft. Switching fields or dismissing the detail saves a dirty

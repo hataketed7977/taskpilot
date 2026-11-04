@@ -15,6 +15,7 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const PROJECT_COLLECTION_PATH = new RegExp(`^/v1/workspaces/(${UUID})/projects$`, 'i');
 const PROJECT_ITEM_PATH = new RegExp(`^/v1/projects/(${UUID})$`, 'i');
 const PROJECT_ACTION_PATH = new RegExp(`^/v1/projects/(${UUID}):(archive|restore|permanentlyDelete)$`, 'i');
+const PROJECT_MEMBER_COLLECTION_PATH = new RegExp(`^/v1/projects/(${UUID})/members$`, 'i');
 const BOARD_COLLECTION_PATH = new RegExp(`^/v1/projects/(${UUID})/boards$`, 'i');
 const BOARD_ITEM_PATH = new RegExp(`^/v1/boards/(${UUID})$`, 'i');
 const BOARD_PERMANENT_DELETION_PATH = new RegExp(`^/v1/boards/(${UUID}):permanentlyDelete$`, 'i');
@@ -115,6 +116,7 @@ function isAllowlistedRequest(request: TransportRequest): boolean {
   }
   if (PROJECT_ITEM_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'PATCH');
   if (PROJECT_ACTION_PATH.test(pathname!)) return query === '' && request.method === 'POST';
+  if (PROJECT_MEMBER_COLLECTION_PATH.test(pathname!)) return query === '' && request.method === 'GET';
   if (BOARD_COLLECTION_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'POST');
   if (BOARD_ITEM_PATH.test(pathname!)) return query === '' && (request.method === 'GET' || request.method === 'PATCH');
   if (BOARD_PERMANENT_DELETION_PATH.test(pathname!)) return query === '' && request.method === 'POST';

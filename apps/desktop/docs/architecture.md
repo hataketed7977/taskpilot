@@ -301,12 +301,12 @@ restore, refresh, and logout; and an authenticated Project home. Renderer shows
 the fixed personal Workspace context, ACTIVE Project navigation, truthful
 loading/error/empty states, create/edit/archive/restore/permanent-delete
 interactions, multiple Board navigation and Board/Column/Work Item operations,
-including empty-Board permanent deletion, authoritative read-only Work Item
-detail, field-local editing, pointer and keyboard Card movement,
+including empty-Board permanent deletion, authoritative Work Item
+detail with an editable current-assignee property and immutable creator in the audit footer, plus fixed-height Board Cards whose bounded title/description slots reserve the top-right corner for an assigned-member avatar without changing Card geometry, field-local editing, pointer and keyboard Card movement,
 account/language controls, and logout. Activating a Card first requests
 `openWorkItem`; the Card projection supplies only location/loading context and
 never substitutes for the returned Work Item. Renderer owns the detail's
-loading, error, read-only, single-field editing, implicit saving, transient saved,
+loading, error, read-only, single-field editing, assignee selection, implicit saving, transient saved,
 pending-intent, validation/error recovery, and conflict presentation states. Main
 also owns fixed-method-and-path Workspace/Project and Project Work clients,
 validates typed responses at
@@ -319,13 +319,13 @@ as non-blocking. The preference is JSON stored under Desktop user data and keyed
 by cloud environment plus `UserId`; it is not business truth. Agent Runtime is
 not started.
 
-Current shared Work Item/Card contracts and strict Main Zod parsers contain no
-`lifecycle` or `status`; legacy fields fail closed rather than being optional or
+Current shared Work Item/Card contracts and strict Main Zod parsers contain `createdBy` and nullable `assignee`, accept the current `PROJECT_MEMBER` assignee target, expose Project Member candidate listing, and contain no
+`lifecycle`, `status`, history, or activity fields; legacy or future unsupported fields fail closed rather than being optional or
 silently stripped. Renderer displays the actual title as the unique single-line
-Dialog heading, a full-width multiline description body, and the audit footer.
+Dialog heading, a stable editable assignee property row, a full-width multiline description body, and an audit footer that aligns the immutable creator with created/updated timestamps.
 Placement remains authoritative data but has no property row or editor in the
 Focused Work Sheet; the Board canvas expresses location and Board drag is the
-movement entry point. The sheet uses an approximately `760 × 480px` standard desktop work surface that
+movement entry point. The sheet uses an approximately `760 × 560px` standard desktop work surface that
 contracts to viewport-safe margins in both axes: header/close and audit footer
 stay pinned, the description body absorbs ordinary free space, only the middle
 content region scrolls when needed, and read/edit description surfaces share the
@@ -336,17 +336,19 @@ positioned adjacent without a permanent layout slot; generic dialogs retain
 their existing header behavior.
 
 Preload currently exposes fixed typed `workspaces`, `projects`, and `boards`
-capabilities in addition to authentication. Board permanent deletion and Work
-Item detail/update are fixed capabilities; Main alone owns their authenticated
+capabilities in addition to authentication. Board permanent deletion, Work
+Item detail/update, assignee patch mutation, and Project Member candidate listing are fixed capabilities; Main alone owns their authenticated
 URLs, current credentials, recent-Board preference cleanup, and deletion
 reconciliation. Work Item saves use the latest confirmed detail baseline; title
 saves on Enter or true focus exit, and description saves on true focus exit or
 Ctrl/Cmd+Enter. Each content save preserves the confirmed Board/Column Placement
 context required by the atomic API, but the detail UI does not change Placement.
-Dirty close or field-switch intent waits for one in-flight save before continuing;
-ordinary successful edits expose only transient saving/saved feedback, while
-validation, temporary failure, and conflict retain the field draft for explicit
-recovery. Version conflicts reload authoritative Work Item and Board snapshots before
+Dirty close, field-switch, or assignee-open intent waits for one in-flight save before continuing.
+The assignee control remains available while a title or description field is being edited;
+requesting it saves a dirty draft first and opens/focuses the picker only after the
+authoritative save succeeds. Validation, temporary failure, and conflict keep the draft
+and recovery path visible and do not open the picker. Ordinary successful edits expose
+only transient saving/saved feedback. Version conflicts reload authoritative Work Item and Board snapshots before
 Renderer presents the latest value beside the retained local draft. IPC
 validates channel-specific schemas, sender,
 top frame, Renderer origin, payload size, and window/session generation. Results

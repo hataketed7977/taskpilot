@@ -138,6 +138,7 @@ CREATE TABLE project.project_memberships (
     CONSTRAINT fk_project_memberships__users FOREIGN KEY (user_id)
         REFERENCES access.users(id) ON DELETE RESTRICT,
     CONSTRAINT uq_project_memberships__project_user UNIQUE (project_id, user_id),
+    CONSTRAINT uq_project_memberships__project_id_id UNIQUE (project_id, id),
     CONSTRAINT ck_project_memberships__role_supported CHECK (role = 'OWNER')
 );
 
@@ -210,6 +211,8 @@ CREATE TABLE project.work_items (
     description TEXT NOT NULL DEFAULT '',
     version BIGINT NOT NULL,
     created_by_user_id UUID NOT NULL,
+    assignee_target_type VARCHAR(64),
+    assignee_project_membership_id UUID,
     create_request_id UUID NOT NULL,
     create_request_fingerprint VARCHAR(128) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
@@ -220,16 +223,27 @@ CREATE TABLE project.work_items (
         REFERENCES project.projects(id) ON DELETE RESTRICT,
     CONSTRAINT fk_work_items__created_by_users FOREIGN KEY (created_by_user_id)
         REFERENCES access.users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_work_items__assignee_project_memberships FOREIGN KEY (project_id, assignee_project_membership_id)
+        REFERENCES project.project_memberships(project_id, id) ON DELETE RESTRICT,
     CONSTRAINT uq_work_items__project_actor_request
         UNIQUE (project_id, created_by_user_id, create_request_id),
     CONSTRAINT ck_work_items__title_not_blank CHECK (btrim(title) <> ''),
     CONSTRAINT ck_work_items__description_length CHECK (char_length(description) <= 10000),
     CONSTRAINT ck_work_items__version_non_negative CHECK (version >= 0),
+    CONSTRAINT ck_work_items__assignee_supported CHECK (
+        (assignee_target_type IS NULL AND assignee_project_membership_id IS NULL)
+        OR (assignee_target_type IS NOT NULL AND assignee_target_type = 'PROJECT_MEMBER'
+            AND assignee_project_membership_id IS NOT NULL)
+    ),
     CONSTRAINT ck_work_items__request_fingerprint_not_blank CHECK (btrim(create_request_fingerprint) <> '')
 );
 
 CREATE INDEX ix_work_items__project_created_id
     ON project.work_items (project_id, created_at, id);
+
+CREATE INDEX ix_work_items__assignee_project_membership
+    ON project.work_items (project_id, assignee_project_membership_id)
+    WHERE assignee_project_membership_id IS NOT NULL;
 
 CREATE TABLE project.board_placements (
     id UUID,

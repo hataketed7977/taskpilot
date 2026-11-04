@@ -1,5 +1,8 @@
 package ai.taskpilot.coreapi
 
+import ai.taskpilot.coreapi.project.AssigneePatch
+import ai.taskpilot.coreapi.project.AssigneePatchAction
+import ai.taskpilot.coreapi.project.AssigneeSelection
 import ai.taskpilot.coreapi.project.BoardDeleteRestricted
 import ai.taskpilot.coreapi.project.BoardNameConfirmationMismatch
 import ai.taskpilot.coreapi.project.BoardNotEmptyConflict
@@ -276,11 +279,13 @@ class ProjectWorkApplicationIntegrationTest {
                 ),
             )
         assertEquals(
-            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt"),
+            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt", "createdBy", "assignee"),
             created.workItem.javaClass.declaredFields
                 .map { it.name }
                 .toSet(),
         )
+        assertEquals(f.owner, created.workItem.createdBy.userId)
+        assertEquals(null, created.workItem.assignee)
         assertEquals(2, created.board.version)
         val replay =
             work.createWorkItem(
@@ -370,6 +375,297 @@ class ProjectWorkApplicationIntegrationTest {
         assertFailsWith<ColumnNotEmptyConflict> {
             work.deleteColumn(DeleteColumnCommand(f.owner, f.workspace, f.project, f.board.boardId, secondColumn.columnId, 3, 0))
         }
+    }
+
+    @Test fun `work item exposes creator and project member assignee across create replay edit clear and cards`() {
+        val f = fixtureProject()
+        val column = f.board.columns.single()
+        val firstMember = addProjectMember(f.project, "Ada Assignee")
+        val secondMember = addProjectMember(f.project, "Grace Assignee")
+        val request = UUID.randomUUID()
+
+        val created =
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    column.columnId,
+                    request,
+                    0,
+                    "Assigned",
+                    "Owned",
+                    AssigneeSelection("PROJECT_MEMBER", firstMember),
+                ),
+            )
+
+        assertEquals(f.owner, created.workItem.createdBy.userId)
+        assertEquals("Owner", created.workItem.createdBy.displayName)
+        assertEquals(firstMember, created.workItem.assignee?.projectMemberId)
+        assertEquals("PROJECT_MEMBER", created.workItem.assignee?.targetType)
+        assertEquals(
+            "Ada Assignee",
+            created.workItem.assignee
+                ?.user
+                ?.displayName,
+        )
+        assertEquals(
+            firstMember,
+            created.board.columns
+                .single()
+                .cards
+                .single()
+                .assignee
+                ?.projectMemberId,
+        )
+
+        val replay =
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    column.columnId,
+                    request,
+                    0,
+                    "Assigned",
+                    "Owned",
+                    AssigneeSelection("PROJECT_MEMBER", firstMember),
+                ),
+            )
+        assertEquals(created.workItem.workItemId, replay.workItem.workItemId)
+        assertFailsWith<ProjectWorkIdempotencyConflict> {
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    column.columnId,
+                    request,
+                    0,
+                    "Assigned",
+                    "Owned",
+                    AssigneeSelection("PROJECT_MEMBER", secondMember),
+                ),
+            )
+        }
+
+        val reassigned =
+            work.editWorkItem(
+                EditWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    created.workItem.workItemId,
+                    f.board.boardId,
+                    column.columnId,
+                    column.columnId,
+                    null,
+                    null,
+                    0,
+                    "Assigned",
+                    "Owned",
+                    AssigneePatch(AssigneePatchAction.SET, AssigneeSelection("PROJECT_MEMBER", secondMember)),
+                ),
+            )
+        assertEquals(1, reassigned.workItem.version)
+        assertEquals(f.owner, reassigned.workItem.createdBy.userId)
+        assertEquals(secondMember, reassigned.workItem.assignee?.projectMemberId)
+        assertEquals(
+            secondMember,
+            reassigned.board.columns
+                .single()
+                .cards
+                .single()
+                .assignee
+                ?.projectMemberId,
+        )
+        assertEquals(1, reassigned.board.version, "assignee-only edit must not change Board layout version")
+
+        val cleared =
+            work.editWorkItem(
+                EditWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    created.workItem.workItemId,
+                    f.board.boardId,
+                    column.columnId,
+                    column.columnId,
+                    null,
+                    null,
+                    1,
+                    "Assigned",
+                    "Owned",
+                    AssigneePatch(AssigneePatchAction.CLEAR, null),
+                ),
+            )
+        assertEquals(2, cleared.workItem.version)
+        assertEquals(f.owner, cleared.workItem.createdBy.userId)
+        assertEquals(null, cleared.workItem.assignee)
+        assertEquals(
+            null,
+            cleared.board.columns
+                .single()
+                .cards
+                .single()
+                .assignee,
+        )
+    }
+
+    @Test fun `project member candidates are active project scoped and authorization checked`() {
+        val f = fixtureProject()
+        val ownerMember = projectMemberId(f.project, f.owner)
+        val activeMember = addProjectMember(f.project, "Ada Member")
+        addProjectMember(f.project, "Disabled Member", status = "DISABLED")
+        val otherProject = fixtureProject()
+        addProjectMember(otherProject.project, "Other Project Member")
+
+        val members = work.listProjectMembers(f.owner, f.workspace, f.project)
+
+        assertEquals(listOf("Ada Member", "Owner"), members.map { it.user.displayName })
+        assertEquals(setOf(ownerMember, activeMember), members.map { it.projectMemberId }.toSet())
+        assertEquals(setOf("OWNER"), members.map { it.role }.toSet())
+        assertFailsWith<ProjectWorkNotFound> { work.listProjectMembers(otherProject.owner, f.workspace, f.project) }
+    }
+
+    @Test fun `invalid assignee targets are rejected atomically`() {
+        val f = fixtureProject()
+        val source = f.board.columns.single()
+        val expanded =
+            work.createColumn(
+                CreateColumnCommand(f.owner, f.workspace, f.project, f.board.boardId, UUID.randomUUID(), 0, "Doing"),
+            )
+        val target = expanded.columns.last()
+        val otherProject = fixtureProject()
+        val crossProjectMember = projectMemberId(otherProject.project, otherProject.owner)
+        val inactiveMember = addProjectMember(f.project, "Inactive Assignee", status = "DISABLED")
+
+        assertFailsWith<ProjectWorkValidationFailed> {
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    source.columnId,
+                    UUID.randomUUID(),
+                    1,
+                    "Bad",
+                    null,
+                    AssigneeSelection("PROJECT_AGENT_BINDING", UUID.randomUUID()),
+                ),
+            )
+        }.also { assertEquals("assignee.targetType", it.path) }
+        assertFailsWith<ProjectWorkValidationFailed> {
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    source.columnId,
+                    UUID.randomUUID(),
+                    1,
+                    "Bad",
+                    null,
+                    AssigneeSelection("PROJECT_MEMBER", UUID.randomUUID()),
+                ),
+            )
+        }.also { assertEquals("assignee.projectMemberId", it.path) }
+        assertFailsWith<ProjectWorkValidationFailed> {
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    source.columnId,
+                    UUID.randomUUID(),
+                    1,
+                    "Bad",
+                    null,
+                    AssigneeSelection("PROJECT_MEMBER", crossProjectMember),
+                ),
+            )
+        }
+        assertFailsWith<ProjectWorkValidationFailed> {
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    source.columnId,
+                    UUID.randomUUID(),
+                    1,
+                    "Bad",
+                    null,
+                    AssigneeSelection("PROJECT_MEMBER", inactiveMember),
+                ),
+            )
+        }
+        assertEquals(
+            0,
+            jdbc.queryForObject("SELECT count(*) FROM project.work_items WHERE project_id = ?", Int::class.java, f.project),
+        )
+        assertEquals(1, work.board(f.owner, f.workspace, f.project, f.board.boardId).version)
+
+        val created =
+            work.createWorkItem(
+                CreateWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    source.columnId,
+                    UUID.randomUUID(),
+                    1,
+                    "Original",
+                    null,
+                ),
+            )
+        assertFailsWith<ProjectWorkValidationFailed> {
+            work.editWorkItem(
+                EditWorkItemCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    created.workItem.workItemId,
+                    f.board.boardId,
+                    source.columnId,
+                    target.columnId,
+                    2,
+                    0,
+                    0,
+                    "Should roll back",
+                    "No partial write",
+                    AssigneePatch(
+                        AssigneePatchAction.SET,
+                        AssigneeSelection("PROJECT_MEMBER", crossProjectMember),
+                    ),
+                ),
+            )
+        }
+        assertEquals("Original", work.workItem(f.owner, f.workspace, f.project, created.workItem.workItemId).title)
+        val board = work.board(f.owner, f.workspace, f.project, f.board.boardId)
+        assertEquals(
+            listOf(created.workItem.workItemId),
+            board.columns
+                .single { it.columnId == source.columnId }
+                .cards
+                .map { it.workItemId },
+        )
+        assertEquals(
+            emptyList(),
+            board.columns
+                .single { it.columnId == target.columnId }
+                .cards
+                .map { it.workItemId },
+        )
     }
 
     @Test fun `board column and placement conflicts keep authoritative versions`() {
@@ -1149,6 +1445,41 @@ class ProjectWorkApplicationIntegrationTest {
             pool.shutdownNow()
         }
     }
+
+    private fun addProjectMember(
+        projectId: UUID,
+        displayName: String,
+        status: String = "ACTIVE",
+    ): UUID {
+        val userId = UUID.randomUUID()
+        val membershipId = UUID.randomUUID()
+        jdbc.update(
+            "INSERT INTO access.users (id, display_name, status, created_at) VALUES (?, ?, ?, ?)",
+            userId,
+            displayName,
+            status,
+            now.atOffset(ZoneOffset.UTC),
+        )
+        jdbc.update(
+            "INSERT INTO project.project_memberships (id, project_id, user_id, role, created_at) VALUES (?, ?, ?, 'OWNER', ?)",
+            membershipId,
+            projectId,
+            userId,
+            now.atOffset(ZoneOffset.UTC),
+        )
+        return membershipId
+    }
+
+    private fun projectMemberId(
+        projectId: UUID,
+        userId: UUID,
+    ): UUID =
+        jdbc.queryForObject(
+            "SELECT id FROM project.project_memberships WHERE project_id = ? AND user_id = ?",
+            UUID::class.java,
+            projectId,
+            userId,
+        )!!
 
     private fun fixtureProject(): Fixture {
         val (owner, workspace) = fixtureAccount()

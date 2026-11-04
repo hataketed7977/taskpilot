@@ -40,6 +40,41 @@ class ContractToolTest {
     }
 
     @Test
+    fun `checked-in contract exposes work item creator assignee and project member candidates only`() {
+        val api = parse(java.nio.file.Path.of("openapi.yaml"))
+        val schemas = api.components.schemas
+
+        val membersOperation = api.paths["/v1/projects/{projectId}/members"]?.get
+            ?: error("Project Member list endpoint is missing")
+        assertEquals("listProjectMembers", membersOperation.operationId)
+        assertEquals("canonical", membersOperation.extensions["x-taskpilot-ingress"])
+        assertEquals(listOf("accessBearer"), membersOperation.security.single().keys.toList())
+
+        val workItem = schemas["WorkItemView"] ?: error("WorkItemView schema is missing")
+        val card = schemas["CardView"] ?: error("CardView schema is missing")
+        assertTrue(workItem.properties.containsKey("createdBy"))
+        assertTrue(workItem.properties.containsKey("assignee"))
+        assertTrue(card.properties.containsKey("assignee"))
+
+        assertTrue(schemas.containsKey("PersonSummary"))
+        assertTrue(schemas.containsKey("AssigneeTarget"))
+        assertTrue(schemas.containsKey("ProjectMemberAssignee"))
+        assertTrue(schemas.containsKey("ProjectMemberSummary"))
+        assertTrue(schemas.containsKey("ProjectMemberList"))
+        assertTrue(schemas.containsKey("AssigneePatch"))
+
+        val projectMemberAssignee = schemas.getValue("ProjectMemberAssignee")
+        val targetType = projectMemberAssignee.properties.getValue("targetType")
+        assertEquals(listOf("PROJECT_MEMBER"), targetType.enum)
+
+        assertTrue(api.paths.keys.none { it.contains("history", ignoreCase = true) })
+        assertTrue(api.paths.keys.none { it.contains("versions", ignoreCase = true) })
+        assertTrue(api.paths.keys.none { it.contains("activity", ignoreCase = true) })
+        assertTrue(api.paths.keys.none { it.contains("agent", ignoreCase = true) })
+        assertTrue(api.paths.keys.none { it.contains("project-memberships", ignoreCase = true) })
+    }
+
+    @Test
     fun `approved secret field is valid without example or default`() {
         validate(minimalApi(StringSchema()))
     }

@@ -7,6 +7,7 @@ import {
 } from '../../../../src/renderer/features/detail/work-item-detail-state';
 
 const now = '2026-10-22T00:00:00Z';
+const creator = { userId: 'user-1', displayName: 'Creator', avatarUrl: null };
 const workItem: WorkItemView = {
   workItemId: '77777777-7777-4777-8777-777777777777',
   projectId: '33333333-3333-4333-8333-333333333333',
@@ -15,6 +16,8 @@ const workItem: WorkItemView = {
   version: 4,
   createdAt: now,
   updatedAt: now,
+  createdBy: creator,
+  assignee: null,
 };
 const board: BoardView = {
   boardId: '44444444-4444-4444-8444-444444444444',
@@ -38,6 +41,7 @@ const board: BoardView = {
       workItemVersion: 3,
       placementVersion: 2,
       position: 0,
+      assignee: null,
     }],
   }, {
     columnId: '66666666-6666-4666-8666-666666666666',
@@ -105,6 +109,59 @@ describe('work item detail state', () => {
     });
     expect(transitionWorkItemDetail(switching, { type: 'saved', confirmed })).toMatchObject({
       kind: 'editing', field: 'title', dirty: false, draft: confirmed.workItem.title,
+    });
+  });
+
+  it('saves a dirty field before requesting the assignee picker and opens it only after success', () => {
+    const editing = dirty('description', 'Updated description');
+    const saving = transitionWorkItemDetail(editing, { type: 'request-assignee' });
+    expect(saving).toMatchObject({
+      kind: 'saving',
+      field: 'description',
+      draft: 'Updated description',
+      pendingIntent: { kind: 'open-assignee' },
+    });
+
+    const latest = {
+      ...confirmed,
+      workItem: { ...workItem, description: 'Updated description', version: 5 },
+    };
+    const requested = transitionWorkItemDetail(saving, { type: 'saved', confirmed: latest });
+    expect(requested).toEqual({ kind: 'assignee-open', confirmed: latest });
+    expect(transitionWorkItemDetail(requested, { type: 'close-assignee' })).toEqual({
+      kind: 'read-only', confirmed: latest,
+    });
+  });
+
+  it('requests the assignee picker immediately for a clean field without saving', () => {
+    const clean = transitionWorkItemDetail(loaded(), { type: 'edit', field: 'description' });
+    expect(transitionWorkItemDetail(clean, { type: 'request-assignee' })).toEqual({
+      kind: 'assignee-open', confirmed,
+    });
+  });
+
+  it('keeps an assignee request pending through save failure and conflict recovery', () => {
+    const saving = transitionWorkItemDetail(dirty('description'), { type: 'request-assignee' });
+    const failed = transitionWorkItemDetail(saving, {
+      type: 'save-failed', message: 'Temporary failure',
+    });
+    expect(failed).toMatchObject({
+      kind: 'editing',
+      error: 'Temporary failure',
+      pendingIntent: { kind: 'open-assignee' },
+    });
+
+    const retrying = transitionWorkItemDetail(failed, { type: 'retry' });
+    const latest = {
+      ...confirmed,
+      workItem: { ...workItem, description: 'Concurrent description', version: 5 },
+    };
+    const conflict = transitionWorkItemDetail(retrying, { type: 'conflict', confirmed: latest });
+    expect(conflict).toMatchObject({
+      kind: 'conflict', pendingIntent: { kind: 'open-assignee' },
+    });
+    expect(transitionWorkItemDetail(conflict, { type: 'use-latest' })).toEqual({
+      kind: 'assignee-open', confirmed: latest,
     });
   });
 

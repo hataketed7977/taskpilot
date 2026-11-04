@@ -93,6 +93,7 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
   };
   const boards: TaskPilotDesktopApi['boards'] = {
     resolveHome: input => projectWork.resolveHome(input),
+    listProjectMembers: input => projectWork.listProjectMembers(input),
     list: input => projectWork.list(input),
     open: input => projectWork.open(input),
     create: input => projectWork.create(input),

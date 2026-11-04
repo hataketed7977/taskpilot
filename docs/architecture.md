@@ -20,10 +20,10 @@ The repository now contains runnable Desktop, Gateway, and Core API subprojects.
 current slice covers system-browser GitHub authentication through the Gateway, first registration
 with personal Workspace and default Project provisioning, opaque-session
 restore/refresh/logout, Project management and the Desktop Project home,
-ordinary Boards with ordered Columns, basic Work Items, Board-local Card
+ordinary Boards with ordered Columns, basic Work Items with immutable creator and optional current Project Member assignee, Board-local Card
 placement and moves, the production Flyway baseline for these durable facts,
 Redis-backed temporary authentication state, and non-production runtime
-OpenAPI. `TEAM` Workspaces, Work Item types and assignments, workflows, Agent
+OpenAPI. `TEAM` Workspaces, Work Item types, Agent assignment, assignment history, workflows, Agent
 configuration and execution, approvals, Agent Runtime, production deployment and
 network isolation, signing, and updates remain Target unless explicitly marked Current.
 
@@ -562,12 +562,12 @@ threshold is an architectural policy change, not a local test workaround.
   either.
 - Desktop Main owns narrow hand-written transport types checked against the
   canonical artifact. The current contract covers authentication/session,
-  PERSONAL Workspace discovery, Project lifecycle, Boards, Columns, Work Items,
-  and Placements. Generated client SDKs or compatibility baselines require a
+  PERSONAL Workspace discovery, Project lifecycle, Project Member candidate listing, Boards, Columns, Work Items,
+  Work Item creator/assignee fields, and Placements. Generated client SDKs or compatibility baselines require a
   later explicit lifecycle decision.
 - Core API `access` owns User, External Identity, legal acceptance, and session
   authentication; `workspace` owns Workspace and Workspace Membership; `project`
-  owns Project, Project Membership, Board, Column, Work Item, and Placement.
+  owns Project, Project Membership, Board, Column, Work Item, current Work Item assignee, and Placement.
 - The narrow `onboarding` capability coordinates first registration across
   Access, Workspace, and Project, owns no table or HTTP endpoint, and commits
   durable PostgreSQL facts before Access issues the Redis session.
@@ -679,8 +679,8 @@ This architecture document does not duplicate that model. In particular:
   provider callbacks, external side effects, realtime notification, audit, and
   other actual asynchronous boundaries.
 - A Board projects canonical Work Items through Board-local Placements; it never
-  becomes a second source of Work Item state. Current Card moves change layout
-  only; future workflow-derived actions require an explicit business-model Change.
+  becomes a second source of Work Item state or assignee state. Current Card moves change layout
+  only; current assignee edits mutate the Work Item and leave Placement unchanged. Future workflow-derived actions require an explicit business-model Change.
 
 Implementation structure and persistence may refine the logical model, but may
 not silently rename concepts, merge independent lifecycles, or contradict its

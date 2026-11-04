@@ -68,6 +68,8 @@ class WorkspaceProjectMigrationIntegrationTest {
                 "create_request_id",
                 "create_request_fingerprint",
                 "created_at",
+                "assignee_target_type",
+                "assignee_project_membership_id",
                 "updated_at",
             ),
             columns,
@@ -104,6 +106,7 @@ class WorkspaceProjectMigrationIntegrationTest {
                     FROM pg_constraint
                     WHERE connamespace = 'project'::regnamespace
                       AND conrelid IN (
+                          'project.project_memberships'::regclass,
                           'project.boards'::regclass,
                           'project.board_columns'::regclass,
                           'project.work_items'::regclass,
@@ -119,10 +122,16 @@ class WorkspaceProjectMigrationIntegrationTest {
                         )
                 }.toMap()
 
+        assertConstraint(constraints, "uq_project_memberships__project_id_id", "UNIQUE (project_id, id)")
         assertConstraint(constraints, "fk_board_columns__boards", "FOREIGN KEY (project_id, board_id)")
         assertConstraint(constraints, "fk_board_placements__boards", "FOREIGN KEY (project_id, board_id)")
         assertConstraint(constraints, "fk_board_placements__columns", "FOREIGN KEY (project_id, board_id, column_id)")
         assertConstraint(constraints, "fk_board_placements__work_items", "FOREIGN KEY (project_id, work_item_id)")
+        assertConstraint(
+            constraints,
+            "fk_work_items__assignee_project_memberships",
+            "FOREIGN KEY (project_id, assignee_project_membership_id)",
+        )
         assertConstraint(constraints, "uq_board_placements__board_work_item", "UNIQUE (board_id, work_item_id)")
         assertConstraint(constraints, "ck_boards__version_non_negative", "CHECK ((version >= 0))")
         assertConstraint(constraints, "ck_board_columns__position_non_negative", "CHECK ((\"position\" >= 0))")
@@ -197,6 +206,51 @@ class WorkspaceProjectMigrationIntegrationTest {
         insertProject(workspaceId, userId, TestProject(requestId = requestId))
         assertFailsWith<DataIntegrityViolationException> {
             insertProject(workspaceId, userId, TestProject(requestId = requestId))
+        }
+    }
+
+    @Test
+    fun `work item assignee constraints keep project member assignments project scoped`() {
+        val userId = insertUser()
+        val workspaceId = insertWorkspace(ownerId = userId)
+        val projectId = insertProject(workspaceId, userId)
+        val sameProjectMemberId = insertProjectMembership(projectId, userId)
+        val otherProjectId = insertProject(workspaceId, userId)
+        val otherProjectMemberId = insertProjectMembership(otherProjectId, userId)
+
+        insertWorkItem(projectId, userId)
+        insertWorkItem(
+            projectId,
+            userId,
+            assigneeTargetType = "PROJECT_MEMBER",
+            assigneeProjectMembershipId = sameProjectMemberId,
+        )
+        assertFailsWith<DataIntegrityViolationException> {
+            insertWorkItem(
+                projectId,
+                userId,
+                assigneeTargetType = "PROJECT_MEMBER",
+                assigneeProjectMembershipId = otherProjectMemberId,
+            )
+        }
+        assertFailsWith<DataIntegrityViolationException> {
+            insertWorkItem(
+                projectId,
+                userId,
+                assigneeTargetType = "PROJECT_AGENT_BINDING",
+                assigneeProjectMembershipId = sameProjectMemberId,
+            )
+        }
+        assertFailsWith<DataIntegrityViolationException> {
+            insertWorkItem(projectId, userId, assigneeTargetType = "PROJECT_MEMBER", assigneeProjectMembershipId = null)
+        }
+        assertFailsWith<DataIntegrityViolationException> {
+            insertWorkItem(
+                projectId,
+                userId,
+                assigneeTargetType = null,
+                assigneeProjectMembershipId = sameProjectMemberId,
+            )
         }
     }
 
@@ -335,16 +389,39 @@ class WorkspaceProjectMigrationIntegrationTest {
         projectId: UUID,
         userId: UUID,
         role: String = "OWNER",
-    ) {
-        jdbc.update(
-            "INSERT INTO project.project_memberships " +
-                "(id, project_id, user_id, role, created_at) VALUES (?, ?, ?, ?, now())",
-            UUID.randomUUID(),
-            projectId,
-            userId,
-            role,
-        )
-    }
+    ): UUID =
+        UUID.randomUUID().also { id ->
+            jdbc.update(
+                "INSERT INTO project.project_memberships " +
+                    "(id, project_id, user_id, role, created_at) VALUES (?, ?, ?, ?, now())",
+                id,
+                projectId,
+                userId,
+                role,
+            )
+        }
+
+    private fun insertWorkItem(
+        projectId: UUID,
+        userId: UUID,
+        assigneeTargetType: String? = null,
+        assigneeProjectMembershipId: UUID? = null,
+    ): UUID =
+        UUID.randomUUID().also { id ->
+            jdbc.update(
+                "INSERT INTO project.work_items " +
+                    "(id, project_id, title, description, version, created_by_user_id, " +
+                    "assignee_target_type, assignee_project_membership_id, create_request_id, " +
+                    "create_request_fingerprint, created_at, updated_at) " +
+                    "VALUES (?, ?, 'Task', '', 0, ?, ?, ?, ?, 'test-fingerprint', now(), now())",
+                id,
+                projectId,
+                userId,
+                assigneeTargetType,
+                assigneeProjectMembershipId,
+                UUID.randomUUID(),
+            )
+        }
 
     private fun foreignKeyDeleteRules(connection: Connection): Map<String, String> =
         connection
@@ -392,6 +469,7 @@ class WorkspaceProjectMigrationIntegrationTest {
                 "project.board_columns.fk_board_columns__created_by_users",
                 "project.work_items.fk_work_items__projects",
                 "project.work_items.fk_work_items__created_by_users",
+                "project.work_items.fk_work_items__assignee_project_memberships",
                 "project.board_placements.fk_board_placements__boards",
                 "project.board_placements.fk_board_placements__columns",
                 "project.board_placements.fk_board_placements__work_items",

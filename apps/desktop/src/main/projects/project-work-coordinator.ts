@@ -18,6 +18,7 @@ import type {
   EditWorkItemResult,
   KeyedResponse,
   MoveCardInput,
+  ProjectMemberSummary,
   ReorderColumnsInput,
   WorkItemLocationInput,
   WorkItemView,
@@ -63,6 +64,13 @@ export class ProjectWorkCoordinator {
   async list(input: BoardProjectInput): Promise<BoardKeyed<BoardSummary[]>> {
     const context = this.session.context();
     const value = await this.session.protected(token => this.client.listBoards(token, input));
+    return { key: this.key(context, input), value };
+  }
+
+  async listProjectMembers(input: BoardProjectInput): Promise<BoardKeyed<ProjectMemberSummary[]>> {
+    const context = this.session.context();
+    const value = await this.session.protected(token => this.client.listProjectMembers(token, input));
+    this.session.assertCurrent(context);
     return { key: this.key(context, input), value };
   }
 

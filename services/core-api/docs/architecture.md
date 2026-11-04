@@ -62,10 +62,10 @@ The implemented application is deliberately limited to:
   Workspace with OWNER membership, and one ordinary default Project with OWNER
   membership plus a localized ordinary Board and initial Column;
 - authenticated Workspace discovery plus Project and Project Work operations:
-  Project create/edit/archive/restore/delete, multiple Boards including empty-Board
-  permanent deletion, Columns, basic Work Items without a state capability, Board Placements, and Card
+  Project create/edit/archive/restore/delete, Project Member candidate listing, multiple Boards including empty-Board
+  permanent deletion, Columns, basic Work Items without a state capability, immutable creator display, optional current Project Member assignee, Board Placements, and Card
   moves, all backed by server-side
-  OWNER authorization, request-id idempotency, and optimistic version checks;
+  OWNER authorization, request-id idempotency, active same-Project membership validation, and optimistic version checks;
 - a fail-closed Spring Security chain that permits only explicit anonymous auth
   endpoints and Actuator probes, authenticates Desktop account, Workspace, and
   Project routes with opaque access credentials, and rejects every other route; and
@@ -85,12 +85,12 @@ architecture contract and rules together; client identity alone is not such a
 boundary.
 
 The Current canonical `/v1` HTTP surface exposes authentication, session,
-current-user, PERSONAL Workspace discovery, complete Project lifecycle, Board,
+current-user, PERSONAL Workspace discovery, complete Project lifecycle, Project Member candidate listing, Board,
 Column, Work Item, and Placement controllers. Runtime OpenAPI and non-persistent
 Swagger authorization remain available only from the internal Core origin
 outside Production; Gateway exposes neither. Exact-path contract tests cover
 these implemented routes, their access-bearer boundary, transport schemas, successful responses,
-shared Problem Details, and secret hygiene. Legacy
+Work Item creator/current-assignee representation, shared Problem Details, and secret hygiene. Legacy
 email/password/OTP/reset, TEAM, provider, durable-job, workflow, Agent-execution,
 and managed-execution behavior remain unimplemented. The current persistence choice is explicit Spring JDBC plus
 Flyway for durable business facts and Redis for expiring authentication state.
@@ -109,7 +109,7 @@ interfaces and explicitly map generated wire models to existing application
 commands/results. Generated transport types remain under API adapter packages;
 architecture checks prevent application, domain, authorization, persistence,
 and repository code from depending on them. Core continues to authenticate
-credentials and authorize every operation. In Local/Test, `/v3/api-docs`
+credentials and authorize every operation. Project Work HTTP adapters map `createdBy`, nullable `assignee`, assignee patch semantics, and `GET /v1/projects/{projectId}/members` between the generated wire models and application use cases while keeping generated types out of application and persistence code. In Local/Test, `/v3/api-docs`
 directly serializes the packaged canonical artifact; in Production it remains
 disabled, and Gateway never proxies it.
 

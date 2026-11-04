@@ -13,9 +13,13 @@ import ai.taskpilot.contract.generated.model.EditColumnRequest
 import ai.taskpilot.contract.generated.model.EditWorkItemRequest
 import ai.taskpilot.contract.generated.model.EditWorkItemResult
 import ai.taskpilot.contract.generated.model.MovePlacementRequest
+import ai.taskpilot.contract.generated.model.ProjectMemberList
 import ai.taskpilot.contract.generated.model.ReorderColumnsRequest
 import ai.taskpilot.contract.generated.model.WorkItemView
 import ai.taskpilot.coreapi.currentAuthenticatedActor
+import ai.taskpilot.coreapi.project.AssigneePatch
+import ai.taskpilot.coreapi.project.AssigneePatchAction
+import ai.taskpilot.coreapi.project.AssigneeSelection
 import ai.taskpilot.coreapi.project.CreateBoardCommand
 import ai.taskpilot.coreapi.project.CreateColumnCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemCommand
@@ -45,6 +49,12 @@ class ProjectWorkController(
         val scope = scopes.project(projectId)
         val boards = projectWork.listBoards(currentAuthenticatedActor().userId, scope.workspaceId, projectId)
         return ResponseEntity.ok(boards.map { it.toWireResponse() })
+    }
+
+    override fun listProjectMembers(projectId: UUID): ResponseEntity<ProjectMemberList> {
+        val scope = scopes.project(projectId)
+        val members = projectWork.listProjectMembers(currentAuthenticatedActor().userId, scope.workspaceId, projectId)
+        return ResponseEntity.ok(members.toWireResponse())
     }
 
     override fun createBoard(
@@ -208,6 +218,9 @@ class ProjectWorkController(
                     createWorkItemRequest.expectedBoardVersion,
                     createWorkItemRequest.title,
                     createWorkItemRequest.description,
+                    createWorkItemRequest.assignee?.let {
+                        AssigneeSelection(it.targetType.value, it.projectMemberId)
+                    },
                 ),
             )
         return ResponseEntity.status(HttpStatus.CREATED).body(result.toWireResponse())
@@ -239,6 +252,12 @@ class ProjectWorkController(
                     editWorkItemRequest.expectedVersion,
                     editWorkItemRequest.title,
                     editWorkItemRequest.description,
+                    editWorkItemRequest.assigneePatch?.let { patch ->
+                        AssigneePatch(
+                            AssigneePatchAction.valueOf(patch.action.value),
+                            patch.target?.let { target -> AssigneeSelection(target.targetType.value, target.projectMemberId) },
+                        )
+                    },
                 ),
             )
         return ResponseEntity.ok(result.toWireResponse())

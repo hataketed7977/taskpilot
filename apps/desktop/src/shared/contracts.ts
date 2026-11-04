@@ -78,6 +78,24 @@ export interface BoardSummary {
   createdAt: string;
   updatedAt: string;
 }
+export interface PersonSummary { userId: string; displayName: string; avatarUrl: string | null }
+export interface ProjectMemberSummary {
+  projectMemberId: string;
+  user: PersonSummary;
+  role: 'OWNER';
+  createdAt: string;
+}
+export interface AssigneeSelection { targetType: 'PROJECT_MEMBER'; projectMemberId: string }
+export interface ProjectMemberAssignee {
+  targetType: 'PROJECT_MEMBER';
+  projectMemberId: string;
+  user: PersonSummary;
+  role: 'OWNER';
+}
+export type AssigneeTarget = ProjectMemberAssignee;
+export type AssigneePatch =
+  | { action: 'SET'; target: AssigneeSelection }
+  | { action: 'CLEAR'; target?: never };
 export interface CardView {
   workItemId: string;
   title: string;
@@ -85,6 +103,7 @@ export interface CardView {
   workItemVersion: number;
   placementVersion: number;
   position: number;
+  assignee: AssigneeTarget | null;
 }
 export interface BoardColumnView {
   columnId: string;
@@ -104,6 +123,8 @@ export interface WorkItemView {
   version: number;
   createdAt: string;
   updatedAt: string;
+  createdBy: PersonSummary;
+  assignee: AssigneeTarget | null;
 }
 export interface CreateWorkItemResult { workItem: WorkItemView; board: BoardView }
 export interface EditWorkItemResult { workItem: WorkItemView; board: BoardView }
@@ -126,7 +147,7 @@ export interface CreateColumnInput extends BoardLocationInput { requestId: strin
 export interface EditColumnInput extends BoardLocationInput { columnId: string; expectedBoardVersion: number; expectedColumnVersion: number; name: string }
 export interface ReorderColumnsInput extends BoardLocationInput { expectedBoardVersion: number; columnIds: string[] }
 export interface DeleteColumnInput extends BoardLocationInput { columnId: string; expectedBoardVersion: number; expectedColumnVersion: number }
-export interface CreateWorkItemInput extends BoardLocationInput { columnId: string; requestId: string; expectedBoardVersion: number; title: string; description?: string }
+export interface CreateWorkItemInput extends BoardLocationInput { columnId: string; requestId: string; expectedBoardVersion: number; title: string; description?: string; assignee?: AssigneeSelection }
 export interface WorkItemLocationInput extends BoardLocationInput { workItemId: string }
 export interface EditWorkItemInput extends WorkItemLocationInput {
   boardId: string;
@@ -137,6 +158,7 @@ export interface EditWorkItemInput extends WorkItemLocationInput {
   expectedVersion: number;
   title: string;
   description?: string;
+  assigneePatch?: AssigneePatch;
 }
 export interface MoveCardInput extends BoardLocationInput { workItemId: string; expectedBoardVersion: number; expectedPlacementVersion: number; targetColumnId: string; beforeWorkItemId?: string }
 
@@ -165,6 +187,7 @@ export interface ProjectCapabilities {
 }
 export interface BoardCapabilities {
   resolveHome(input: BoardProjectInput): Promise<KeyedResponse<BoardHomeView, BoardResponseKey>>;
+  listProjectMembers(input: BoardProjectInput): Promise<KeyedResponse<ProjectMemberSummary[], BoardResponseKey>>;
   list(input: BoardProjectInput): Promise<KeyedResponse<BoardSummary[], BoardResponseKey>>;
   open(input: BoardLocationInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;
   create(input: CreateBoardInput): Promise<KeyedResponse<BoardView, BoardResponseKey>>;

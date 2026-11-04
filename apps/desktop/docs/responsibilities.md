@@ -115,26 +115,29 @@ panel owns one decorative Work Graph background configuration made from fixed Re
 Renderer owns ACTIVE Project
 and Board switching, Project lifecycle actions, Board
 create/edit/permanent-delete, Column create/edit/reorder/delete, Work Item
-creation, and authoritative read-only Work Item detail. Renderer owns the
-Focused Work Sheet's single-line title, full-width multiline description, audit
-footer, and flat read surfaces. Its shell is content-adaptive and viewport-bounded,
+creation, fixed-height Card rendering with bounded title/description slots and an avatar-only assignee marker fixed at the top-right, and authoritative Work Item detail. Renderer owns the
+Focused Work Sheet's single-line title, editable assignee property row, full-width multiline description, and audit
+footer with immutable creator plus created/updated timestamps, together with flat read surfaces. Its shell is content-adaptive and viewport-bounded,
 with a pinned header/close and footer plus one middle scroll owner when needed.
 Renderer keeps persistent description labeling, equal read/edit layout slots,
 conditional adjacent live feedback, and transient detail/loading/error/read-only
 state. At most one title or description editor is active, including its draft,
 validation, one in-flight implicit save that keeps the editor/draft mounted,
-pending close/switch intent, transient saved feedback, field-local recovery, IME
-composition guard, and conflict choices. Placement has no detail row or editor;
-the Board canvas and Card movement own its presentation and interaction. These
+pending close/switch/assignee-open intent, transient saved feedback, field-local recovery, IME
+composition guard, and conflict choices. Requesting the assignee picker while a dirty
+content field is active first saves that draft; only a successful authoritative response
+opens and focuses the picker, while validation, temporary failure, or conflict keeps the
+draft and recovery path visible. Placement has no detail row or editor;
+the Board canvas and Card movement own its presentation and interaction. The assignee picker owns loading, empty, error, disabled, keyboard, outside-click, and reduced-motion states, while Core remains the source of valid Project Member candidates. These
 are Desktop UI states, not a new Work Item business lifecycle. Pointer drag plus
 keyboard-equivalent Card movement, truthful loading/error/empty states, and
 reachable account/language/logout controls also remain Renderer concerns. Main
 owns allowlisted
-Workspace/Project/Project Work HTTP operations, typed validation, bootstrap and
+Workspace/Project/Project Work HTTP operations, typed validation, Project Member candidate calls, assignee patch forwarding, bootstrap and
 recent Project/Board fallback, non-authoritative environment/User-scoped device
 preferences, Board deletion commit/refresh orchestration and response-lost reconciliation,
 session/Project/Board response-key fencing, scoped deletion tombstones/isolation, operation-start
-eligibility, and mutation-vs-read generations. It obtains authoritative Work
+eligibility, and mutation-vs-read generations. Preload exposes only the narrow typed assignee/member capabilities under `boards`; it does not expose generic IPC, raw URLs, bearer tokens, or endpoint strings. It obtains authoritative Work
 Item detail through strict no-state Work Item/Card parsers (legacy lifecycle/status
 fields are rejected), saves against the latest confirmed Work Item baseline,
 preserves confirmed Board/Column Placement context for content saves, and reloads

@@ -62,7 +62,7 @@ journey alone implies no packaged or native result.
 | --- | --- |
 | Pure unit | Presentation policies, reducers, schema validation, mapping, path-independent decisions |
 | Renderer integration | Components, Hooks, query/cache behavior, accessibility, loading/error/recovery states |
-| Main/Preload contract | Channel allowlist, schema validation, serialization, sender/origin/top-frame/window-generation authorization, keyed Workspace/Project/Board responses, Board-scoped Work Item detail responses, mutation/read generations, permanent-delete validation, and fixed capability exposure |
+| Main/Preload contract | Channel allowlist, schema validation, serialization, sender/origin/top-frame/window-generation authorization, keyed Workspace/Project/Board responses, Board-scoped Work Item detail responses, Project Member candidate responses, assignee patch validation, mutation/read generations, permanent-delete validation, and fixed capability exposure |
 | Main integration | Fixed federated, Workspace/Project, and Project Work clients; HTTP allowlists; typed response validation; initial/recent Project and Board fallback; environment-plus-User preference isolation; explicit Board deletion commit/refresh behavior; response-lost reconciliation, tombstones/isolation and operation-start fencing; loopback/auth/session handling; and generation fencing with owned test doubles |
 | Packaged Desktop journey | Real packaged Electron/Chromium process boundaries and critical user outcomes |
 | Native OS validation | Credential store, deep link, notification, installer, signing, update, process lifecycle on supported Windows/macOS targets |
@@ -113,7 +113,7 @@ and late-result rejection after logout or account replacement. Project Work
 Main tests additionally cover the fixed empty-Board deletion request, preference
 cleanup, earliest/zero-Board home, committed-delete refresh failure, all three
 response-lost reconciliation outcomes, scoped result-unknown isolation,
-authoritative Work Item detail/update contracts, and rejection of late Board
+authoritative Work Item detail/update contracts, Project Member list contracts, assignee parser/IPC/patch validation, and rejection of late Board
 read/detail/mutation completions. The pure detail-state reducer covers one active
 field, field-local drafts and errors, Escape discard, implicit saving, repeated-intent
 deduplication, transient saved feedback, conflict choices, saving-state immunity
@@ -186,7 +186,7 @@ persistent description label, and field text origins across read → edit → sa
 content-footprint change must stay within 1 CSS pixel per axis, with continuous
 screenshots and video retained as evidence. Cypress also verifies a single-line
 non-scrolling title with an approximately 16px close gap, a viewport-safe standard
-sheet of approximately `760 × 480px`, and a full-width multiline description whose
+sheet of approximately `760 × 560px`, assignee picker layout stability and error recovery, and a full-width multiline description whose
 read/edit text origin stays at the top-left of one flexible slot with an
 approximately `128px` minimum. Title probes compare the actual text origin, font
 metrics, and structural box model rather than only outer bounds. They also verify
@@ -197,15 +197,19 @@ execute those compiled modules while the real Renderer mounts in
 jsdom against their API. The journey asserts exact Work Item/Card keys, actual
 title heading, Enter-triggered implicit save, and persisted version/content;
 native Electron geometry and behavior evidence stay separate.
-Main consumer tests accept the exact no-state Work Item/Card responses and reject
-injected legacy lifecycle/status fields. Cypress tests flat static fields, title
+Main consumer tests accept the exact no-state Work Item/Card responses with creator and nullable assignee, validate Project Member candidate calls and assignee set/clear patches, and reject
+injected legacy lifecycle/status fields plus unsupported future assignee/history shapes. Cypress tests flat static fields, title
 26px/body 14px/footer 11px, conditional feedback without idle slots, long bilingual
 content at 960×640, 1280×800, and 1600×900, and no feedback layout shift.
 Renderer integration covers loading/error/read-only/editing/saving/conflict
-states and response fencing; it locks editor/draft and persistent-label
+states, Card avatar-only assignee semantics, detail assignee set/clear/save-failure recovery, immutable creator display in the audit footer, and response fencing; it locks editor/draft and persistent-label
 retention during saving, IME composition suppression, and single-snapshot saves
-across rapid field switches and close requests; reducer tests cover state transitions independently.
-Pointer and keyboard-equivalent movement, optimistic rollback, focus/live-region
+across rapid field switches, close requests, and assignee-open requests. Reducer and
+Renderer integration tests verify that a dirty field saves before the picker opens and
+that save failure keeps the picker closed with the draft recoverable.
+Cypress covers equal fixed Card height for assigned/unassigned and short/long content, real Chromium top-right avatar geometry and two-line title/description clamping, keyboard set/clear, picker geometry,
+picker error state, dirty-description save-first sequencing and search-focus transfer,
+creator/timestamp footer alignment, and the 560px sheet. Pointer and keyboard-equivalent movement, optimistic rollback, focus/live-region
 behavior, and the horizontally scrollable Column region remain covered. The
 system journey uses a provider/browser double plus packaged Gateway, real Core
 API, PostgreSQL, and Redis; it does not prove real GitHub OAuth, production Core

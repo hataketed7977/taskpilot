@@ -1,5 +1,9 @@
 package ai.taskpilot.coreapi.project.internal
 
+import ai.taskpilot.coreapi.project.AssigneePatch
+import ai.taskpilot.coreapi.project.AssigneePatchAction
+import ai.taskpilot.coreapi.project.AssigneeSelection
+import ai.taskpilot.coreapi.project.AssigneeTarget
 import ai.taskpilot.coreapi.project.BoardColumnView
 import ai.taskpilot.coreapi.project.BoardDeleteRestricted
 import ai.taskpilot.coreapi.project.BoardNameConfirmationMismatch
@@ -21,7 +25,9 @@ import ai.taskpilot.coreapi.project.EditWorkItemCommand
 import ai.taskpilot.coreapi.project.EditWorkItemResult
 import ai.taskpilot.coreapi.project.LastColumnConflict
 import ai.taskpilot.coreapi.project.MovePlacementCommand
+import ai.taskpilot.coreapi.project.PersonSummary
 import ai.taskpilot.coreapi.project.PlacementConflict
+import ai.taskpilot.coreapi.project.ProjectMemberSummary
 import ai.taskpilot.coreapi.project.ProjectResourceVersionConflict
 import ai.taskpilot.coreapi.project.ProjectWorkIdempotencyConflict
 import ai.taskpilot.coreapi.project.ProjectWorkNotFound
@@ -66,6 +72,25 @@ class ProjectWorkApplicationService(
             ORDER BY b.created_at, b.id
             """.trimIndent(),
             { rows, _ -> rows.toBoardSummary() },
+            projectId,
+        )
+    }
+
+    override fun listProjectMembers(
+        actorUserId: UUID,
+        workspaceId: UUID,
+        projectId: UUID,
+    ): List<ProjectMemberSummary> {
+        requireProjectOwner(actorUserId, workspaceId, projectId)
+        return jdbc.query(
+            """
+            SELECT m.id AS project_member_id, m.role, m.created_at, u.id AS user_id, u.display_name, u.avatar_url
+            FROM project.project_memberships m
+            JOIN access.users u ON u.id = m.user_id AND u.status = 'ACTIVE'
+            WHERE m.project_id = ?
+            ORDER BY lower(u.display_name), u.display_name, m.id
+            """.trimIndent(),
+            { rows, _ -> rows.toProjectMemberSummary() },
             projectId,
         )
     }
@@ -324,6 +349,8 @@ class ProjectWorkApplicationService(
                 command.boardId.toString(),
                 command.columnId.toString(),
                 command.expectedBoardVersion.toString(),
+                command.assignee?.targetType,
+                command.assignee?.projectMemberId?.toString(),
             )
         return inTransaction {
             requireProjectOwner(command.actorUserId, command.workspaceId, command.projectId)
@@ -346,7 +373,8 @@ class ProjectWorkApplicationService(
             }
             if (lockedVersion != command.expectedBoardVersion) throw BoardVersionConflict()
             if (!columnExists(command.projectId, command.boardId, command.columnId)) throw ProjectWorkNotFound()
-            persistWorkItem(command, input, fp)
+            val assignee = resolveAssignee(command.projectId, command.assignee, "assignee")
+            persistWorkItem(command, input, fp, assignee)
         }
     }
 
@@ -354,6 +382,7 @@ class ProjectWorkApplicationService(
         command: CreateWorkItemCommand,
         input: WorkItemInput,
         fingerprint: String,
+        assignee: ResolvedAssignee?,
     ): CreateWorkItemResult {
         val workItemId = UUID.randomUUID()
         val timestamp = now()
@@ -361,14 +390,17 @@ class ProjectWorkApplicationService(
             """
             INSERT INTO project.work_items (
                 id, project_id, title, description, version, created_by_user_id,
+                assignee_target_type, assignee_project_membership_id,
                 create_request_id, create_request_fingerprint, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
             workItemId,
             command.projectId,
             input.title,
             input.description,
             command.actorUserId,
+            assignee?.targetType,
+            assignee?.projectMemberId,
             command.requestId,
             fingerprint,
             timestamp,
@@ -411,6 +443,7 @@ class ProjectWorkApplicationService(
         val input = normalizeWorkItem(command.title, command.description)
         return inTransaction {
             requireProjectOwner(command.actorUserId, command.workspaceId, command.projectId)
+            val assignee = resolveAssigneePatch(command.projectId, command.assigneePatch)
             if (expectedLayoutVersions != null) {
                 requireBoardForUpdate(command.projectId, command.boardId, expectedLayoutVersions.first)
                 if (!columnExists(command.projectId, command.boardId, command.targetColumnId)) throw ProjectWorkNotFound()
@@ -420,38 +453,57 @@ class ProjectWorkApplicationService(
             if (expectedLayoutVersions != null && moving.version != expectedLayoutVersions.second) {
                 throw ProjectResourceVersionConflict()
             }
-            val changed =
-                jdbc.update(
-                    """UPDATE project.work_items SET title = ?, description = ?, version = version + 1, updated_at = ?
-                   WHERE id = ? AND project_id = ? AND version = ?""",
-                    input.title,
-                    input.description,
-                    now(),
-                    command.workItemId,
-                    command.projectId,
-                    command.expectedVersion,
-                )
-            if (changed != 1) {
-                if (loadWorkItem(command.projectId, command.workItemId) == null) throw ProjectWorkNotFound()
-                throw ProjectResourceVersionConflict()
-            }
-            if (changesColumn) {
-                val sourceIds =
-                    placementIds(command.projectId, command.boardId, command.currentColumnId)
-                        .filterNot { it == command.workItemId }
-                val targetIds =
-                    placementIds(command.projectId, command.boardId, command.targetColumnId).toMutableList()
-                targetIds.add(command.workItemId)
-                deferOrderingConstraints()
-                reorderPlacements(command.projectId, command.boardId, command.currentColumnId, sourceIds)
-                reorderPlacements(command.projectId, command.boardId, command.targetColumnId, targetIds)
-                incrementBoard(command.projectId, command.boardId)
-            }
+            updateWorkItemRow(command, input, assignee)
+            if (changesColumn) moveEditedWorkItem(command)
             EditWorkItemResult(
                 loadWorkItem(command.projectId, command.workItemId)!!,
                 loadBoard(command.projectId, command.boardId)!!,
             )
         }
+    }
+
+    private fun updateWorkItemRow(
+        command: EditWorkItemCommand,
+        input: WorkItemInput,
+        assignee: AssigneeUpdate,
+    ) {
+        val changed =
+            jdbc.update(
+                """UPDATE project.work_items
+                   SET title = ?,
+                       description = ?,
+                       assignee_target_type = CASE WHEN ? THEN ? ELSE assignee_target_type END,
+                       assignee_project_membership_id = CASE WHEN ? THEN ? ELSE assignee_project_membership_id END,
+                       version = version + 1,
+                       updated_at = ?
+                   WHERE id = ? AND project_id = ? AND version = ?""",
+                input.title,
+                input.description,
+                assignee.changes,
+                assignee.targetType,
+                assignee.changes,
+                assignee.projectMemberId,
+                now(),
+                command.workItemId,
+                command.projectId,
+                command.expectedVersion,
+            )
+        if (changed != 1) {
+            if (loadWorkItem(command.projectId, command.workItemId) == null) throw ProjectWorkNotFound()
+            throw ProjectResourceVersionConflict()
+        }
+    }
+
+    private fun moveEditedWorkItem(command: EditWorkItemCommand) {
+        val sourceIds =
+            placementIds(command.projectId, command.boardId, command.currentColumnId)
+                .filterNot { it == command.workItemId }
+        val targetIds = placementIds(command.projectId, command.boardId, command.targetColumnId).toMutableList()
+        targetIds.add(command.workItemId)
+        deferOrderingConstraints()
+        reorderPlacements(command.projectId, command.boardId, command.currentColumnId, sourceIds)
+        reorderPlacements(command.projectId, command.boardId, command.targetColumnId, targetIds)
+        incrementBoard(command.projectId, command.boardId)
     }
 
     override fun movePlacement(command: MovePlacementCommand): BoardView {
@@ -605,9 +657,13 @@ class ProjectWorkApplicationService(
     ): List<CardView> =
         jdbc.query(
             """SELECT w.id, w.title, w.description, w.version AS work_item_version,
-                  p.version AS placement_version, p.position
+                  p.version AS placement_version, p.position,
+                  am.id AS assignee_project_member_id, am.role AS assignee_role,
+                  au.id AS assignee_user_id, au.display_name AS assignee_display_name, au.avatar_url AS assignee_avatar_url
            FROM project.board_placements p
            JOIN project.work_items w ON w.project_id = p.project_id AND w.id = p.work_item_id
+           LEFT JOIN project.project_memberships am ON am.project_id = w.project_id AND am.id = w.assignee_project_membership_id
+           LEFT JOIN access.users au ON au.id = am.user_id
            WHERE p.project_id = ? AND p.board_id = ? AND p.column_id = ?
            ORDER BY p.position, p.id""",
             {
@@ -621,6 +677,7 @@ class ProjectWorkApplicationService(
                     r.getLong("work_item_version"),
                     r.getLong("placement_version"),
                     r.getLong("position"),
+                    r.toAssigneeTarget(),
                 )
             },
             projectId,
@@ -634,8 +691,15 @@ class ProjectWorkApplicationService(
     ): WorkItemView? =
         jdbc
             .query(
-                """SELECT id, project_id, title, description, version, created_at, updated_at
-           FROM project.work_items WHERE id = ? AND project_id = ?""",
+                """SELECT w.id, w.project_id, w.title, w.description, w.version, w.created_at, w.updated_at,
+                  cu.id AS creator_user_id, cu.display_name AS creator_display_name, cu.avatar_url AS creator_avatar_url,
+                  am.id AS assignee_project_member_id, am.role AS assignee_role,
+                  au.id AS assignee_user_id, au.display_name AS assignee_display_name, au.avatar_url AS assignee_avatar_url
+           FROM project.work_items w
+           JOIN access.users cu ON cu.id = w.created_by_user_id
+           LEFT JOIN project.project_memberships am ON am.project_id = w.project_id AND am.id = w.assignee_project_membership_id
+           LEFT JOIN access.users au ON au.id = am.user_id
+           WHERE w.id = ? AND w.project_id = ?""",
                 {
                     r,
                     _,
@@ -648,11 +712,60 @@ class ProjectWorkApplicationService(
                         r.getLong("version"),
                         r.instant("created_at"),
                         r.instant("updated_at"),
+                        PersonSummary(
+                            r.uuid("creator_user_id"),
+                            r.getString("creator_display_name"),
+                            r.getString("creator_avatar_url"),
+                        ),
+                        r.toAssigneeTarget(),
                     )
                 },
                 workItemId,
                 projectId,
             ).singleOrNull()
+
+    private fun resolveAssigneePatch(
+        projectId: UUID,
+        patch: AssigneePatch?,
+    ): AssigneeUpdate =
+        when (patch?.action) {
+            null -> {
+                AssigneeUpdate(changes = false, targetType = null, projectMemberId = null)
+            }
+
+            AssigneePatchAction.CLEAR -> {
+                if (patch.target != null) throw ProjectWorkValidationFailed("assigneePatch.target")
+                AssigneeUpdate(changes = true, targetType = null, projectMemberId = null)
+            }
+
+            AssigneePatchAction.SET -> {
+                val target = patch.target ?: throw ProjectWorkValidationFailed("assigneePatch.target")
+                val assignee =
+                    resolveAssignee(projectId, target, "assigneePatch.target")
+                        ?: throw ProjectWorkValidationFailed("assigneePatch.target")
+                AssigneeUpdate(changes = true, targetType = assignee.targetType, projectMemberId = assignee.projectMemberId)
+            }
+        }
+
+    private fun resolveAssignee(
+        projectId: UUID,
+        selection: AssigneeSelection?,
+        path: String,
+    ): ResolvedAssignee? {
+        if (selection == null) return null
+        if (selection.targetType != PROJECT_MEMBER_ASSIGNEE_TYPE) throw ProjectWorkValidationFailed("$path.targetType")
+        val exists =
+            jdbc.queryForObject(
+                """SELECT count(*) FROM project.project_memberships m
+                   JOIN access.users u ON u.id = m.user_id AND u.status = 'ACTIVE'
+                   WHERE m.project_id = ? AND m.id = ?""",
+                Int::class.java,
+                projectId,
+                selection.projectMemberId,
+            ) == 1
+        if (!exists) throw ProjectWorkValidationFailed("$path.projectMemberId")
+        return ResolvedAssignee(PROJECT_MEMBER_ASSIGNEE_TYPE, selection.projectMemberId)
+    }
 
     private fun findBoardCreate(
         project: UUID,
@@ -956,6 +1069,28 @@ class ProjectWorkApplicationService(
             instant("updated_at"),
         )
 
+    private fun ResultSet.toProjectMemberSummary() =
+        ProjectMemberSummary(
+            uuid("project_member_id"),
+            PersonSummary(uuid("user_id"), getString("display_name"), getString("avatar_url")),
+            getString("role"),
+            instant("created_at"),
+        )
+
+    private fun ResultSet.toAssigneeTarget(): AssigneeTarget? {
+        val projectMemberId = getObject("assignee_project_member_id", UUID::class.java) ?: return null
+        return AssigneeTarget(
+            PROJECT_MEMBER_ASSIGNEE_TYPE,
+            projectMemberId,
+            PersonSummary(
+                uuid("assignee_user_id"),
+                getString("assignee_display_name"),
+                getString("assignee_avatar_url"),
+            ),
+            getString("assignee_role"),
+        )
+    }
+
     private data class BoardInput(
         val name: String,
         val description: String,
@@ -977,7 +1112,19 @@ class ProjectWorkApplicationService(
         val version: Long,
     )
 
+    private data class ResolvedAssignee(
+        val targetType: String,
+        val projectMemberId: UUID,
+    )
+
+    private data class AssigneeUpdate(
+        val changes: Boolean,
+        val targetType: String?,
+        val projectMemberId: UUID?,
+    )
+
     private companion object {
+        private const val PROJECT_MEMBER_ASSIGNEE_TYPE = "PROJECT_MEMBER"
         const val POSITION_STEP = 1024L
         const val COLUMN_NAME_MAX_CODE_POINTS = 80
         const val BOARD_NAME_MAX_CODE_POINTS = 120

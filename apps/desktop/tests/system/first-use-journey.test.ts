@@ -258,10 +258,10 @@ describe('Desktop first-use system journey', () => {
       });
 
       expect(Object.keys(authoritativeDetail.value).sort()).toEqual(
-        ['workItemId', 'projectId', 'title', 'description', 'version', 'createdAt', 'updatedAt'].sort(),
+        ['workItemId', 'projectId', 'title', 'description', 'version', 'createdAt', 'updatedAt', 'createdBy', 'assignee'].sort(),
       );
       expect(Object.keys(reviewColumn.cards[0]).sort()).toEqual(
-        ['workItemId', 'title', 'description', 'workItemVersion', 'placementVersion', 'position'].sort(),
+        ['workItemId', 'title', 'description', 'workItemVersion', 'placementVersion', 'position', 'assignee'].sort(),
       );
       // Mount the real Renderer against the same Main/IPC/Preload/Core API seam.
       // Enter invokes the field's implicit-save trigger; portal geometry remains Cypress-owned.

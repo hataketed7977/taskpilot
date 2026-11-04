@@ -31,6 +31,7 @@ export function createTaskPilotDesktopApi(invoke: DesktopInvoke, subscribe: Sess
     },
     boards: {
       resolveHome: input => call(CHANNELS.resolveBoardHome, input),
+      listProjectMembers: input => call(CHANNELS.listProjectMembers, input),
       list: input => call(CHANNELS.listBoards, input),
       open: input => call(CHANNELS.openBoard, input),
       create: input => call(CHANNELS.createBoard, input),

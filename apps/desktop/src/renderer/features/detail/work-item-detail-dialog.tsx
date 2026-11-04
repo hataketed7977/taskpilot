@@ -3,16 +3,22 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useReducer,
   useRef,
+  useState,
   type FocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 import type {
+  AssigneePatch,
+  AssigneeTarget,
   BoardResponseKey,
   BoardView,
+  PersonSummary,
+  ProjectMemberSummary,
   TaskPilotDesktopApi,
 } from "../../../shared/contracts";
 import { useLocale } from "../../i18n/locale-state";
@@ -28,6 +34,14 @@ export type WorkItemDetailTarget = {
 };
 
 type CodedError = { code?: string; recovery?: string };
+type ProjectMembersState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; members: ProjectMemberSummary[] }
+  | { kind: "error" };
+
+const ASSIGNEE_DEFAULT_MEMBER_LIMIT = 6;
+const ASSIGNEE_SEARCH_MEMBER_LIMIT = 8;
 
 function normalize(value: string) {
   return value.trim().normalize("NFC");
@@ -65,6 +79,8 @@ export function WorkItemDetailDialog({
   const mounted = useRef(true);
   const boardRef = useRef(board);
   const saveInFlight = useRef(false);
+  const memberRequestSequence = useRef(0);
+  const assigneeRequestSequence = useRef(0);
   const closeRequested = useRef(false);
   const fieldTriggers = useRef<
     Partial<Record<"title" | "description", HTMLButtonElement | null>>
@@ -72,6 +88,9 @@ export function WorkItemDetailDialog({
   const restoreFieldFocus = useRef<"title" | "description" | undefined>(undefined);
   const decisionFocus = useRef<HTMLButtonElement>(null);
   const fieldErrorId = useId();
+  const [projectMembers, setProjectMembers] = useState<ProjectMembersState>({ kind: "idle" });
+  const [assigneeSaving, setAssigneeSaving] = useState(false);
+  const [assigneeError, setAssigneeError] = useState<string>();
 
   useLayoutEffect(() => {
     boardRef.current = board;
@@ -97,8 +116,33 @@ export function WorkItemDetailDialog({
     return () => {
       mounted.current = false;
       requestSequence.current += 1;
+      memberRequestSequence.current += 1;
+      assigneeRequestSequence.current += 1;
     };
   }, []);
+
+  const loadProjectMembers = useCallback(async () => {
+    const token = ++memberRequestSequence.current;
+    const selection = getSelection();
+    setProjectMembers({ kind: "loading" });
+    try {
+      const result = await api.boards.listProjectMembers({ workspaceId, projectId });
+      if (
+        !mounted.current ||
+        token !== memberRequestSequence.current ||
+        selection !== getSelection() ||
+        !accepts(result.key)
+      ) return;
+      setProjectMembers({ kind: "ready", members: result.value });
+    } catch (error) {
+      if (
+        mounted.current &&
+        token === memberRequestSequence.current &&
+        selection === getSelection() &&
+        (error as CodedError).recovery !== "SIGN_IN"
+      ) setProjectMembers({ kind: "error" });
+    }
+  }, [accepts, api.boards, getSelection, projectId, workspaceId]);
 
   const load = useCallback(async () => {
     const token = ++requestSequence.current;
@@ -155,6 +199,10 @@ export function WorkItemDetailDialog({
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadProjectMembers);
+  }, [loadProjectMembers]);
 
   useEffect(() => {
     if (detail.kind !== "saved") return;
@@ -265,9 +313,11 @@ export function WorkItemDetailDialog({
             boardResult.value,
             snapshot.confirmed.workItem.workItemId,
           );
-          if (!latestPlacement) throw new Error("placement unavailable");
+          if (!latestPlacement) {
+            throw new Error("placement unavailable", { cause: error });
+          }
           if (!onBoard(boardResult.value, boardResult.key, selection)) {
-            throw new Error("conflict board superseded");
+            throw new Error("conflict board superseded", { cause: error });
           }
           saveInFlight.current = false;
           dispatch({
@@ -291,6 +341,125 @@ export function WorkItemDetailDialog({
     });
   }, [accepts, api.boards, detail, getSelection, onBoard, projectId, t, workspaceId]);
 
+  const changeAssignee = useCallback(async (patch: AssigneePatch) => {
+    const snapshot = detailRef.current;
+    if (
+      snapshot.kind !== "read-only" &&
+      snapshot.kind !== "saved" &&
+      snapshot.kind !== "assignee-open"
+    ) return;
+    const confirmed = snapshot.confirmed;
+    const currentAssignee = confirmed.workItem.assignee;
+    if (
+      patch.action === "CLEAR" &&
+      !currentAssignee
+    ) return;
+    if (
+      patch.action === "SET" &&
+      currentAssignee?.targetType === "PROJECT_MEMBER" &&
+      currentAssignee.projectMemberId === patch.target.projectMemberId
+    ) return;
+
+    const token = ++assigneeRequestSequence.current;
+    const selection = getSelection();
+    const placement = findCard(confirmed.board, confirmed.workItem.workItemId);
+    if (!placement) {
+      setAssigneeError(t("board.workItemDetail.assignee.saveError"));
+      return;
+    }
+    setAssigneeSaving(true);
+    setAssigneeError(undefined);
+    try {
+      const result = await api.boards.editWorkItem({
+        workspaceId,
+        projectId,
+        boardId: confirmed.board.boardId,
+        workItemId: confirmed.workItem.workItemId,
+        currentColumnId: confirmed.columnId,
+        targetColumnId: confirmed.columnId,
+        expectedVersion: confirmed.workItem.version,
+        title: confirmed.workItem.title,
+        description: confirmed.workItem.description,
+        assigneePatch: patch,
+      });
+      if (
+        !mounted.current ||
+        token !== assigneeRequestSequence.current ||
+        selection !== getSelection()
+      ) return;
+      if (!onBoard(result.value.board, result.key, selection)) {
+        setAssigneeError(t("board.workItemDetail.assignee.saveError"));
+        return;
+      }
+      dispatch({
+        type: "assignee-saved",
+        confirmed: {
+          workItem: result.value.workItem,
+          board: result.value.board,
+          columnId: confirmed.columnId,
+        },
+      });
+    } catch (error) {
+      if (
+        !mounted.current ||
+        token !== assigneeRequestSequence.current ||
+        selection !== getSelection() ||
+        (error as CodedError).recovery === "SIGN_IN"
+      ) return;
+      if (isWorkItemConflict((error as CodedError).code)) {
+        try {
+          const [workItemResult, boardResult] = await Promise.all([
+            api.boards.openWorkItem({
+              workspaceId,
+              projectId,
+              boardId: confirmed.board.boardId,
+              workItemId: confirmed.workItem.workItemId,
+            }),
+            api.boards.open({
+              workspaceId,
+              projectId,
+              boardId: confirmed.board.boardId,
+            }),
+          ]);
+          if (
+            !mounted.current ||
+            token !== assigneeRequestSequence.current ||
+            selection !== getSelection() ||
+            !accepts(workItemResult.key, confirmed.board.boardId) ||
+            !accepts(boardResult.key, confirmed.board.boardId)
+          ) return;
+          const latestPlacement = findCard(
+            boardResult.value,
+            confirmed.workItem.workItemId,
+          );
+          if (!latestPlacement) {
+            throw new Error("placement unavailable", { cause: error });
+          }
+          if (!onBoard(boardResult.value, boardResult.key, selection)) {
+            throw new Error("conflict board superseded", { cause: error });
+          }
+          dispatch({
+            type: "assignee-saved",
+            confirmed: {
+              workItem: workItemResult.value,
+              board: boardResult.value,
+              columnId: latestPlacement.column.columnId,
+            },
+          });
+          setAssigneeError(t("board.workItemDetail.assignee.conflict"));
+          return;
+        } catch {
+          // Fall through to field-local recovery.
+        }
+      }
+      setAssigneeError(t("board.workItemDetail.assignee.saveError"));
+    } finally {
+      if (mounted.current && token === assigneeRequestSequence.current) {
+        setAssigneeSaving(false);
+      }
+    }
+  }, [accepts, api.boards, getSelection, onBoard, projectId, t, workspaceId]);
+
   const close = () => {
     closeRequested.current = true;
     requestSequence.current += 1;
@@ -305,6 +474,7 @@ export function WorkItemDetailDialog({
 
   const confirmed =
     detail.kind === "read-only" ||
+    detail.kind === "assignee-open" ||
     detail.kind === "editing" ||
     detail.kind === "saving" ||
     detail.kind === "conflict" ||
@@ -319,15 +489,8 @@ export function WorkItemDetailDialog({
   const activeField = activeState?.field;
   const pending = detail.kind === "saving";
   const fieldError = detail.kind === "editing" ? detail.error : undefined;
-
-  const descriptionAreaRef = useRef<HTMLTextAreaElement>(null);
-  const descriptionDraft = activeState?.draft ?? "";
-  useLayoutEffect(() => {
-    const area = descriptionAreaRef.current;
-    if (!area) return;
-    area.style.height = "auto";
-    area.style.height = `${area.scrollHeight}px`;
-  }, [activeField, descriptionDraft, detail.kind]);
+  const assigneeDisabled = assigneeSaving;
+  const assigneeOpen = detail.kind === "assignee-open";
 
   const beginEdit = (field: "title" | "description") => {
     restoreFieldFocus.current = field;
@@ -346,6 +509,13 @@ export function WorkItemDetailDialog({
     if (detail.kind !== "conflict") return;
     dispatch({ type: "use-latest" });
   };
+  const requestAssignee = useCallback(() => {
+    restoreFieldFocus.current = undefined;
+    dispatch({ type: "request-assignee" });
+  }, []);
+  const acknowledgeAssigneeOpen = useCallback(() => {
+    dispatch({ type: "close-assignee" });
+  }, []);
   const compositionEvents = {
     onCompositionStart: () => dispatch({ type: "composition-start" }),
     onCompositionEnd: () => dispatch({ type: "composition-end" }),
@@ -421,7 +591,6 @@ export function WorkItemDetailDialog({
     <div className="work-item-detail__surface">
       {descriptionEditor ? (
         <textarea
-          ref={descriptionAreaRef}
           className="work-item-detail__textarea"
           rows={1}
           autoFocus
@@ -481,6 +650,12 @@ export function WorkItemDetailDialog({
           <dd>{formatAuditTime(confirmed.workItem.updatedAt, locale)}</dd>
         </div>
       </dl>
+      <div className="work-item-detail__creator-audit">
+        <span className="work-item-detail__creator-label">
+          {t("board.workItemDetail.creatorLabel")}
+        </span>
+        <PersonPill person={confirmed.workItem.createdBy} />
+      </div>
     </footer>
   ) : undefined;
 
@@ -516,6 +691,25 @@ export function WorkItemDetailDialog({
                 onRetry={() => dispatch({ type: "retry" })}
               />
             ) : null}
+            <section className="work-item-detail__meta-strip" aria-label={t("board.workItemDetail.metadataLabel")}>
+              <div className="work-item-detail__meta-field work-item-detail__meta-field--assignee">
+                <span className="work-item-detail__label">
+                  {t("board.workItemDetail.assignee.label")}
+                </span>
+                <AssigneePicker
+                  assignee={confirmed.workItem.assignee ?? null}
+                  disabled={assigneeDisabled}
+                  error={assigneeError}
+                  membersState={projectMembers}
+                  saving={assigneeSaving}
+                  open={assigneeOpen}
+                  onOpenRequested={requestAssignee}
+                  onClose={acknowledgeAssigneeOpen}
+                  onChange={changeAssignee}
+                  onRetryMembers={() => void loadProjectMembers()}
+                />
+              </div>
+            </section>
             <section className="work-item-detail__row work-item-detail__row--description">
               <div className="work-item-detail__row-heading">
                 <span className="work-item-detail__label">{descriptionLabel}</span>
@@ -568,6 +762,303 @@ export function WorkItemDetailDialog({
       ) : null}
     </DetailModal>
   );
+}
+
+
+function AssigneePicker({
+  assignee,
+  disabled,
+  error,
+  membersState,
+  saving,
+  open,
+  onOpenRequested,
+  onClose,
+  onChange,
+  onRetryMembers,
+}: {
+  assignee: AssigneeTarget | null;
+  disabled: boolean;
+  error?: string;
+  membersState: ProjectMembersState;
+  saving: boolean;
+  open: boolean;
+  onOpenRequested(): void;
+  onClose(): void;
+  onChange(patch: AssigneePatch): void;
+  onRetryMembers(): void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const options = useRef<Array<HTMLButtonElement | null>>([]);
+  const menuId = useId();
+  const currentName = assignee?.user.displayName ?? t("board.workItemDetail.assignee.unassigned");
+  const trimmedQuery = query.trim();
+  const hasQuery = trimmedQuery.length > 0;
+  const members = useMemo(
+    () => (membersState.kind === "ready" ? membersState.members : []),
+    [membersState],
+  );
+  const filteredMembers = useMemo(() => {
+    const needle = trimmedQuery.toLocaleLowerCase();
+    if (!needle) return members;
+    return members.filter((member) => (
+      member.user.displayName.toLocaleLowerCase().includes(needle) ||
+      t(`board.workItemDetail.assignee.role.${member.role}`).toLocaleLowerCase().includes(needle)
+    ));
+  }, [members, t, trimmedQuery]);
+  const visibleMemberLimit = hasQuery ? ASSIGNEE_SEARCH_MEMBER_LIMIT : ASSIGNEE_DEFAULT_MEMBER_LIMIT;
+  const visibleMembers = filteredMembers.slice(0, visibleMemberLimit);
+  const hiddenMemberCount = Math.max(0, filteredMembers.length - visibleMembers.length);
+
+  const closePicker = useCallback(() => {
+    onClose();
+    setQuery("");
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const listener = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (menu.current?.contains(target) || trigger.current?.contains(target)) return;
+      closePicker();
+    };
+    window.addEventListener("mousedown", listener, true);
+    return () => window.removeEventListener("mousedown", listener, true);
+  }, [closePicker, open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    options.current = options.current.slice(0, visibleMembers.length + 1);
+    search.current?.focus();
+  }, [open, visibleMembers.length]);
+
+  const focusOption = (index: number) => {
+    const next = Math.max(0, Math.min(index, options.current.length - 1));
+    options.current[next]?.focus();
+  };
+  const onMenuKeyDown = (event: ReactKeyboardEvent) => {
+    const index = options.current.findIndex((item) => item === document.activeElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePicker();
+      trigger.current?.focus();
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOption(index < 0 ? 0 : index + 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption(index <= 0 ? options.current.length - 1 : index - 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusOption(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusOption(options.current.length - 1);
+    }
+  };
+
+  const choose = (patch: AssigneePatch) => {
+    closePicker();
+    onChange(patch);
+    trigger.current?.focus();
+  };
+
+  const onSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePicker();
+      trigger.current?.focus();
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOption(0);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (filteredMembers.length === 1) {
+        const [member] = filteredMembers;
+        choose({
+          action: "SET",
+          target: { targetType: "PROJECT_MEMBER", projectMemberId: member.projectMemberId },
+        });
+      }
+    }
+  };
+
+  return (
+    <div className="assignee-picker">
+      <button
+        ref={trigger}
+        type="button"
+        className="assignee-picker__trigger"
+        data-assigned={assignee ? "true" : "false"}
+        disabled={disabled}
+        aria-busy={saving}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-label={t("board.workItemDetail.assignee.change", { name: currentName })}
+        onClick={() => {
+          if (open) closePicker();
+          else onOpenRequested();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+            event.preventDefault();
+            if (!open) onOpenRequested();
+          }
+        }}
+      >
+        <span className="assignee-picker__avatar-slot" aria-hidden="true">
+          {assignee ? (
+            <AssigneeAvatar person={assignee.user} />
+          ) : (
+            <span className="assignee-picker__unassigned-avatar">
+              <svg viewBox="0 0 16 16" focusable="false">
+                <circle cx="8" cy="5.25" r="2.25" />
+                <path d="M3.75 13c.38-2.18 1.8-3.4 4.25-3.4s3.87 1.22 4.25 3.4" />
+              </svg>
+            </span>
+          )}
+        </span>
+        <span className="assignee-picker__trigger-text">{currentName}</span>
+        <span className="assignee-picker__chevron" aria-hidden="true">
+          {saving ? (
+            <svg className="assignee-picker__spinner" viewBox="0 0 16 16" focusable="false">
+              <circle cx="8" cy="8" r="5.25" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" focusable="false">
+              <path d="m5.25 6.75 2.75 2.75 2.75-2.75" />
+            </svg>
+          )}
+        </span>
+      </button>
+      {saving ? (
+        <span className="visually-hidden" role="status" aria-live="polite">
+          {t("board.workItemDetail.assignee.saving")}
+        </span>
+      ) : null}
+      {error ? <p className="assignee-picker__error" role="alert">{error}</p> : null}
+      {open ? (
+        <div
+          ref={menu}
+          className="assignee-picker__menu"
+          onKeyDown={onMenuKeyDown}
+        >
+          <label className="assignee-picker__search">
+            <span className="visually-hidden">
+              {t("board.workItemDetail.assignee.searchLabel")}
+            </span>
+            <input
+              ref={search}
+              type="search"
+              name="work-item-assignee-search"
+              autoComplete="off"
+              value={query}
+              placeholder={t("board.workItemDetail.assignee.searchPlaceholder")}
+              aria-label={t("board.workItemDetail.assignee.searchLabel")}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={onSearchKeyDown}
+            />
+          </label>
+          <div id={menuId} role="listbox" aria-label={t("board.workItemDetail.assignee.options")}>
+            <button
+              ref={(element) => { options.current[0] = element; }}
+              type="button"
+              className="assignee-picker__option"
+              role="option"
+              aria-selected={!assignee}
+              onClick={() => choose({ action: "CLEAR" })}
+            >
+              <span className="assignee-picker__option-main assignee-picker__option-main--unassigned">
+                <span>{t("board.workItemDetail.assignee.unassigned")}</span>
+                <small>{t("board.workItemDetail.assignee.clearHint")}</small>
+              </span>
+            </button>
+            {membersState.kind === "idle" || membersState.kind === "loading" ? (
+              <p className="assignee-picker__message">
+                {t("board.workItemDetail.assignee.loading")}
+              </p>
+            ) : membersState.kind === "error" ? (
+              <div className="assignee-picker__message assignee-picker__message--error">
+                <p>{t("board.workItemDetail.assignee.loadError")}</p>
+                <button type="button" className="project-button" onClick={onRetryMembers}>
+                  {t("common.retry")}
+                </button>
+              </div>
+            ) : members.length === 0 ? (
+              <p className="assignee-picker__message">
+                {t("board.workItemDetail.assignee.empty")}
+              </p>
+            ) : filteredMembers.length === 0 ? (
+              <p className="assignee-picker__message">
+                {t("board.workItemDetail.assignee.noResults")}
+              </p>
+            ) : (
+              <>
+                {visibleMembers.map((member, index) => (
+                  <button
+                    ref={(element) => { options.current[index + 1] = element; }}
+                    key={member.projectMemberId}
+                    type="button"
+                    className="assignee-picker__option"
+                    role="option"
+                    aria-selected={assignee?.projectMemberId === member.projectMemberId}
+                    onClick={() => choose({
+                      action: "SET",
+                      target: { targetType: "PROJECT_MEMBER", projectMemberId: member.projectMemberId },
+                    })}
+                  >
+                    <AssigneeAvatar person={member.user} />
+                    <span className="assignee-picker__option-main">
+                      <span>{member.user.displayName}</span>
+                      <small>{t(`board.workItemDetail.assignee.role.${member.role}`)}</small>
+                    </span>
+                  </button>
+                ))}
+                {hiddenMemberCount > 0 ? (
+                  <p className="assignee-picker__message assignee-picker__message--overflow">
+                    {t(hasQuery
+                      ? "board.workItemDetail.assignee.moreSearchResults"
+                      : "board.workItemDetail.assignee.moreDefaultResults", {
+                        count: hiddenMemberCount,
+                        shown: visibleMembers.length,
+                        total: filteredMembers.length,
+                      })}
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PersonPill({ person }: { person: PersonSummary }) {
+  return (
+    <span className="person-pill">
+      <AssigneeAvatar person={person} />
+      <span className="person-pill__name">{person.displayName}</span>
+    </span>
+  );
+}
+
+function AssigneeAvatar({ person }: { person: PersonSummary }) {
+  return (
+    <span className="assignee-avatar" aria-hidden="true">
+      {person.avatarUrl ? <img src={person.avatarUrl} alt="" width={24} height={24} /> : initials(person.displayName)}
+    </span>
+  );
+}
+
+function initials(value: string) {
+  const parts = Array.from(value.trim());
+  return (parts[0] ?? "—").toLocaleUpperCase();
 }
 
 function formatAuditTime(value: string, locale: string) {

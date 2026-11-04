@@ -23,6 +23,41 @@ data class BoardColumnView(
     val cards: List<CardView>,
 )
 
+data class PersonSummary(
+    val userId: UUID,
+    val displayName: String,
+    val avatarUrl: String?,
+)
+
+data class ProjectMemberSummary(
+    val projectMemberId: UUID,
+    val user: PersonSummary,
+    val role: String,
+    val createdAt: Instant,
+)
+
+data class AssigneeTarget(
+    val targetType: String,
+    val projectMemberId: UUID,
+    val user: PersonSummary,
+    val role: String,
+)
+
+data class AssigneeSelection(
+    val targetType: String,
+    val projectMemberId: UUID,
+)
+
+enum class AssigneePatchAction {
+    SET,
+    CLEAR,
+}
+
+data class AssigneePatch(
+    val action: AssigneePatchAction,
+    val target: AssigneeSelection?,
+)
+
 data class CardView(
     val workItemId: UUID,
     val title: String,
@@ -30,6 +65,7 @@ data class CardView(
     val workItemVersion: Long,
     val placementVersion: Long,
     val position: Long,
+    val assignee: AssigneeTarget?,
 )
 
 data class BoardView(
@@ -51,6 +87,8 @@ data class WorkItemView(
     val version: Long,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val createdBy: PersonSummary,
+    val assignee: AssigneeTarget?,
 )
 
 data class CreateBoardCommand(
@@ -132,6 +170,7 @@ data class CreateWorkItemCommand(
     val expectedBoardVersion: Long,
     val title: String,
     val description: String?,
+    val assignee: AssigneeSelection? = null,
 )
 
 data class CreateWorkItemResult(
@@ -152,6 +191,7 @@ data class EditWorkItemCommand(
     val expectedVersion: Long,
     val title: String,
     val description: String?,
+    val assigneePatch: AssigneePatch? = null,
 )
 
 data class EditWorkItemResult(
@@ -178,6 +218,12 @@ interface ProjectWorkUseCases {
         workspaceId: UUID,
         projectId: UUID,
     ): List<BoardSummary>
+
+    fun listProjectMembers(
+        actorUserId: UUID,
+        workspaceId: UUID,
+        projectId: UUID,
+    ): List<ProjectMemberSummary>
 
     fun board(
         actorUserId: UUID,

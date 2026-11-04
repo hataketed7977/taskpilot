@@ -248,9 +248,12 @@
   padding: 2px 8px;
 }
 .board-card {
+  --board-card-inset: 14px;
+
   position: relative;
+  width: 100%;
   min-width: 0;
-  min-height: 84px;
+  height: 110px;
   display: flex;
   align-items: stretch;
   border: 1px solid var(--line);
@@ -282,7 +285,7 @@
   z-index: 1000;
   top: -10000px;
   left: -10000px;
-  min-height: 84px;
+  height: 110px;
   margin: 0;
   overflow: hidden;
   border-color: color-mix(in srgb, var(--action) 54%, var(--line));
@@ -295,30 +298,40 @@
   animation: board-card-settle 200ms ease-out;
 }
 .board-card__body {
+  position: relative;
   min-width: 0;
-  min-height: 82px;
+  height: 100%;
+  min-height: 0;
   flex: 1;
   display: grid;
+  grid-template-rows: 35px 33px;
   align-content: start;
   gap: 7px;
+  overflow: hidden;
   border: 0;
-  padding: 15px 14px;
+  padding: var(--board-card-inset);
   background: transparent;
   text-align: left;
 }
-.board-card__body strong {
-  overflow-wrap: anywhere;
-  font-size: 12px;
-  line-height: 1.45;
-}
-.board-card__body span {
+.board-card__title,
+.board-card__description {
   display: -webkit-box;
+  min-width: 0;
   overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+  overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+.board-card__title {
+  padding-right: 34px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 17px;
+}
+.board-card__description {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
 }
 .board-column.is-drop-target {
   border-color: color-mix(in srgb, var(--action) 62%, var(--line));
@@ -335,7 +348,7 @@
 }
 .board-drop-slot {
   position: relative;
-  min-height: 84px;
+  height: 110px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--action) 18%, var(--line));
   border-radius: 8px;
@@ -535,4 +548,24 @@
 }
 .board-dialog .tp-select-trigger {
   width: 100%;
+}
+
+.board-card__assignee {
+  position: absolute;
+  z-index: 1;
+  top: var(--board-card-inset);
+  right: var(--board-card-inset);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.board-card__assignee .assignee-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
 }

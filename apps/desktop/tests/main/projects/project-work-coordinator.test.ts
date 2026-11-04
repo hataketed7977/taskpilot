@@ -22,6 +22,7 @@ function fixture() {
   const preferences = new MemoryRecentBoardStore();
   const client = {
     listBoards: vi.fn().mockResolvedValue([summary(firstId), summary(recentId)]),
+    listProjectMembers: vi.fn().mockResolvedValue([]),
     getBoard: vi.fn(async (_token, input) => board(input.boardId)),
     createBoard: vi.fn(), editBoard: vi.fn(), permanentlyDeleteBoard: vi.fn(), createColumn: vi.fn(), editColumn: vi.fn(), reorderColumns: vi.fn(),
     deleteColumn: vi.fn(), createWorkItem: vi.fn(), getWorkItem: vi.fn(), editWorkItem: vi.fn(), moveCard: vi.fn(),
@@ -36,6 +37,25 @@ describe('ProjectWorkCoordinator', () => {
     await expect(current.coordinator.resolveHome({ workspaceId, projectId })).resolves.toMatchObject({ value: { currentBoard: { boardId: firstId } } });
     await current.preferences.save('production', userA.userId, workspaceId, projectId, recentId);
     await expect(current.coordinator.resolveHome({ workspaceId, projectId })).resolves.toMatchObject({ value: { currentBoard: { boardId: recentId } } });
+  });
+
+
+  it('lists Project Member assignee candidates with the current session key without invalidating Board generation', async () => {
+    const current = fixture();
+    const member = {
+      projectMemberId: recentId,
+      user: { userId: userA.userId, displayName: userA.displayName, avatarUrl: null },
+      role: 'OWNER' as const,
+      createdAt: now,
+    };
+    current.client.listProjectMembers.mockResolvedValueOnce([member]);
+    await current.session.establish(issued());
+
+    await expect(current.coordinator.listProjectMembers({ workspaceId, projectId })).resolves.toEqual({
+      key: { sessionGeneration: 1, userId: userA.userId, workspaceId, projectId },
+      value: [member],
+    });
+    expect(current.client.listProjectMembers).toHaveBeenCalledWith('access-a', { workspaceId, projectId });
   });
 
   it('marks an earlier Board read stale after a successful mutation', async () => {

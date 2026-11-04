@@ -33,6 +33,28 @@ const workItemId = "88888888-8888-4888-8888-888888888888";
 const targetWorkItemId = "99999999-9999-4999-8999-999999999999";
 const lastTargetWorkItemId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const now = "2026-10-15T00:00:00Z";
+const creator = {
+  userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  displayName: "林创建",
+  avatarUrl: null,
+};
+const assigneeUser = {
+  userId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  displayName: "周负责",
+  avatarUrl: null,
+};
+const projectMember = {
+  projectMemberId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  user: assigneeUser,
+  role: "OWNER" as const,
+  createdAt: now,
+};
+const assigneeTarget = {
+  targetType: "PROJECT_MEMBER" as const,
+  projectMemberId: projectMember.projectMemberId,
+  user: projectMember.user,
+  role: projectMember.role,
+};
 const project: ProjectView = {
   projectId,
   workspaceId,
@@ -68,6 +90,7 @@ const initialBoard: BoardView = {
           workItemVersion: 0,
           placementVersion: 0,
           position: 0,
+          assignee: null,
         },
       ],
     },
@@ -130,6 +153,10 @@ function apiFor(board = initialBoard): TaskPilotDesktopApi {
         boards: [summary(board), summary(secondBoard)],
         currentBoard: board,
       },
+    }),
+    listProjectMembers: vi.fn().mockResolvedValue({
+      key: key(),
+      value: [projectMember],
     }),
     list: vi.fn().mockResolvedValue({
       key: key(),
@@ -209,6 +236,21 @@ function apiFor(board = initialBoard): TaskPilotDesktopApi {
     },
   };
 }
+
+function withAssignee(board: BoardView, assigned = true): BoardView {
+  return {
+    ...board,
+    columns: board.columns.map((column) => ({
+      ...column,
+      cards: column.cards.map((card) => ({
+        ...card,
+        assignee: assigned ? assigneeTarget : null,
+        workItemVersion: card.workItemVersion + 1,
+      })),
+    })),
+  };
+}
+
 function summary(board: BoardView) {
   return {
     boardId: board.boardId,
@@ -231,6 +273,8 @@ function toWorkItem(
     version: card.workItemVersion,
     createdAt: now,
     updatedAt: now,
+    createdBy: creator,
+    assignee: card.assignee ?? null,
   };
 }
 function editedBoard(
@@ -688,6 +732,204 @@ describe("Work Item read-only detail", () => {
     expect(sheet.queryByRole("status")).not.toBeInTheDocument();
     expect(dialog.querySelector(".work-item-detail__save-status")).toBeNull();
   });
+
+
+
+  it("shows assigned Cards without adding an unassigned placeholder", async () => {
+    const api = apiFor(withAssignee(initialBoard));
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+
+    const assignedCard = screen.getByRole("button", {
+      name: "准备发布，负责人：周负责",
+    });
+    expect(assignedCard.querySelector(".board-card__assignee")).toHaveAttribute(
+      "title",
+      "周负责",
+    );
+    expect(assignedCard.querySelector(".assignee-avatar")).toHaveTextContent("周");
+    expect(assignedCard.querySelector(".board-card__assignee-name")).toBeNull();
+
+    cleanup();
+    const unassignedApi = apiFor(initialBoard);
+    renderBoard(unassignedApi);
+    await screen.findByRole("heading", { name: "工作看板" });
+    const unassignedCard = screen.getByRole("button", { name: "准备发布" });
+    expect(unassignedCard.querySelector(".board-card__assignee")).toBeNull();
+    expect(unassignedCard.querySelector(".board-card__description")).toBeInTheDocument();
+    expect(screen.queryByText("未分配")).not.toBeInTheDocument();
+  });
+
+  it("sets and clears the assignee from Project members while preserving creator metadata", async () => {
+    const api = apiFor();
+    const assignedBoard = withAssignee(initialBoard);
+    const unassignedAgain = withAssignee(initialBoard, false);
+    vi.mocked(api.boards.editWorkItem)
+      .mockResolvedValueOnce({
+        key: key(boardId, 1),
+        value: {
+          workItem: { ...toWorkItem(assignedBoard.columns[0].cards[0]), version: 1 },
+          board: assignedBoard,
+        },
+      })
+      .mockResolvedValueOnce({
+        key: key(boardId, 2),
+        value: {
+          workItem: { ...toWorkItem(unassignedAgain.columns[0].cards[0]), version: 2 },
+          board: unassignedAgain,
+        },
+      });
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: "准备发布" }));
+
+    expect(await screen.findByText("负责人")).toBeInTheDocument();
+    const footer = screen.getByRole("dialog").querySelector("footer");
+    expect(footer).toHaveTextContent("创建人");
+    expect(footer).toHaveTextContent("林创建");
+    expect(screen.queryByText("创建人")?.closest(".work-item-detail__meta-strip")).toBeNull();
+    expect(screen.queryByRole("button", { name: /编辑创建人/ })).not.toBeInTheDocument();
+    await operator.click(
+      screen.getByRole("button", { name: "更改负责人。当前：未分配" }),
+    );
+    expect(await screen.findByRole("listbox", { name: "负责人选项" })).toBeInTheDocument();
+    const search = screen.getByRole("searchbox", { name: "搜索项目成员" });
+    expect(search).toHaveFocus();
+    await operator.type(search, "周");
+    expect(screen.getByText("所有者")).toBeInTheDocument();
+    await operator.click(screen.getByRole("option", { name: /周负责/ }));
+
+    await waitFor(() => expect(api.boards.editWorkItem).toHaveBeenCalledTimes(1));
+    expect(api.boards.editWorkItem).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        workspaceId,
+        projectId,
+        boardId,
+        workItemId,
+        currentColumnId: todoId,
+        targetColumnId: todoId,
+        expectedVersion: 0,
+        title: "准备发布",
+        description: "检查版本",
+        assigneePatch: {
+          action: "SET",
+          target: {
+            targetType: "PROJECT_MEMBER",
+            projectMemberId: projectMember.projectMemberId,
+          },
+        },
+      }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "更改负责人。当前：周负责" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "准备发布，负责人：周负责" }),
+    ).toBeInTheDocument();
+
+    await operator.click(screen.getByRole("button", { name: "更改负责人。当前：周负责" }));
+    await operator.click(screen.getByRole("option", { name: /未分配/ }));
+    await waitFor(() => expect(api.boards.editWorkItem).toHaveBeenCalledTimes(2));
+    expect(api.boards.editWorkItem).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        expectedVersion: 1,
+        assigneePatch: { action: "CLEAR" },
+      }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "更改负责人。当前：未分配" }),
+    ).toBeInTheDocument();
+  });
+
+  it("saves a dirty description before opening the assignee picker", async () => {
+    const api = apiFor();
+    const save = deferred<Awaited<ReturnType<TaskPilotDesktopApi["boards"]["editWorkItem"]>>>();
+    vi.mocked(api.boards.editWorkItem).mockReturnValue(save.promise);
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: "准备发布" }));
+    await operator.click(await screen.findByRole("button", { name: "编辑描述" }));
+    const description = screen.getByRole("textbox", { name: "描述" });
+    await operator.clear(description);
+    await operator.type(description, "更新后的描述");
+
+    const assignee = screen.getByRole("button", { name: "更改负责人。当前：未分配" });
+    expect(assignee).toBeEnabled();
+    await operator.click(assignee);
+
+    await waitFor(() => expect(api.boards.editWorkItem).toHaveBeenCalledTimes(1));
+    expect(api.boards.editWorkItem).toHaveBeenLastCalledWith(expect.objectContaining({
+      description: "更新后的描述",
+      expectedVersion: 0,
+    }));
+    expect(screen.queryByRole("listbox", { name: "负责人选项" })).not.toBeInTheDocument();
+
+    const savedBoard = {
+      ...initialBoard,
+      columns: initialBoard.columns.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) => card.workItemId === workItemId
+          ? { ...card, description: "更新后的描述", workItemVersion: 1 }
+          : card),
+      })),
+    };
+    save.resolve({
+      key: key(boardId, 1),
+      value: {
+        workItem: { ...toWorkItem(savedBoard.columns[0].cards[0]), version: 1 },
+        board: savedBoard,
+      },
+    });
+
+    expect(await screen.findByRole("listbox", { name: "负责人选项" })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "搜索项目成员" })).toHaveFocus();
+  });
+
+  it("keeps the assignee picker closed when saving the active description fails", async () => {
+    const api = apiFor();
+    vi.mocked(api.boards.editWorkItem).mockRejectedValue(new Error("temporary"));
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: "准备发布" }));
+    await operator.click(await screen.findByRole("button", { name: "编辑描述" }));
+    const description = screen.getByRole("textbox", { name: "描述" });
+    await operator.clear(description);
+    await operator.type(description, "未保存的描述");
+    await operator.click(screen.getByRole("button", { name: "更改负责人。当前：未分配" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("暂时无法保存描述");
+    expect(screen.getByRole("textbox", { name: "描述" })).toHaveValue("未保存的描述");
+    expect(screen.queryByRole("listbox", { name: "负责人选项" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the current assignee visible when assignee save fails", async () => {
+    const api = apiFor(withAssignee(initialBoard));
+    vi.mocked(api.boards.editWorkItem).mockRejectedValue(new Error("temporary"));
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(
+      screen.getByRole("button", { name: "准备发布，负责人：周负责" }),
+    );
+    await operator.click(
+      await screen.findByRole("button", { name: "更改负责人。当前：周负责" }),
+    );
+    await operator.click(screen.getByRole("option", { name: /未分配/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "暂时无法保存负责人，当前负责人已保留。",
+    );
+    expect(
+      screen.getByRole("button", { name: "更改负责人。当前：周负责" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "准备发布，负责人：周负责" }),
+    ).toBeInTheDocument();
+  });
+
 
   it("loads authoritative detail under the production StrictMode lifecycle", async () => {
     const api = apiFor();

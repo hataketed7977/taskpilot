@@ -28,6 +28,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -329,6 +330,30 @@ class AuthenticationHttpIntegrationTest(
     fun `authenticated project work API enforces scope versions and stable transport semantics`() {
         val registered = registerAccount()
         val root = "/v1/projects/${registered.projectId}"
+        val ownerMemberId = projectMemberId(registered.projectId, "Octo Cat")
+        val zedMemberId = insertProjectMember(registered.projectId, "Zed Assignee")
+        val adaMemberId = insertProjectMember(registered.projectId, "Ada Assignee")
+        insertProjectMember(registered.projectId, "Inactive Assignee", status = "DISABLED")
+        val outsider = registerAccount("project-work-outsider")
+        val outsiderMemberId = insertProjectMember(outsider.projectId, "Other Project Assignee")
+
+        assertEquals(401, request("GET", "$root/members").status)
+        val members = request("GET", "$root/members", bearer = registered.accessToken)
+        assertEquals(200, members.status)
+        val memberSummaries = members.json().listOfObjects("members")
+        assertEquals(
+            listOf(adaMemberId, ownerMemberId, zedMemberId).map(UUID::toString),
+            memberSummaries.map { it.requiredText("projectMemberId") },
+        )
+        assertFalse(memberSummaries.any { it.requiredText("projectMemberId") == outsiderMemberId.toString() })
+        memberSummaries.forEach { member ->
+            assertEquals(setOf("projectMemberId", "user", "role", "createdAt"), member.keys)
+            assertEquals("OWNER", member.requiredText("role"))
+            assertEquals(setOf("userId", "displayName", "avatarUrl"), member.nested("user").keys)
+        }
+        assertEquals(404, request("GET", "/v1/projects/${outsider.projectId}/members", bearer = registered.accessToken).status)
+        assertEquals(405, request("POST", "$root/members", "{}", registered.accessToken).status)
+        assertEquals(404, request("GET", "$root/assignee-agents", bearer = registered.accessToken).status)
 
         assertEquals(401, request("GET", "$root/boards").status)
         val initialBoards = request("GET", "$root/boards", bearer = registered.accessToken)
@@ -401,9 +426,18 @@ class AuthenticationHttpIntegrationTest(
         assertEquals(201, createdItem.status)
         val workItemId = createdItem.json().nested("workItem").requiredText("workItemId")
         assertEquals(
-            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt"),
+            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt", "createdBy", "assignee"),
             createdItem.json().nested("workItem").keys,
         )
+        assertEquals(
+            "Octo Cat",
+            createdItem
+                .json()
+                .nested("workItem")
+                .nested("createdBy")
+                .requiredText("displayName"),
+        )
+        assertNull(createdItem.json().nested("workItem")["assignee"])
         assertEquals(
             workItemId,
             createdItem
@@ -459,9 +493,10 @@ class AuthenticationHttpIntegrationTest(
                 .single()
         assertEquals("1", movedCard.requiredText("placementVersion"))
         assertEquals(
-            setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position"),
+            setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position", "assignee"),
             movedCard.keys,
         )
+        assertNull(movedCard["assignee"])
 
         val editedItem =
             request(
@@ -470,18 +505,26 @@ class AuthenticationHttpIntegrationTest(
                 """
                 {"boardId":"$boardId","currentColumnId":"$secondColumnId",
                 "targetColumnId":"$secondColumnId","expectedVersion":0,
-                "title":"Updated","description":null}
+                "title":"Updated","description":null,
+                "assigneePatch":{"action":"SET","target":{"targetType":"PROJECT_MEMBER","projectMemberId":"$adaMemberId"}}}
                 """.trimIndent(),
                 registered.accessToken,
             )
         assertEquals(200, editedItem.status)
         assertEquals("Updated", editedItem.json().nested("workItem").requiredText("title"))
-        val itemKeys = setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt")
-        val cardKeys = setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position")
+        val itemKeys =
+            setOf("workItemId", "projectId", "title", "description", "version", "createdAt", "updatedAt", "createdBy", "assignee")
+        val cardKeys =
+            setOf("workItemId", "title", "description", "workItemVersion", "placementVersion", "position", "assignee")
         assertEquals(itemKeys, editedItem.json().nested("workItem").keys)
+        val editedAssignee = editedItem.json().nested("workItem").nested("assignee")
+        assertEquals("PROJECT_MEMBER", editedAssignee.requiredText("targetType"))
+        assertEquals(adaMemberId.toString(), editedAssignee.requiredText("projectMemberId"))
+        assertEquals("Ada Assignee", editedAssignee.nested("user").requiredText("displayName"))
         val detail = request("GET", "/v1/work-items/$workItemId", bearer = registered.accessToken)
         assertEquals(200, detail.status)
         assertEquals(itemKeys, detail.json().keys)
+        assertEquals(adaMemberId.toString(), detail.json().nested("assignee").requiredText("projectMemberId"))
         val readBoard = request("GET", "/v1/boards/$boardId", bearer = registered.accessToken)
         assertEquals(200, readBoard.status)
         assertEquals(
@@ -496,14 +539,14 @@ class AuthenticationHttpIntegrationTest(
         )
 
         assertEquals(boardId, editedItem.json().nested("board").requiredText("boardId"))
-        assertEquals(
-            "Updated",
+        val updatedCard =
             request(
                 "GET",
                 "/v1/boards/$boardId",
                 bearer = registered.accessToken,
-            ).json().listOfObjects("columns").last().listOfObjects("cards").single().requiredText("title"),
-        )
+            ).json().listOfObjects("columns").last().listOfObjects("cards").single()
+        assertEquals("Updated", updatedCard.requiredText("title"))
+        assertEquals(adaMemberId.toString(), updatedCard.nested("assignee").requiredText("projectMemberId"))
 
         val missingBoardVersion =
             request(
@@ -945,6 +988,64 @@ class AuthenticationHttpIntegrationTest(
         return request("GET", "/v1/boards/$boardId", bearer = account.accessToken).also {
             assertEquals(200, it.status)
         }
+    }
+
+    private fun projectMemberId(
+        projectId: String,
+        displayName: String,
+    ): UUID =
+        postgres.createConnection("").use { connection ->
+            connection
+                .prepareStatement(
+                    """
+                    SELECT m.id
+                    FROM project.project_memberships m
+                    JOIN access.users u ON u.id = m.user_id
+                    WHERE m.project_id = ?::uuid AND u.display_name = ?
+                    ORDER BY m.id
+                    LIMIT 1
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, projectId)
+                    statement.setString(2, displayName)
+                    statement.executeQuery().use { rows ->
+                        assertTrue(rows.next())
+                        UUID.fromString(rows.getString("id"))
+                    }
+                }
+        }
+
+    private fun insertProjectMember(
+        projectId: String,
+        displayName: String,
+        status: String = "ACTIVE",
+    ): UUID {
+        val userId = UUID.randomUUID()
+        val memberId = UUID.randomUUID()
+        postgres.createConnection("").use { connection ->
+            connection
+                .prepareStatement(
+                    "INSERT INTO access.users (id, display_name, status, created_at) VALUES (?, ?, ?, now())",
+                ).use { statement ->
+                    statement.setObject(1, userId)
+                    statement.setString(2, displayName)
+                    statement.setString(3, status)
+                    statement.executeUpdate()
+                }
+            connection
+                .prepareStatement(
+                    """
+                    INSERT INTO project.project_memberships (id, project_id, user_id, role, created_at)
+                    VALUES (?, ?::uuid, ?, 'OWNER', now())
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setObject(1, memberId)
+                    statement.setString(2, projectId)
+                    statement.setObject(3, userId)
+                    statement.executeUpdate()
+                }
+        }
+        return memberId
     }
 
     private fun assertProblem(

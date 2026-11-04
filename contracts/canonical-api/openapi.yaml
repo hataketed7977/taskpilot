@@ -430,6 +430,54 @@ paths:
       - accessBearer: []
       x-taskpilot-authentication: access-bearer
       x-taskpilot-ingress: canonical
+  /v1/projects/{projectId}/members:
+    get:
+      tags:
+      - Project work
+      description: Lists active Project Members eligible for current Work Item assignment in deterministic displayName and membership id order.
+      operationId: listProjectMembers
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMemberList'
+        '400':
+          description: Request failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/TaskPilotProblemDetails'
+        '401':
+          description: Request failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/TaskPilotProblemDetails'
+        '404':
+          description: Request failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/TaskPilotProblemDetails'
+        '503':
+          description: Request failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/TaskPilotProblemDetails'
+      security:
+      - accessBearer: []
+      x-taskpilot-authentication: access-bearer
+      x-taskpilot-ingress: canonical
   /v1/projects/{projectId}/boards:
     get:
       tags:
@@ -1652,6 +1700,9 @@ components:
         position:
           type: integer
           format: int64
+        assignee:
+          $ref: '#/components/schemas/AssigneeTarget'
+          nullable: true
       required:
       - workItemId
       - title
@@ -1659,6 +1710,99 @@ components:
       - workItemVersion
       - placementVersion
       - position
+    PersonSummary:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type:
+          - string
+          - 'null'
+      required:
+      - userId
+      - displayName
+      - avatarUrl
+    ProjectMemberSummary:
+      type: object
+      properties:
+        projectMemberId:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/PersonSummary'
+        role:
+          type: string
+          enum:
+          - OWNER
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - projectMemberId
+      - user
+      - role
+      - createdAt
+    ProjectMemberList:
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectMemberSummary'
+      required:
+      - members
+    AssigneeSelection:
+      type: object
+      properties:
+        targetType:
+          type: string
+          enum:
+          - PROJECT_MEMBER
+        projectMemberId:
+          type: string
+          format: uuid
+      required:
+      - targetType
+      - projectMemberId
+    AssigneePatch:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+          - SET
+          - CLEAR
+        target:
+          $ref: '#/components/schemas/AssigneeSelection'
+      required:
+      - action
+    ProjectMemberAssignee:
+      type: object
+      properties:
+        targetType:
+          type: string
+          enum:
+          - PROJECT_MEMBER
+        projectMemberId:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/PersonSummary'
+        role:
+          type: string
+          enum:
+          - OWNER
+      required:
+      - targetType
+      - projectMemberId
+      - user
+      - role
+    AssigneeTarget:
+      $ref: '#/components/schemas/ProjectMemberAssignee'
     CreateProjectRequest:
       type: object
       properties:
@@ -2001,6 +2145,8 @@ components:
           type:
           - string
           - 'null'
+        assignee:
+          $ref: '#/components/schemas/AssigneeSelection'
       required:
       - requestId
       - expectedBoardVersion
@@ -2038,6 +2184,11 @@ components:
         updatedAt:
           type: string
           format: date-time
+        createdBy:
+          $ref: '#/components/schemas/PersonSummary'
+        assignee:
+          $ref: '#/components/schemas/AssigneeTarget'
+          nullable: true
       required:
       - workItemId
       - projectId
@@ -2046,6 +2197,7 @@ components:
       - version
       - createdAt
       - updatedAt
+      - createdBy
     MovePlacementRequest:
       type: object
       properties:
@@ -2113,6 +2265,8 @@ components:
           type:
           - string
           - 'null'
+        assigneePatch:
+          $ref: '#/components/schemas/AssigneePatch'
       required:
       - boardId
       - currentColumnId

@@ -22,7 +22,7 @@ locale allowlist, exact `(locale, legalBundleVersion, termsVersion,
 privacyVersion)` validation, atomic acceptance persistence, and server-generated
 `acceptedAt`; it does not own Desktop language preference or general server-side
 i18n. Project currently owns ordinary Boards, ordered Columns, basic Work
-Items without a state capability, Board Placements, OWNER-authorized layout moves, and their canonical HTTP API.
+Items without a state capability, immutable creator display, optional single current Project Member assignee, Board Placements, OWNER-authorized layout moves, and their canonical HTTP API.
 Cards reuse `WorkItemId`; they are not persisted business records. The GitHub adapter performs only
 authorization/token/authenticated-user exchange outside database transactions
 and returns a normalized durable identity; it does not persist Provider tokens.
@@ -40,7 +40,7 @@ optimistic editing. Runtime OpenAPI documents authentication/session/current-use
 registration bootstrap, PERSONAL Workspace discovery, and the complete current
 Project operations outside Production. Project also owns current archive/restore
 and guarded physical deletion, including explicit Membership
-delete order and protected-dependency conflict mapping. TEAM behavior, the
+delete order and protected-dependency conflict mapping. Project Work owns the Project Member candidate endpoint used for assignee selection and validates assignee mutations against active membership in the same Project; it does not manage invitations, removals, role editing, durable assignment history, or Agent picking. TEAM behavior, the
 removed email/password/OTP/reset stack, SMTP/Mailpit, Agent execution, and
 workflow behavior are not current responsibilities.
 
@@ -102,7 +102,7 @@ No artifact is required solely because an event was named during analysis.
 | Access | User and External Identity, federated login attempts and registration continuations, legal acceptance, and opaque session/actor facts | Provider repository integration, Project participation, work, workflow, Agent execution |
 | Workspace | Workspace and Workspace Membership, PERSONAL provisioning, discovery, and narrow membership authorization operations | Project participation, authentication/session lifecycle, work, workflow, Agent execution |
 | Onboarding | First-registration transaction coordination across narrow Access, Workspace, and Project provisioning contracts | Tables, HTTP endpoints, session issuance, or general cross-capability helpers |
-| Project Work | Project and membership, Work Item and type, custom values, Board configuration/query, comments | Workflow progression, provider execution |
+| Project Work | Project and membership, Project Member assignee candidates, Work Item creator/current assignee and type, custom values, Board configuration/query, comments | Workflow progression, provider execution, member management workflows, durable history timeline |
 | Automation | Workflow and versions, Workflow Run, Step Run, transition evaluation, Approval Request, cancellation orchestration | Provider SDK invocation, Card persistence |
 | Agent Execution | Provider Connection, Agent and versions, Project Agent Binding, Agent Run, Attempt, Artifact references, execution-mode routing, remote provider adapters, local dispatch/lease, and reconciliation | Human membership, approval authority, Work Item truth |
 
@@ -138,7 +138,7 @@ shape per concept.
 
 ### Work management
 
-- **Current:** create and edit basic Work Items without a state capability; create/edit Boards and
+- **Current:** create and edit basic Work Items without a state capability; expose immutable creator; set, replace, or clear one current Project Member assignee; create/edit Boards and
   Columns; reorder/delete eligible Columns; permanently delete an empty Board
   while preserving Work Items; create and move Board Placements.
 - **Target:** complete, cancel, and explicitly reopen a Work Item; publish a Work
@@ -225,11 +225,11 @@ are idempotent and observable.
 ## Board Responsibilities
 
 **Current:** Project Work owns ordinary Board/Column definitions, basic Work
-Items, Board Placements, and joined Card queries. `(boardId, workItemId)` is the
+Items, Work Item creator/current-assignee projections, Board Placements, and joined Card queries. `(boardId, workItemId)` is the
 Board-local uniqueness boundary; Work Item content remains canonical. Current
 Work Item/Card DTOs, SQL queries, and runtime OpenAPI own a strict no-state
 response shape, with no optional/deprecated lifecycle/status compatibility field. Card move
-is a versioned layout mutation only and cannot alter canonical content, another Board,
+is a versioned layout mutation only and cannot alter canonical content, current assignee, another Board,
 or start Workflow/Agent execution. Project Work also owns empty-Board permanent
 deletion: it reauthorizes Project OWNER, validates current version and exact name,
 rejects any Placement, deletes Columns before the Board, preserves Work Items,

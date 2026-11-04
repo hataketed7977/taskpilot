@@ -17,6 +17,7 @@ import type {
   BoardSummary,
   BoardView,
   CardView,
+  PersonSummary,
   ProjectView,
   TaskPilotDesktopApi,
 } from "../../../shared/contracts";
@@ -1049,15 +1050,26 @@ function BoardCanvas({
                           }}
                           type="button"
                           className="board-card__body"
-                          aria-label={card.title}
+                          aria-label={card.assignee ? t("board.cardWithAssignee", { title: card.title, assignee: card.assignee.user.displayName }) : card.title}
                           onClick={() =>
                             onOpenWorkItem(column.columnId, card.workItemId)
                           }
                         >
-                          <strong>{card.title}</strong>
-                          {card.description ? (
-                            <span>{card.description}</span>
+                          <strong className="board-card__title">
+                            {card.title}
+                          </strong>
+                          {card.assignee ? (
+                            <span
+                              className="board-card__assignee"
+                              aria-hidden="true"
+                              title={card.assignee.user.displayName}
+                            >
+                              <PersonAvatar person={card.assignee.user} />
+                            </span>
                           ) : null}
+                          <span className="board-card__description">
+                            {card.description}
+                          </span>
                         </button>
                       </div>
                     </Fragment>
@@ -1099,6 +1111,24 @@ function BoardCanvas({
       ) : null}
     </section>
   );
+}
+
+
+function PersonAvatar({ person }: { person?: PersonSummary }) {
+  const name = person?.displayName ?? "—";
+  return (
+    <span className="assignee-avatar" aria-hidden="true">
+      {person?.avatarUrl ? (
+        <img src={person.avatarUrl} alt="" width={24} height={24} />
+      ) : (
+        avatarInitial(name)
+      )}
+    </span>
+  );
+}
+
+function avatarInitial(value: string) {
+  return (Array.from(value.trim())[0] ?? "—").toLocaleUpperCase();
 }
 
 function BoardDialogView({

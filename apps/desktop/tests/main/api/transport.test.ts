@@ -45,11 +45,14 @@ describe('FixedHttpTransport', () => {
     await expect(transport.request({ method: 'GET', path: '/v1/workspaces' })).resolves.toBeDefined();
     await expect(transport.request({ method: 'GET', path: `/v1/workspaces/${workspace}/projects?status=ACTIVE&limit=50` })).resolves.toBeDefined();
     await expect(transport.request({ method: 'PATCH', path: `/v1/projects/${project}`, body: {} })).resolves.toBeDefined();
+    await expect(transport.request({ method: 'GET', path: `/v1/projects/${project}/members` })).resolves.toBeDefined();
     for (const input of [
       { method: 'POST' as const, path: '/v1/workspaces' },
       { method: 'GET' as const, path: `/v1/workspaces/${workspace}/projects?status=ACTIVE&limit=500` },
       { method: 'GET' as const, path: `/v1/workspaces/${workspace}/projects?status=ACTIVE&limit=50&url=https://evil.test` },
       { method: 'PATCH' as const, path: `/v1/projects/${project}:archive` },
+      { method: 'POST' as const, path: `/v1/projects/${project}/members` },
+      { method: 'GET' as const, path: `/v1/projects/${project}/members?cursor=evil` },
     ]) await expect(transport.request(input)).rejects.toThrow('Endpoint is not allowlisted');
   });
 

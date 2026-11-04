@@ -21,6 +21,7 @@ export const CHANNELS = {
   restoreProject: 'projects:restore',
   permanentlyDeleteProject: 'projects:permanently-delete',
   resolveBoardHome: 'boards:resolve-home',
+  listProjectMembers: 'boards:project-members:list',
   listBoards: 'boards:list',
   openBoard: 'boards:open',
   createBoard: 'boards:create',
@@ -45,6 +46,11 @@ const statusMutation = location.extend({ expectedVersion: version }).strict();
 const boardLocation = location.extend({ boardId: uuid }).strict();
 const columnLocation = boardLocation.extend({ columnId: uuid }).strict();
 const workItemLocation = boardLocation.extend({ workItemId: uuid }).strict();
+const assigneeSelection = z.object({ targetType: z.literal('PROJECT_MEMBER'), projectMemberId: uuid }).strict();
+const assigneePatch = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('SET'), target: assigneeSelection }).strict(),
+  z.object({ action: z.literal('CLEAR') }).strict(),
+]);
 const schemas = {
   getCapabilities: z.undefined(),
   startGitHubSignIn: z.undefined(),
@@ -73,6 +79,7 @@ const schemas = {
   restoreProject: statusMutation,
   permanentlyDeleteProject: statusMutation.extend({ confirmationName: boundedText(200) }).strict(),
   resolveBoardHome: location,
+  listProjectMembers: location,
   listBoards: location,
   openBoard: boardLocation,
   createBoard: location.extend({ requestId: uuid, name: boundedText(120), description: boundedText(2000).optional(), locale }).strict(),
@@ -82,7 +89,10 @@ const schemas = {
   editColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version, name: boundedText(80) }).strict(),
   reorderColumns: boardLocation.extend({ expectedBoardVersion: version, columnIds: z.array(uuid).min(1).max(50) }).strict(),
   deleteColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version }).strict(),
-  createWorkItem: boardLocation.extend({ columnId: uuid, requestId: uuid, expectedBoardVersion: version, title: boundedText(300), description: boundedText(10_000).optional() }).strict(),
+  createWorkItem: boardLocation.extend({
+    columnId: uuid, requestId: uuid, expectedBoardVersion: version, title: boundedText(300),
+    description: boundedText(10_000).optional(), assignee: assigneeSelection.optional(),
+  }).strict(),
   openWorkItem: workItemLocation,
   editWorkItem: workItemLocation.extend({
     boardId: uuid,
@@ -93,6 +103,7 @@ const schemas = {
     expectedVersion: version,
     title: boundedText(300),
     description: boundedText(10_000).optional(),
+    assigneePatch: assigneePatch.optional(),
   }).strict()
     .refine(input => input.currentColumnId === input.targetColumnId || input.expectedBoardVersion !== undefined, { path: ['expectedBoardVersion'] })
     .refine(input => input.currentColumnId === input.targetColumnId || input.expectedPlacementVersion !== undefined, { path: ['expectedPlacementVersion'] }),
@@ -135,6 +146,7 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
     [CHANNELS.restoreProject, 'projects', 'restoreProject'],
     [CHANNELS.permanentlyDeleteProject, 'projects', 'permanentlyDeleteProject'],
     [CHANNELS.resolveBoardHome, 'boards', 'resolveBoardHome'],
+    [CHANNELS.listProjectMembers, 'boards', 'listProjectMembers'],
     [CHANNELS.listBoards, 'boards', 'listBoards'],
     [CHANNELS.openBoard, 'boards', 'openBoard'],
     [CHANNELS.createBoard, 'boards', 'createBoard'],
@@ -162,7 +174,8 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
       restoreProject: capabilities.projects.restore, permanentlyDeleteProject: capabilities.projects.permanentlyDelete,
     } as never,
     boards: {
-      resolveBoardHome: capabilities.boards?.resolveHome, listBoards: capabilities.boards?.list, openBoard: capabilities.boards?.open,
+      resolveBoardHome: capabilities.boards?.resolveHome, listProjectMembers: capabilities.boards?.listProjectMembers,
+      listBoards: capabilities.boards?.list, openBoard: capabilities.boards?.open,
       createBoard: capabilities.boards?.create, editBoard: capabilities.boards?.edit, permanentlyDeleteBoard: capabilities.boards?.permanentlyDelete,
       createColumn: capabilities.boards?.createColumn,
       editColumn: capabilities.boards?.editColumn, reorderColumns: capabilities.boards?.reorderColumns, deleteColumn: capabilities.boards?.deleteColumn,

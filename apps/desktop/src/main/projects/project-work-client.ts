@@ -15,6 +15,7 @@ import type {
   EditWorkItemResult,
   MoveCardInput,
   ProjectLocationInput,
+  ProjectMemberSummary,
   ReorderColumnsInput,
   WorkItemLocationInput,
   WorkItemView,
@@ -28,9 +29,26 @@ const boardSummary = z.object({
   boardId: uuid, projectId: uuid, name: z.string(), description: z.string(), version: nonnegative,
   createdAt: instant, updatedAt: instant,
 }).strict();
+const personSummary = z.object({ userId: uuid, displayName: z.string(), avatarUrl: z.string().nullable() }).strict();
+const projectMemberSummary = z.object({
+  projectMemberId: uuid, user: personSummary, role: z.enum(['OWNER']), createdAt: instant,
+}).strict();
+const projectMemberList = z.object({ members: z.array(projectMemberSummary) }).strict();
+const assigneeTarget = z.object({
+  targetType: z.enum(['PROJECT_MEMBER']),
+  projectMemberId: uuid,
+  user: personSummary,
+  role: z.enum(['OWNER']),
+}).strict();
+const assigneeSelection = z.object({ targetType: z.enum(['PROJECT_MEMBER']), projectMemberId: uuid }).strict();
+const assigneePatch = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('SET'), target: assigneeSelection }).strict(),
+  z.object({ action: z.literal('CLEAR') }).strict(),
+]);
 const card = z.object({
   workItemId: uuid, title: z.string(), description: z.string(),
   workItemVersion: nonnegative, placementVersion: nonnegative, position: nonnegative,
+  assignee: assigneeTarget.nullable(),
 }).strict();
 const column = z.object({
   columnId: uuid, name: z.string(), position: nonnegative, version: nonnegative,
@@ -40,12 +58,14 @@ const board = boardSummary.extend({ columns: z.array(column) }).strict();
 const workItem = z.object({
   workItemId: uuid, projectId: uuid, title: z.string(), description: z.string(),
   version: nonnegative, createdAt: instant, updatedAt: instant,
+  createdBy: personSummary, assignee: assigneeTarget.nullable(),
 }).strict();
 const createWorkItemResult = z.object({ workItem, board }).strict();
 const editWorkItemResult = z.object({ workItem, board }).strict();
 
 export interface ProjectWorkPort {
   listBoards(accessToken: string, input: ProjectLocationInput): Promise<BoardSummary[]>;
+  listProjectMembers(accessToken: string, input: ProjectLocationInput): Promise<ProjectMemberSummary[]>;
   getBoard(accessToken: string, input: BoardLocationInput): Promise<BoardView>;
   createBoard(accessToken: string, input: CreateBoardInput): Promise<BoardView>;
   editBoard(accessToken: string, input: EditBoardInput): Promise<BoardView>;
@@ -65,6 +85,9 @@ export class ProjectWorkClient implements ProjectWorkPort {
 
   async listBoards(accessToken: string, input: ProjectLocationInput) {
     return z.array(boardSummary).parse(await this.transport.request({ method: 'GET', path: this.boards(input), accessToken }));
+  }
+  async listProjectMembers(accessToken: string, input: ProjectLocationInput) {
+    return projectMemberList.parse(await this.transport.request({ method: 'GET', path: `${this.projects(input)}/members`, accessToken })).members;
   }
   async getBoard(accessToken: string, input: BoardLocationInput) {
     return board.parse(await this.transport.request({ method: 'GET', path: this.board(input), accessToken }));
@@ -116,6 +139,7 @@ export class ProjectWorkClient implements ProjectWorkPort {
       expectedBoardVersion: input.expectedBoardVersion,
       title: input.title,
       description: input.description,
+      ...(input.assignee === undefined ? {} : { assignee: assigneeSelection.parse(input.assignee) }),
     };
     return createWorkItemResult.parse(await this.transport.request({ method: 'POST', path: `${this.board(input)}/work-items`, body, accessToken }));
   }
@@ -132,6 +156,7 @@ export class ProjectWorkClient implements ProjectWorkPort {
       expectedVersion: input.expectedVersion,
       title: input.title,
       description: input.description,
+      ...(input.assigneePatch === undefined ? {} : { assigneePatch: assigneePatch.parse(input.assigneePatch) }),
     };
     return editWorkItemResult.parse(await this.transport.request({ method: 'PATCH', path: this.workItem(input), body, accessToken }));
   }

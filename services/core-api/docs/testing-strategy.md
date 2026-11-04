@@ -151,17 +151,17 @@ contract. Do not mock the state transition or use case under test.
 ### Work Items and custom fields
 
 - Current basic Work Items without a state capability preserve canonical content/version without a
-  required type; Card reads do not copy their content.
+  required type; Card reads do not copy their content or assignee. Work Item detail and Card projections expose immutable creator and nullable current assignee from Work Item truth.
 - `WorkspaceProjectMigrationIntegrationTest` migrates fresh PostgreSQL and asserts
-  the exact `work_items` columns and preserved constraints, with no state column/check.
-  Application, HTTP create/detail/edit/Board reads, and runtime OpenAPI assert
-  exact Work Item/Card properties; authorization, atomic rollback, versions,
+  the exact `work_items` columns and preserved constraints, including assignee target columns, supported-target check, same-Project membership FK, and no state column/check.
+  Application, HTTP create/detail/edit/Board reads, Project Member candidate listing, and runtime OpenAPI assert
+  exact Work Item/Card properties, `createdBy`, nullable assignee, assignee patch set/clear, active-member filtering, invalid/cross-Project/inactive rejection, stale-version conflicts, and no history/activity endpoints; authorization, atomic rollback, versions,
   and independent multi-Board Placements remain covered. Run:
   `./gradlew --no-daemon :services:core-api:test --tests "*WorkspaceProjectMigrationIntegrationTest" --tests "*ProjectWorkApplicationIntegrationTest" --tests "*AuthenticationHttpIntegrationTest" --tests "*OpenApiIntegrationTest"`.
 - Target typed values conform to a pinned Work Item Type Version, and publishing
   a new type version must not mutate existing typed Work Items.
 - Required, enum, and typed values return path-specific diagnostics.
-- Assignment changes responsibility but do not start an Agent Run.
+- Current Project Member assignment changes responsibility but does not start a Workflow, approval, or Agent Run.
 - Comments cannot masquerade as workflow outcomes or approval decisions.
 
 ### Boards
@@ -326,8 +326,8 @@ Local-Runtime fake cases:
 **Current Project Work evidence:** `ProjectWorkApplicationIntegrationTest` and
 `WorkspaceProjectMigrationIntegrationTest` use real PostgreSQL to cover
 composite scope constraints, deferrable ordering, concurrent request replay,
-Board/Placement contention, multi-Board canonical content, empty-Board and
-Project subtree deletion, retained Work Items, and RESTRICT rollback. HTTP/OpenAPI tests own transport status,
+Board/Placement contention, multi-Board canonical content and assignee consistency, empty-Board and
+Project subtree deletion, retained Work Items, Project Member candidate filtering, assignee constraints, and RESTRICT rollback. HTTP/OpenAPI tests own transport status,
 security, Problem Details, and implemented-path evidence. Run
 `./gradlew --no-daemon :services:core-api:qualityCheck` for the affected gate.
 

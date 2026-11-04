@@ -8,7 +8,8 @@ export type WorkItemDetailConfirmed = {
 };
 export type WorkItemDetailIntent =
   | { kind: 'close' }
-  | { kind: 'switch'; field: WorkItemDetailField };
+  | { kind: 'switch'; field: WorkItemDetailField }
+  | { kind: 'open-assignee' };
 
 type EditSnapshot = {
   field: WorkItemDetailField;
@@ -24,6 +25,7 @@ export type WorkItemDetailState =
   | { kind: 'loading'; token: number; boardId: string; workItemId: string }
   | { kind: 'error'; token: number; boardId: string; workItemId: string; message?: string }
   | { kind: 'read-only'; confirmed: WorkItemDetailConfirmed }
+  | { kind: 'assignee-open'; confirmed: WorkItemDetailConfirmed }
   | ({ kind: 'editing' } & Editable)
   | ({ kind: 'saving' } & EditSnapshot)
   | ({ kind: 'conflict' } & EditSnapshot)
@@ -40,9 +42,12 @@ export type WorkItemDetailAction =
   | { type: 'escape' }
   | { type: 'blur' }
   | { type: 'request-close' }
+  | { type: 'request-assignee' }
+  | { type: 'close-assignee' }
   | { type: 'submit'; intent?: WorkItemDetailIntent }
   | { type: 'validation-failed'; message: string; intent?: WorkItemDetailIntent }
   | { type: 'saved'; confirmed: WorkItemDetailConfirmed }
+  | { type: 'assignee-saved'; confirmed: WorkItemDetailConfirmed }
   | { type: 'settle' }
   | { type: 'save-failed'; message: string }
   | { type: 'conflict'; confirmed: WorkItemDetailConfirmed }
@@ -89,6 +94,7 @@ function afterIntent(
 ): WorkItemDetailState {
   if (intent?.kind === 'close') return initialWorkItemDetailState;
   if (intent?.kind === 'switch') return editing(confirmed, intent.field);
+  if (intent?.kind === 'open-assignee') return { kind: 'assignee-open', confirmed };
   return { kind: 'saved', field, confirmed };
 }
 
@@ -117,8 +123,30 @@ export function transitionWorkItemDetail(
     }
     return initialWorkItemDetailState;
   }
-  if (action.type === 'edit') {
+  if (action.type === 'request-assignee') {
+    const intent = { kind: 'open-assignee' } as const;
     if (state.kind === 'read-only' || state.kind === 'saved') {
+      return { kind: 'assignee-open', confirmed: state.confirmed };
+    }
+    if (state.kind === 'editing') {
+      return state.dirty
+        ? saving(state, intent)
+        : { kind: 'assignee-open', confirmed: state.confirmed };
+    }
+    if (state.kind === 'saving' || state.kind === 'conflict') {
+      return { ...state, pendingIntent: intent };
+    }
+    return state;
+  }
+  if (action.type === 'close-assignee' && state.kind === 'assignee-open') {
+    return { kind: 'read-only', confirmed: state.confirmed };
+  }
+  if (action.type === 'edit') {
+    if (
+      state.kind === 'read-only' ||
+      state.kind === 'saved' ||
+      state.kind === 'assignee-open'
+    ) {
       return editing(state.confirmed, action.field);
     }
     if (state.kind === 'editing') {
@@ -170,6 +198,18 @@ export function transitionWorkItemDetail(
   }
   if (action.type === 'settle' && state.kind === 'saved') {
     return { kind: 'read-only', confirmed: state.confirmed };
+  }
+  if (action.type === 'assignee-saved') {
+    if (
+      state.kind === 'read-only' ||
+      state.kind === 'saved' ||
+      state.kind === 'assignee-open'
+    ) {
+      return { kind: 'read-only', confirmed: action.confirmed };
+    }
+    if (state.kind === 'editing' || state.kind === 'saving' || state.kind === 'conflict') {
+      return { ...state, confirmed: action.confirmed };
+    }
   }
   if (action.type === 'save-failed' && state.kind === 'saving') {
     return { ...state, kind: 'editing', error: action.message };

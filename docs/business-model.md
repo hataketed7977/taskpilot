@@ -83,8 +83,8 @@ documentation.
 | Workspace Member | A User's membership and role within a Workspace, regardless of Workspace type |
 | Project | A Workspace-owned collaboration scope containing people, work, boards, and enabled automation |
 | Project Member | A User who can participate in a Project with a project-level role |
-| Work Item | The canonical Project-owned work record; the Current basic form stores title, description, version, and audit data without an implemented state capability, while typed fields and assignments remain Target |
-| Assignment | A Work Item responsibility link to exactly one Project Member or Project Agent Binding |
+| Work Item | The canonical Project-owned work record; the Current basic form stores title, description, immutable creator, optional single current Project Member assignee, version, and audit data without an implemented state capability, while typed fields, Agent assignment, and history remain Target |
+| Assignment | A Work Item responsibility link; Current Work Items support at most one nullable human assignee referencing an active Project Member in the same Project, while Project Agent Binding assignment remains Target |
 | Work Item Type | A reusable identity for a configurable kind of Work Item |
 | Work Item Type Version | An immutable definition of fields and validation for one Work Item Type |
 | Board | A Project-owned view over Work Items; the Current form persists ordinary Boards, ordered Columns, and Card placement, while workflow-derived views remain Target |
@@ -529,11 +529,11 @@ capability, not human access or approval authority.
 
 ## Work Items and Custom Fields
 
-A Work Item contains stable identity, title, description, creator, version, and
+A Work Item contains stable identity, title, description, immutable creator, optional current assignee, version, and
 created/updated timestamps. **Current:** the basic Work Item has no implemented
 state capability and does not require a Work Item Type Version. Persistence and
 Work Item/Card responses contain neither `lifecycle` nor `status`; there is no
-placeholder state or state action. **Target:** the approved overall lifecycle is
+placeholder state or state action. Current Work Item detail and Card projections expose the creator person summary and a nullable `assignee`; `assignee = null` is the only unassigned state. **Target:** the approved overall lifecycle is
 `Open`, `Completed`, and `Cancelled`, with explicit reopen transitions as shown
 below. A later independent Change implements its persistence/API, authorization,
 history, and multi-Board integration, not a new decision on those states or legal
@@ -549,9 +549,12 @@ existing Work Items; migration is explicit.
 
 Human and Agent assignments are distinct:
 
-- Human assignment identifies responsibility or ownership.
-- Agent assignment or slot override selects the automation to use.
+- **Current:** human assignment identifies the one current responsible Project Member for a Work Item. It may be set, replaced, or cleared by an authorized Project OWNER, and the selected membership must belong to the same Project and an active User.
+- The Work Item creator is immutable audit/source information and is not automatically the assignee.
+- Assignment changes responsibility and the Work Item version/`updatedAt`; it does not start a Workflow, Agent Run, approval, or lifecycle transition.
+- Agent assignment or slot override selects the automation to use and remains Target.
 - Agent assignment never grants user permissions.
+- Durable assignment history, activity timeline, field-level diff, point-in-time query, and historical restore remain Target future capabilities.
 - Assignment alone does not start execution.
 
 Comments are append-oriented collaboration records associated with a Work Item.
@@ -561,8 +564,8 @@ They do not substitute for structured workflow outcomes or approval decisions.
 
 **Current:** A Project owns any number of ordinary Boards. Each Board owns one
 or more ordered Columns and Board Placements. A Card combines canonical Work
-Item content with one Placement; there is no `CardId` and no copied title or
-description. `(boardId, workItemId)` is unique, while the same Work Item may
+Item content, current Work Item assignee, and one Placement; there is no `CardId` and no copied title,
+description, or Card-owned assignee. `(boardId, workItemId)` is unique, while the same Work Item may
 have independent Placements in multiple Boards. A Column describes only that
 Board-local Placement and does not imply the Target overall state. A Project may own zero
 Boards. An empty Board (one with no Board Placements) may be permanently and
