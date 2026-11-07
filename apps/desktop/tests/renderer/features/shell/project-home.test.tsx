@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -76,8 +77,9 @@ function authenticatedApi(overrides: Partial<TaskPilotDesktopApi['projects']> = 
   return { api, emitSession: (view: SessionView) => listener?.(view) };
 }
 
-function renderApp(api: TaskPilotDesktopApi, locale: 'zh-CN' | 'en' = 'zh-CN') {
-  return render(<LocaleProvider initialLanguages={[locale]}><App api={api} /></LocaleProvider>);
+function renderApp(api: TaskPilotDesktopApi, locale: 'zh-CN' | 'en' = 'zh-CN', strictMode = false) {
+  const app = <LocaleProvider initialLanguages={[locale]}><App api={api} /></LocaleProvider>;
+  return render(strictMode ? <StrictMode>{app}</StrictMode> : app);
 }
 
 function deferred<T>() {
@@ -123,6 +125,27 @@ describe('personal Workspace Project home', () => {
       projectId: secondProject.projectId, expectedVersion: secondProject.version, name: '发布上线',
     }));
     expect(await screen.findByRole('heading', { name: '发布上线' })).toBeInTheDocument();
+  });
+
+  it('keeps a new Project pristine through the production StrictMode focus lifecycle', async () => {
+    const { api } = authenticatedApi();
+    const operator = userEvent.setup();
+    renderApp(api, 'zh-CN', true);
+
+    const trigger = (await screen.findAllByRole('button', { name: '新建项目' }))[0]!;
+    await operator.click(trigger);
+    const name = screen.getByLabelText('项目名称');
+
+    expect(name).toHaveFocus();
+    expect(name).not.toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText('请输入项目名称。')).not.toBeInTheDocument();
+
+    await operator.tab();
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('请输入项目名称。')).toBeInTheDocument();
+
+    await operator.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it('archives the current Project, falls back, and restores an archived Project without selecting it', async () => {
@@ -308,22 +331,22 @@ describe('personal Workspace Project home', () => {
     await operator.click((await screen.findAllByRole('button', { name: '新建项目' }))[0]!);
     const name = screen.getByLabelText('项目名称');
     expect(name).not.toHaveAttribute('maxlength');
-    fireEvent.change(name, { target: { value: '😀'.repeat(200) } });
-    expect(name).toHaveValue('😀'.repeat(200));
-    expect(screen.getByRole('button', { name: '创建项目' })).toBeEnabled();
+    fireEvent.change(name, { target: { value: '😀'.repeat(100) } });
+    expect(name).toHaveValue('😀'.repeat(100));
+    expect(screen.getByText('100 / 100')).toBeInTheDocument();
+    expect(screen.getByText('已达到上限')).toBeInTheDocument();
 
-    fireEvent.change(name, { target: { value: '😀'.repeat(201) } });
-    expect(name).toHaveAttribute('aria-invalid', 'true');
-    expect(await screen.findByRole('alert')).toHaveTextContent('项目名称最多 200 个字符');
-    expect(screen.getByRole('button', { name: '创建项目' })).toBeDisabled();
+    fireEvent.change(name, { target: { value: '😀'.repeat(101) } });
+    expect(name).toHaveValue('😀'.repeat(100));
+    expect(screen.getByRole('button', { name: '创建项目' })).toBeEnabled();
 
     fireEvent.change(name, { target: { value: '可用项目' } });
     const description = screen.getByLabelText('项目描述（可选）');
     expect(description).not.toHaveAttribute('maxlength');
-    fireEvent.change(description, { target: { value: '😀'.repeat(2001) } });
-    expect(description).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByRole('alert')).toHaveTextContent('项目描述最多 2000 个字符');
-    expect(screen.getByRole('button', { name: '创建项目' })).toBeDisabled();
+    fireEvent.change(description, { target: { value: '😀'.repeat(1000) } });
+    expect(description).toHaveValue('😀'.repeat(1000));
+    fireEvent.change(description, { target: { value: '😀'.repeat(1001) } });
+    expect(description).toHaveValue('😀'.repeat(1000));
   });
 
   it('keeps the archived list visible and reports a restore failure', async () => {

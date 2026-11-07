@@ -10,6 +10,9 @@ import type {
 import { formatLegalEffectiveDate, legalDocument, resolveLegalBundle, type LegalBundle, type LegalDocumentKind } from '../legal/legal-bundle';
 import { ProjectHome } from '../features/shell/project-home';
 import { displayNameInitials } from '../shared/lib/profile';
+import { PRODUCT_TEXT_LIMITS, normalizePersistedText } from '../shared/lib/text-constraints';
+import { TextFeedback } from '../shared/ui/text-feedback';
+import { useBoundedText } from '../shared/ui/use-bounded-text';
 import { LanguageSelector } from '../shared/ui/language-selector';
 import { WorkGraphBackground } from '../features/auth/work-graph-background';
 import { loginWorkGraphConfig } from '../features/auth/work-graph-config';
@@ -359,7 +362,9 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
     termsVersion: view.termsVersion,
     privacyVersion: view.privacyVersion,
   });
-  const [displayName, setDisplayName] = useState(view.suggestedDisplayName);
+  const displayName = useBoundedText(view.suggestedDisplayName, PRODUCT_TEXT_LIMITS.displayName);
+  const [nameTouched, setNameTouched] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [acceptedLocale, setAcceptedLocale] = useState<typeof locale>();
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind>();
   const [useSuggestedAvatar, setUseSuggestedAvatar] = useState(Boolean(view.suggestedAvatarUrl));
@@ -374,6 +379,8 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
   const privacyLinkRef = useRef<HTMLButtonElement>(null);
   const legalReturnFocus = useRef<LegalDocumentKind | undefined>(undefined);
   const errorId = 'github-registration-error';
+  const nameLabelId = 'github-registration-display-name-label';
+  const nameFeedbackId = 'github-registration-display-name-feedback';
   const legalBundleSupported = legalBundle !== undefined && view.legalLocales.includes(locale);
   const acceptedTerms = acceptedLocale === locale;
   const error = errorKey ? {
@@ -397,10 +404,11 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (operation.current || !legalBundleSupported || !legalBundle) return;
-    const normalizedName = displayName.trim();
-    if (!normalizedName) {
-      setErrorKey('errorName');
-      setErrorPath('displayName');
+    setSubmitted(true);
+    const normalizedName = normalizePersistedText(displayName.value);
+    if (!normalizedName || !displayName.withinProductLimit) {
+      setErrorKey(undefined);
+      setErrorPath(undefined);
       nameRef.current?.focus();
       return;
     }
@@ -452,6 +460,14 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
   }
 
   const blocked = pending || cancelling;
+  const showNameError = nameTouched || submitted;
+  const nameError = showNameError
+    ? !normalizePersistedText(displayName.value)
+      ? t('registration.errorName')
+      : !displayName.withinProductLimit
+        ? t('registration.errorNameTooLong')
+        : undefined
+    : undefined;
   return (
     <>
       <button type="button" className="registration-back" disabled={blocked} onClick={() => void onCancel()}>
@@ -468,8 +484,8 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
             <img className="profile-avatar" src={view.suggestedAvatarUrl} alt="" width="48" height="48" referrerPolicy="no-referrer"
               onError={() => { setAvatarAvailable(false); setUseSuggestedAvatar(false); }} />
           ) : (
-            <span className="profile-avatar avatar-fallback" aria-label={t('registration.avatarInitials', { initials: displayNameInitials(displayName) })}>
-              {displayNameInitials(displayName)}
+            <span className="profile-avatar avatar-fallback" aria-label={t('registration.avatarInitials', { initials: displayNameInitials(displayName.value) })}>
+              {displayNameInitials(displayName.value)}
             </span>
           )}
           {view.suggestedAvatarUrl && avatarAvailable ? (
@@ -477,9 +493,35 @@ function GitHubRegistration({ auth, view, cancelling, onCancel, onView, onIssue 
               onChange={(event) => setUseSuggestedAvatar(event.target.checked)} />{t('registration.useAvatar')}</label>
           ) : null}
         </div>
-        <Field name="displayName" label={t('registration.displayName')} autoComplete="name" autoFocus value={displayName}
-          onChange={(value) => { setDisplayName(value); setErrorKey(undefined); setErrorPath(undefined); }} inputRef={nameRef}
-          errorId={errorPath === 'displayName' ? errorId : undefined} />
+        <label className="field">
+          <span id={nameLabelId}>{t('registration.displayName')}</span>
+          <input
+            ref={nameRef}
+            required
+            name="displayName"
+            type="text"
+            autoComplete="name"
+            autoFocus
+            aria-labelledby={nameLabelId}
+            aria-invalid={Boolean(nameError) || errorPath === 'displayName' || undefined}
+            aria-describedby={`${nameFeedbackId}${errorPath === 'displayName' ? ` ${errorId}` : ''}`}
+            onBlur={() => setNameTouched(true)}
+            {...displayName.inputProps}
+            onChange={(event) => {
+              displayName.inputProps.onChange(event);
+              setErrorKey(undefined);
+              setErrorPath(undefined);
+            }}
+          />
+          <TextFeedback
+            id={nameFeedbackId}
+            count={displayName.count}
+            limit={displayName.limit}
+            showCount={displayName.showCount}
+            limitReached={displayName.limitReached}
+            error={nameError}
+          />
+        </label>
         <div className="terms-check">
           <input id="legal-consent" ref={termsRef} type="checkbox" checked={acceptedTerms} disabled={!legalBundleSupported || blocked}
             aria-label={t('registration.consentLabel')}
@@ -525,17 +567,4 @@ function LegalDocument({ bundle, kind, onBack }: { bundle: LegalBundle; kind: Le
 
 function GitHubMark() {
   return <svg className="github-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.64 22.4c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.52-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.3-5.27-1.29-5.27-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.07.79 2.17v3.22c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z" /></svg>;
-}
-
-function Field({ name, label, type = 'text', value, onChange, autoComplete, autoFocus, inputRef, errorId }: {
-  name: string; label: string; type?: string; value: string; onChange(value: string): void;
-  autoComplete?: string; autoFocus?: boolean; inputRef?: React.RefObject<HTMLInputElement | null>; errorId?: string;
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <input ref={inputRef} required name={name} type={type} value={value} autoComplete={autoComplete} autoFocus={autoFocus}
-        aria-invalid={errorId ? true : undefined} aria-describedby={errorId} onChange={(event) => onChange(event.target.value)} />
-    </label>
-  );
 }

@@ -13,6 +13,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import tools.jackson.core.JacksonException
 import java.net.URI
 
 @RestControllerAdvice
@@ -67,9 +68,26 @@ class AuthenticationProblemHandler {
     fun malformedRequest(
         failure: Exception,
         request: HttpServletRequest,
-    ): ResponseEntity<ProblemDetail> {
-        failure.hashCode()
-        return problem(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", request)
+    ): ResponseEntity<ProblemDetail> =
+        problem(
+            HttpStatus.BAD_REQUEST,
+            "VALIDATION_FAILED",
+            request,
+            (failure as? HttpMessageNotReadableException)?.jsonPath(),
+        )
+
+    private fun HttpMessageNotReadableException.jsonPath(): String? {
+        var candidate: Throwable? = this
+        while (candidate != null) {
+            if (candidate is JacksonException && candidate.path.isNotEmpty()) {
+                return candidate.path
+                    .joinToString(".") { reference ->
+                        reference.propertyName ?: "[${reference.index}]"
+                    }.replace(".[", "[")
+            }
+            candidate = candidate.cause
+        }
+        return null
     }
 
     @ExceptionHandler(DataAccessException::class)
@@ -85,10 +103,13 @@ class AuthenticationProblemHandler {
     fun invalidInput(
         failure: IllegalArgumentException,
         request: HttpServletRequest,
-    ): ResponseEntity<ProblemDetail> {
-        failure.hashCode()
-        return problem(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", request)
-    }
+    ): ResponseEntity<ProblemDetail> =
+        problem(
+            HttpStatus.BAD_REQUEST,
+            "VALIDATION_FAILED",
+            request,
+            failure.message?.takeIf { it in setOf("provider", "installationId", "completionUri", "displayName") },
+        )
 
     private fun problem(
         status: HttpStatus,

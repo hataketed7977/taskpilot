@@ -111,6 +111,18 @@ shape per concept.
 
 ## Application Use Cases
 
+The application boundary owns final persisted-text normalization and validation:
+trim, Unicode NFC, Unicode-code-point product limits, required/optional semantics,
+and whole-candidate rejection without truncation. HTTP/OpenAPI limits and Desktop
+feedback project the same values but are not authority. Edit use cases own sparse
+mutation semantics: omitted means unchanged, explicit SET/CLEAR carries description
+or assignee intent, raw JSON null never means omitted/clear, and an empty or same-
+value mutation cannot advance a version. Existing database capacities are storage
+headroom rather than UI or business limits. The Access HTTP adapter retains narrow
+wire-only credential and legal-metadata length checks from OpenAPI before invoking
+application services; these checks are transport admission, not a second product-
+text policy.
+
 ### Access and project setup
 
 - Resolve a provider-normalized external identity to an internal User without

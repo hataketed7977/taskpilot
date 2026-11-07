@@ -1,5 +1,8 @@
 package ai.taskpilot.coreapi.project.internal
 
+import ai.taskpilot.coreapi.ProductTextLimits
+import ai.taskpilot.coreapi.normalizeOptionalText
+import ai.taskpilot.coreapi.normalizeRequiredText
 import ai.taskpilot.coreapi.project.AssigneePatch
 import ai.taskpilot.coreapi.project.AssigneePatchAction
 import ai.taskpilot.coreapi.project.AssigneeSelection
@@ -19,6 +22,8 @@ import ai.taskpilot.coreapi.project.CreateWorkItemCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemResult
 import ai.taskpilot.coreapi.project.DeleteBoardCommand
 import ai.taskpilot.coreapi.project.DeleteColumnCommand
+import ai.taskpilot.coreapi.project.DescriptionPatch
+import ai.taskpilot.coreapi.project.DescriptionPatchAction
 import ai.taskpilot.coreapi.project.EditBoardCommand
 import ai.taskpilot.coreapi.project.EditColumnCommand
 import ai.taskpilot.coreapi.project.EditWorkItemCommand
@@ -165,15 +170,18 @@ class ProjectWorkApplicationService(
 
     override fun editBoard(command: EditBoardCommand): BoardView {
         validateExpected(command.expectedVersion, "expectedVersion")
-        val input = normalizeBoard(command.name, command.description, null)
         return inTransaction {
             requireProjectOwner(command.actorUserId, command.workspaceId, command.projectId)
-            requireBoardForUpdate(command.projectId, command.boardId, command.expectedVersion)
+            val current = lockBoard(command.projectId, command.boardId)
+            if (current.version != command.expectedVersion) throw BoardVersionConflict()
+            val name = command.name?.let { normalizeRequired(it, ProductTextLimits.BOARD_NAME, "name") } ?: current.name
+            val description = resolveDescription(command.descriptionPatch, current.description, ProductTextLimits.BOARD_DESCRIPTION)
+            if (name == current.name && description == current.description) throw ProjectWorkValidationFailed("mutation")
             jdbc.update(
                 """UPDATE project.boards SET name = ?, description = ?, version = version + 1, updated_at = ?
                    WHERE id = ? AND project_id = ?""",
-                input.name,
-                input.description,
+                name,
+                description,
                 now(),
                 command.boardId,
                 command.projectId,
@@ -438,23 +446,15 @@ class ProjectWorkApplicationService(
 
     override fun editWorkItem(command: EditWorkItemCommand): EditWorkItemResult {
         validateExpected(command.expectedVersion, "expectedVersion")
-        val expectedLayoutVersions = expectedLayoutVersions(command)
-        val changesColumn = expectedLayoutVersions != null
-        val input = normalizeWorkItem(command.title, command.description)
         return inTransaction {
             requireProjectOwner(command.actorUserId, command.workspaceId, command.projectId)
-            val assignee = resolveAssigneePatch(command.projectId, command.assigneePatch)
-            if (expectedLayoutVersions != null) {
-                requireBoardForUpdate(command.projectId, command.boardId, expectedLayoutVersions.first)
-                if (!columnExists(command.projectId, command.boardId, command.targetColumnId)) throw ProjectWorkNotFound()
+            val context = lockWorkItemEditContext(command)
+            val mutation = resolveWorkItemMutation(command, context.current)
+            if (!mutation.changesContent && !context.changesColumn) throw ProjectWorkValidationFailed("mutation")
+            if (mutation.changesContent) {
+                updateWorkItemRow(command, mutation.title, mutation.description, mutation.assignee)
             }
-            val moving = placement(command.projectId, command.boardId, command.workItemId) ?: throw ProjectWorkNotFound()
-            if (moving.columnId != command.currentColumnId) throw ProjectWorkNotFound()
-            if (expectedLayoutVersions != null && moving.version != expectedLayoutVersions.second) {
-                throw ProjectResourceVersionConflict()
-            }
-            updateWorkItemRow(command, input, assignee)
-            if (changesColumn) moveEditedWorkItem(command)
+            if (context.changesColumn) moveEditedWorkItem(command)
             EditWorkItemResult(
                 loadWorkItem(command.projectId, command.workItemId)!!,
                 loadBoard(command.projectId, command.boardId)!!,
@@ -462,23 +462,71 @@ class ProjectWorkApplicationService(
         }
     }
 
+    private fun lockWorkItemEditContext(command: EditWorkItemCommand): WorkItemEditContext {
+        val expectedLayoutVersions = expectedLayoutVersions(command)
+        expectedLayoutVersions?.let { requireWorkItemEditLayout(command, it) }
+        requireWorkItemEditPlacement(command, expectedLayoutVersions?.second)
+        val current = lockWorkItem(command.projectId, command.workItemId)
+        if (current.version != command.expectedVersion) throw ProjectResourceVersionConflict()
+        return WorkItemEditContext(expectedLayoutVersions != null, current)
+    }
+
+    private fun requireWorkItemEditLayout(
+        command: EditWorkItemCommand,
+        expectedLayoutVersions: Pair<Long, Long>,
+    ) {
+        requireBoardForUpdate(command.projectId, command.boardId, expectedLayoutVersions.first)
+        if (!columnExists(command.projectId, command.boardId, command.targetColumnId)) throw ProjectWorkNotFound()
+    }
+
+    private fun requireWorkItemEditPlacement(
+        command: EditWorkItemCommand,
+        expectedPlacementVersion: Long?,
+    ) {
+        val placement =
+            placement(command.projectId, command.boardId, command.workItemId)
+                ?.takeIf { it.columnId == command.currentColumnId }
+                ?: throw ProjectWorkNotFound()
+        if (expectedPlacementVersion != null && placement.version != expectedPlacementVersion) {
+            throw ProjectResourceVersionConflict()
+        }
+    }
+
+    private fun resolveWorkItemMutation(
+        command: EditWorkItemCommand,
+        current: LockedWorkItem,
+    ): WorkItemMutation {
+        val title = command.title?.let { normalizeRequired(it, ProductTextLimits.WORK_ITEM_TITLE, "title") } ?: current.title
+        val description = resolveDescription(command.descriptionPatch, current.description, ProductTextLimits.WORK_ITEM_DESCRIPTION)
+        val requestedAssignee = resolveAssigneePatch(command.projectId, command.assigneePatch)
+        val assigneeChanges = requestedAssignee.changes && requestedAssignee.differsFrom(current)
+        return WorkItemMutation(
+            title,
+            description,
+            requestedAssignee.copy(changes = assigneeChanges),
+            title != current.title || description != current.description || assigneeChanges,
+        )
+    }
+
+    private fun AssigneeUpdate.differsFrom(current: LockedWorkItem): Boolean =
+        current.assigneeTargetType != targetType || current.assigneeProjectMemberId != projectMemberId
+
     private fun updateWorkItemRow(
         command: EditWorkItemCommand,
-        input: WorkItemInput,
+        title: String,
+        description: String,
         assignee: AssigneeUpdate,
     ) {
         val changed =
             jdbc.update(
                 """UPDATE project.work_items
-                   SET title = ?,
-                       description = ?,
+                   SET title = ?, description = ?,
                        assignee_target_type = CASE WHEN ? THEN ? ELSE assignee_target_type END,
                        assignee_project_membership_id = CASE WHEN ? THEN ? ELSE assignee_project_membership_id END,
-                       version = version + 1,
-                       updated_at = ?
+                       version = version + 1, updated_at = ?
                    WHERE id = ? AND project_id = ? AND version = ?""",
-                input.title,
-                input.description,
+                title,
+                description,
                 assignee.changes,
                 assignee.targetType,
                 assignee.changes,
@@ -566,6 +614,18 @@ class ProjectWorkApplicationService(
     ) {
         if (lockBoardVersion(projectId, boardId) != expectedVersion) throw BoardVersionConflict()
     }
+
+    private fun lockBoard(
+        projectId: UUID,
+        boardId: UUID,
+    ): LockedBoardEdit =
+        jdbc
+            .query(
+                "SELECT version, name, description FROM project.boards WHERE id = ? AND project_id = ? FOR UPDATE",
+                { rows, _ -> LockedBoardEdit(rows.getLong("version"), rows.getString("name"), rows.getString("description")) },
+                boardId,
+                projectId,
+            ).singleOrNull() ?: throw ProjectWorkNotFound()
 
     private fun lockBoardVersion(
         projectId: UUID,
@@ -723,6 +783,48 @@ class ProjectWorkApplicationService(
                 workItemId,
                 projectId,
             ).singleOrNull()
+
+    private fun lockWorkItem(
+        projectId: UUID,
+        workItemId: UUID,
+    ): LockedWorkItem =
+        jdbc
+            .query(
+                """SELECT version, title, description, assignee_target_type, assignee_project_membership_id
+               FROM project.work_items WHERE id = ? AND project_id = ? FOR UPDATE""",
+                { rows, _ ->
+                    LockedWorkItem(
+                        rows.getLong("version"),
+                        rows.getString("title"),
+                        rows.getString("description"),
+                        rows.getString("assignee_target_type"),
+                        rows.getObject("assignee_project_membership_id", UUID::class.java),
+                    )
+                },
+                workItemId,
+                projectId,
+            ).singleOrNull() ?: throw ProjectWorkNotFound()
+
+    private fun resolveDescription(
+        patch: DescriptionPatch?,
+        current: String,
+        maximum: Int,
+    ): String =
+        when (patch?.action) {
+            null -> {
+                current
+            }
+
+            DescriptionPatchAction.CLEAR -> {
+                if (patch.value != null) throw ProjectWorkValidationFailed("descriptionPatch.value")
+                ""
+            }
+
+            DescriptionPatchAction.SET -> {
+                val value = patch.value ?: throw ProjectWorkValidationFailed("descriptionPatch.value")
+                normalizeRequired(value, maximum, "descriptionPatch.value")
+            }
+        }
 
     private fun resolveAssigneePatch(
         projectId: UUID,
@@ -992,19 +1094,13 @@ class ProjectWorkApplicationService(
         value: String,
         maximum: Int,
         path: String,
-    ): String =
-        normalizeText(value).also {
-            if (it.codePointCount(0, it.length) !in 1..maximum) throw ProjectWorkValidationFailed(path)
-        }
+    ): String = normalizeRequiredText(value, maximum) { ProjectWorkValidationFailed(path) }
 
     private fun normalizeOptional(
         value: String?,
         maximum: Int,
         path: String,
-    ): String =
-        normalizeText(value.orEmpty()).also {
-            if (it.codePointCount(0, it.length) > maximum) throw ProjectWorkValidationFailed(path)
-        }
+    ): String = normalizeOptionalText(value, maximum) { ProjectWorkValidationFailed(path) }
 
     private fun expectedLayoutVersions(command: EditWorkItemCommand): Pair<Long, Long>? {
         command.expectedBoardVersion?.let { validateExpected(it, "expectedBoardVersion") }
@@ -1015,8 +1111,6 @@ class ProjectWorkApplicationService(
             command.expectedPlacementVersion ?: throw ProjectWorkValidationFailed("expectedPlacementVersion"),
         )
     }
-
-    private fun normalizeText(value: String) = Normalizer.normalize(value.trim(), Normalizer.Form.NFC)
 
     private fun initialColumnName(locale: String?) =
         when (locale) {
@@ -1102,9 +1196,35 @@ class ProjectWorkApplicationService(
         val name: String,
     )
 
+    private data class LockedBoardEdit(
+        val version: Long,
+        val name: String,
+        val description: String,
+    )
+
     private data class WorkItemInput(
         val title: String,
         val description: String,
+    )
+
+    private data class WorkItemEditContext(
+        val changesColumn: Boolean,
+        val current: LockedWorkItem,
+    )
+
+    private data class WorkItemMutation(
+        val title: String,
+        val description: String,
+        val assignee: AssigneeUpdate,
+        val changesContent: Boolean,
+    )
+
+    private data class LockedWorkItem(
+        val version: Long,
+        val title: String,
+        val description: String,
+        val assigneeTargetType: String?,
+        val assigneeProjectMemberId: UUID?,
     )
 
     private data class PlacementRow(
@@ -1126,11 +1246,11 @@ class ProjectWorkApplicationService(
     private companion object {
         private const val PROJECT_MEMBER_ASSIGNEE_TYPE = "PROJECT_MEMBER"
         const val POSITION_STEP = 1024L
-        const val COLUMN_NAME_MAX_CODE_POINTS = 80
-        const val BOARD_NAME_MAX_CODE_POINTS = 120
-        const val BOARD_DESCRIPTION_MAX_CODE_POINTS = 2_000
-        const val WORK_ITEM_TITLE_MAX_CODE_POINTS = 300
-        const val WORK_ITEM_DESCRIPTION_MAX_CODE_POINTS = 10_000
+        const val COLUMN_NAME_MAX_CODE_POINTS = ProductTextLimits.COLUMN_NAME
+        const val BOARD_NAME_MAX_CODE_POINTS = ProductTextLimits.BOARD_NAME
+        const val BOARD_DESCRIPTION_MAX_CODE_POINTS = ProductTextLimits.BOARD_DESCRIPTION
+        const val WORK_ITEM_TITLE_MAX_CODE_POINTS = ProductTextLimits.WORK_ITEM_TITLE
+        const val WORK_ITEM_DESCRIPTION_MAX_CODE_POINTS = ProductTextLimits.WORK_ITEM_DESCRIPTION
         val SUPPORTED_LOCALES = setOf("zh-CN", "en")
     }
 }

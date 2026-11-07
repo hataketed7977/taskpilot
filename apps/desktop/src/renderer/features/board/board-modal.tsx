@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { useDialogFocusReturn } from "../../shared/ui/use-dialog-focus-return";
 
 export function BoardModal({
   title,
@@ -28,11 +29,8 @@ export function BoardModal({
   const titleId = useId();
   const dialog = useRef<HTMLElement>(null);
   const titleElement = useRef<HTMLHeadingElement>(null);
+  useDialogFocusReturn(dialog);
   useEffect(() => {
-    const returnTo =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : undefined;
     const element = dialog.current;
     const initial = sheet
       ? titleElement.current
@@ -40,14 +38,6 @@ export function BoardModal({
           "input:not([disabled]),textarea:not([disabled]),select:not([disabled])",
         ) ?? element?.querySelector<HTMLElement>("button:not([disabled])");
     initial?.focus();
-    return () => {
-      const active = document.activeElement;
-      if (
-        returnTo?.isConnected &&
-        (active === document.body || element?.contains(active))
-      )
-        returnTo.focus();
-    };
   }, [sheet]);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {

@@ -40,7 +40,7 @@ import kotlin.test.assertTrue
     classes = [CoreApiApplication::class, FakeFederatedProviderConfiguration::class],
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@Suppress("LargeClass") // One fixture exercises the complete authenticated Desktop HTTP boundary.
+@Suppress("LargeClass", "MaxLineLength") // Inline JSON keeps the real HTTP payloads reviewable.
 class AuthenticationHttpIntegrationTest(
     @param:LocalServerPort private val port: Int,
 ) {
@@ -76,6 +76,63 @@ class AuthenticationHttpIntegrationTest(
         redisConnection.destroy()
         redis.stop()
         postgres.stop()
+    }
+
+    @Test
+    fun `authentication wire constraints remain enforced without generated Bean Validation`() {
+        assertValidation(
+            request("POST", "/v1/session:refresh", """{"refreshToken":"${"x".repeat(513)}"}"""),
+            "refreshToken",
+        )
+        val attemptId = UUID.randomUUID()
+        assertValidation(
+            request("POST", "/v1/federated-login-attempts/$attemptId:poll", """{"pollSecret":""}"""),
+            "pollSecret",
+        )
+        assertValidation(
+            request("POST", "/v1/federated-login-attempts/$attemptId:cancel", """{"pollSecret":""}"""),
+            "pollSecret",
+        )
+
+        val completed = completeAttempt()
+        val preview = poll(completed.created, completed.proof).json().nested("registration")
+        listOf(
+            "continuationSecret" to registrationBody(preview + ("continuationSecret" to "x".repeat(513))),
+            "legalBundleVersion" to registrationBody(preview, legalBundleVersion = "x".repeat(129)),
+            "termsVersion" to registrationBody(preview, termsVersion = "x".repeat(129)),
+            "privacyVersion" to registrationBody(preview, privacyVersion = "x".repeat(129)),
+            "locale" to registrationBody(preview, locale = "x".repeat(36)),
+        ).forEach { (path, body) ->
+            assertValidation(request("POST", "/v1/federated-registrations", body), path)
+        }
+    }
+
+    @Test
+    fun `work item creation accepts omitted and explicit null assignees as unassigned`() {
+        val account = registerAccount()
+        val board = firstBoard(account).json()
+        val boardId = board.requiredText("boardId")
+        val columnId = board.listOfObjects("columns").single().requiredText("columnId")
+
+        val omitted =
+            request(
+                "POST",
+                "/v1/boards/$boardId/work-items",
+                """{"requestId":"${UUID.randomUUID()}","expectedBoardVersion":0,"columnId":"$columnId","title":"Omitted"}""",
+                account.accessToken,
+            )
+        assertEquals(201, omitted.status)
+        assertNull(omitted.json().nested("workItem")["assignee"])
+
+        val explicitNull =
+            request(
+                "POST",
+                "/v1/boards/$boardId/work-items",
+                """{"requestId":"${UUID.randomUUID()}","expectedBoardVersion":1,"columnId":"$columnId","title":"Null","assignee":null}""",
+                account.accessToken,
+            )
+        assertEquals(201, explicitNull.status)
+        assertNull(explicitNull.json().nested("workItem")["assignee"])
     }
 
     @Test
@@ -196,7 +253,7 @@ class AuthenticationHttpIntegrationTest(
             request(
                 "PATCH",
                 "/v1/projects/$projectId",
-                """{"expectedVersion":0,"name":"Renamed","description":null}""",
+                """{"expectedVersion":0,"name":"Renamed"}""",
                 registered.accessToken,
             )
         assertEquals(200, edited.status)
@@ -207,7 +264,7 @@ class AuthenticationHttpIntegrationTest(
             request(
                 "PATCH",
                 "/v1/projects/$projectId",
-                """{"expectedVersion":0,"name":"Stale","description":null}""",
+                """{"expectedVersion":0,"name":"Stale"}""",
                 registered.accessToken,
             )
         assertProblem(stale, 409, "PROJECT_VERSION_CONFLICT")
@@ -505,7 +562,7 @@ class AuthenticationHttpIntegrationTest(
                 """
                 {"boardId":"$boardId","currentColumnId":"$secondColumnId",
                 "targetColumnId":"$secondColumnId","expectedVersion":0,
-                "title":"Updated","description":null,
+                "title":"Updated",
                 "assigneePatch":{"action":"SET","target":{"targetType":"PROJECT_MEMBER","projectMemberId":"$adaMemberId"}}}
                 """.trimIndent(),
                 registered.accessToken,
@@ -555,7 +612,7 @@ class AuthenticationHttpIntegrationTest(
                 """
                 {"boardId":"$boardId","currentColumnId":"$secondColumnId",
                 "targetColumnId":"$firstColumnId","expectedPlacementVersion":1,"expectedVersion":1,
-                "title":"Must not move","description":null}
+                "title":"Must not move"}
                 """.trimIndent(),
                 registered.accessToken,
             )
@@ -569,7 +626,7 @@ class AuthenticationHttpIntegrationTest(
                 """
                 {"boardId":"$boardId","currentColumnId":"$secondColumnId",
                 "targetColumnId":"$firstColumnId","expectedBoardVersion":3,"expectedVersion":1,
-                "title":"Must not move","description":null}
+                "title":"Must not move"}
                 """.trimIndent(),
                 registered.accessToken,
             )
@@ -705,6 +762,388 @@ class AuthenticationHttpIntegrationTest(
         )
         assertEquals(405, request("DELETE", "/v1/boards/$boardId", bearer = registered.accessToken).status)
         assertEquals(405, request("DELETE", "/v1/work-items/$workItemId", bearer = registered.accessToken).status)
+    }
+
+    @Test
+    fun `real HTTP text boundaries and sparse edits preserve historical values`() {
+        val account = registerAccount("text-boundary-owner")
+        val historicalProjectName = "p".repeat(ProductTextLimits.PROJECT_NAME + 1)
+        val historicalProjectDescription = "d".repeat(ProductTextLimits.PROJECT_DESCRIPTION + 1)
+        updateProjectText(account.projectId, historicalProjectName, historicalProjectDescription)
+
+        val readableProject = request("GET", "/v1/projects/${account.projectId}", bearer = account.accessToken)
+        assertEquals(200, readableProject.status)
+        assertEquals(historicalProjectName, readableProject.json().requiredText("name"))
+        assertEquals(historicalProjectDescription, readableProject.json().requiredText("description"))
+
+        val sparseProjectEdit =
+            request(
+                "PATCH",
+                "/v1/projects/${account.projectId}",
+                """{"expectedVersion":0,"descriptionPatch":{"action":"SET","value":"short"}}""",
+                account.accessToken,
+            )
+        assertEquals(200, sparseProjectEdit.status)
+        assertEquals(historicalProjectName, sparseProjectEdit.json().requiredText("name"))
+        assertEquals("short", sparseProjectEdit.json().requiredText("description"))
+        assertValidation(
+            request(
+                "PATCH",
+                "/v1/projects/${account.projectId}",
+                """{"expectedVersion":1,"name":"$historicalProjectName"}""",
+                account.accessToken,
+            ),
+            "name",
+        )
+        assertEquals("1", request("GET", "/v1/projects/${account.projectId}", bearer = account.accessToken).json().requiredText("version"))
+
+        val board = firstBoard(account).json()
+        val boardId = board.requiredText("boardId")
+        val columnId = board.listOfObjects("columns").single().requiredText("columnId")
+        val historicalBoardName = "b".repeat(ProductTextLimits.BOARD_NAME + 1)
+        val historicalBoardDescription = "d".repeat(ProductTextLimits.BOARD_DESCRIPTION + 1)
+        updateBoardText(boardId, historicalBoardName, historicalBoardDescription)
+
+        val readableBoard = request("GET", "/v1/boards/$boardId", bearer = account.accessToken)
+        assertEquals(historicalBoardName, readableBoard.json().requiredText("name"))
+        assertEquals(historicalBoardDescription, readableBoard.json().requiredText("description"))
+        val sparseBoardEdit =
+            request(
+                "PATCH",
+                "/v1/boards/$boardId",
+                """{"expectedVersion":0,"descriptionPatch":{"action":"SET","value":"short"}}""",
+                account.accessToken,
+            )
+        assertEquals(200, sparseBoardEdit.status)
+        assertEquals(historicalBoardName, sparseBoardEdit.json().requiredText("name"))
+        assertEquals("short", sparseBoardEdit.json().requiredText("description"))
+        assertValidation(
+            request(
+                "PATCH",
+                "/v1/boards/$boardId",
+                """{"expectedVersion":1,"name":"$historicalBoardName"}""",
+                account.accessToken,
+            ),
+            "name",
+        )
+
+        val exactTitle = "😀".repeat(ProductTextLimits.WORK_ITEM_TITLE)
+        val created =
+            request(
+                "POST",
+                "/v1/boards/$boardId/work-items",
+                """{"requestId":"${UUID.randomUUID()}","expectedBoardVersion":1,"columnId":"$columnId","title":"$exactTitle","description":null}""",
+                account.accessToken,
+            )
+        assertEquals(201, created.status)
+        val workItemId = created.json().nested("workItem").requiredText("workItemId")
+        assertEquals(exactTitle, created.json().nested("workItem").requiredText("title"))
+
+        assertValidation(
+            request(
+                "POST",
+                "/v1/boards/$boardId/work-items",
+                """{"requestId":"${UUID.randomUUID()}","expectedBoardVersion":2,"columnId":"$columnId","title":"$exactTitle😀","description":null}""",
+                account.accessToken,
+            ),
+            "title",
+        )
+        val afterRejectedCreate = request("GET", "/v1/boards/$boardId", bearer = account.accessToken).json()
+        assertEquals("2", afterRejectedCreate.requiredText("version"))
+        assertEquals(
+            1,
+            afterRejectedCreate
+                .listOfObjects("columns")
+                .single()
+                .listOfObjects("cards")
+                .size,
+        )
+
+        val historicalTitle = "t".repeat(ProductTextLimits.WORK_ITEM_TITLE + 1)
+        val historicalDescription = "d".repeat(ProductTextLimits.WORK_ITEM_DESCRIPTION + 1)
+        updateWorkItemText(workItemId, historicalTitle, historicalDescription)
+        val historicalItem = request("GET", "/v1/work-items/$workItemId", bearer = account.accessToken)
+        assertEquals(historicalTitle, historicalItem.json().requiredText("title"))
+        assertEquals(historicalDescription, historicalItem.json().requiredText("description"))
+
+        val ownerMemberId = projectMemberId(account.projectId, "Octo Cat")
+        val assigneeOnly =
+            request(
+                "PATCH",
+                "/v1/work-items/$workItemId",
+                """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$columnId","expectedVersion":0,"assigneePatch":{"action":"SET","target":{"targetType":"PROJECT_MEMBER","projectMemberId":"$ownerMemberId"}}}""",
+                account.accessToken,
+            )
+        assertEquals(200, assigneeOnly.status)
+        assertEquals(historicalTitle, assigneeOnly.json().nested("workItem").requiredText("title"))
+        assertEquals(historicalDescription, assigneeOnly.json().nested("workItem").requiredText("description"))
+        assertValidation(
+            request(
+                "PATCH",
+                "/v1/work-items/$workItemId",
+                """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$columnId","expectedVersion":1,"title":"$historicalTitle"}""",
+                account.accessToken,
+            ),
+            "title",
+        )
+        assertValidation(
+            request(
+                "PATCH",
+                "/v1/work-items/$workItemId",
+                """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$columnId","expectedVersion":1,"descriptionPatch":{"action":"SET","value":"$historicalDescription"}}""",
+                account.accessToken,
+            ),
+            "descriptionPatch.value",
+        )
+        val unchangedItem = request("GET", "/v1/work-items/$workItemId", bearer = account.accessToken).json()
+        assertEquals("1", unchangedItem.requiredText("version"))
+        assertEquals(historicalTitle, unchangedItem.requiredText("title"))
+        assertEquals(historicalDescription, unchangedItem.requiredText("description"))
+
+        val exactEditedTitle = "x".repeat(ProductTextLimits.WORK_ITEM_TITLE)
+        val exactEdit =
+            request(
+                "PATCH",
+                "/v1/work-items/$workItemId",
+                """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$columnId","expectedVersion":1,"title":"$exactEditedTitle"}""",
+                account.accessToken,
+            )
+        assertEquals(200, exactEdit.status)
+        assertEquals(exactEditedTitle, exactEdit.json().nested("workItem").requiredText("title"))
+        assertEquals("2", exactEdit.json().nested("workItem").requiredText("version"))
+        assertValidation(
+            request(
+                "PATCH",
+                "/v1/work-items/$workItemId",
+                """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$columnId","expectedVersion":2,"title":"${exactEditedTitle}x"}""",
+                account.accessToken,
+            ),
+            "title",
+        )
+        val afterRejectedEdit = request("GET", "/v1/work-items/$workItemId", bearer = account.accessToken).json()
+        assertEquals(exactEditedTitle, afterRejectedEdit.requiredText("title"))
+        assertEquals("2", afterRejectedEdit.requiredText("version"))
+    }
+
+    @Test
+    fun `real HTTP sparse mutations reject null illegal and no-op payloads atomically`() {
+        val account = registerAccount("sparse-mutation-owner")
+        val projectPath = "/v1/projects/${account.projectId}"
+        val project = request("GET", projectPath, bearer = account.accessToken).json()
+        val projectName = project.requiredText("name")
+
+        assertValidation(
+            request(
+                "PATCH",
+                projectPath,
+                """{"expectedVersion":0,"name":null,"descriptionPatch":{"action":"SET","value":"must-not-save"}}""",
+                account.accessToken,
+            ),
+            "name",
+        )
+        assertValidation(
+            request("PATCH", projectPath, """{"expectedVersion":0,"name":"must-not-save","descriptionPatch":null}""", account.accessToken),
+            "descriptionPatch",
+        )
+        assertValidation(
+            request(
+                "PATCH",
+                projectPath,
+                """{"expectedVersion":0,"descriptionPatch":{"action":"SET","value":null}}""",
+                account.accessToken,
+            ),
+            "descriptionPatch.value",
+        )
+        assertValidation(
+            request(
+                "PATCH",
+                projectPath,
+                """{"expectedVersion":0,"descriptionPatch":{"action":"CLEAR","value":"illegal"}}""",
+                account.accessToken,
+            ),
+            "descriptionPatch.value",
+        )
+        assertValidation(request("PATCH", projectPath, """{"expectedVersion":0}""", account.accessToken), "mutation")
+        assertValidation(
+            request("PATCH", projectPath, """{"expectedVersion":0,"name":"$projectName"}""", account.accessToken),
+            "mutation",
+        )
+        val setProjectDescription =
+            request(
+                "PATCH",
+                projectPath,
+                """{"expectedVersion":0,"descriptionPatch":{"action":"SET","value":"project detail"}}""",
+                account.accessToken,
+            )
+        assertEquals(200, setProjectDescription.status)
+        val clearProjectDescription =
+            request(
+                "PATCH",
+                projectPath,
+                """{"expectedVersion":1,"descriptionPatch":{"action":"CLEAR"}}""",
+                account.accessToken,
+            )
+        assertEquals(200, clearProjectDescription.status)
+        assertEquals("", clearProjectDescription.json().requiredText("description"))
+
+        val board = firstBoard(account).json()
+        val boardId = board.requiredText("boardId")
+        val boardName = board.requiredText("name")
+        val columnId = board.listOfObjects("columns").single().requiredText("columnId")
+        val created =
+            request(
+                "POST",
+                "/v1/boards/$boardId/work-items",
+                """{"requestId":"${UUID.randomUUID()}","expectedBoardVersion":0,"columnId":"$columnId","title":"Item","description":null}""",
+                account.accessToken,
+            )
+        assertEquals(201, created.status)
+        val workItemId = created.json().nested("workItem").requiredText("workItemId")
+        val boardPath = "/v1/boards/$boardId"
+
+        assertValidation(
+            request(
+                "PATCH",
+                boardPath,
+                """{"expectedVersion":1,"name":null,"descriptionPatch":{"action":"SET","value":"must-not-save"}}""",
+                account.accessToken,
+            ),
+            "name",
+        )
+        assertValidation(
+            request("PATCH", boardPath, """{"expectedVersion":1,"name":"must-not-save","descriptionPatch":null}""", account.accessToken),
+            "descriptionPatch",
+        )
+        assertValidation(
+            request(
+                "PATCH",
+                boardPath,
+                """{"expectedVersion":1,"descriptionPatch":{"action":"SET","value":null}}""",
+                account.accessToken,
+            ),
+            "descriptionPatch.value",
+        )
+        assertValidation(
+            request(
+                "PATCH",
+                boardPath,
+                """{"expectedVersion":1,"descriptionPatch":{"action":"CLEAR","value":"illegal"}}""",
+                account.accessToken,
+            ),
+            "descriptionPatch.value",
+        )
+        assertValidation(request("PATCH", boardPath, """{"expectedVersion":1}""", account.accessToken), "mutation")
+        assertValidation(
+            request("PATCH", boardPath, """{"expectedVersion":1,"name":"$boardName"}""", account.accessToken),
+            "mutation",
+        )
+        assertEquals(
+            200,
+            request(
+                "PATCH",
+                boardPath,
+                """{"expectedVersion":1,"descriptionPatch":{"action":"SET","value":"board detail"}}""",
+                account.accessToken,
+            ).status,
+        )
+        val clearedBoard =
+            request(
+                "PATCH",
+                boardPath,
+                """{"expectedVersion":2,"descriptionPatch":{"action":"CLEAR"}}""",
+                account.accessToken,
+            )
+        assertEquals(200, clearedBoard.status)
+        assertEquals("", clearedBoard.json().requiredText("description"))
+
+        val ownerMemberId = projectMemberId(account.projectId, "Octo Cat")
+        val itemPath = "/v1/work-items/$workItemId"
+
+        fun editItem(
+            mutation: String,
+            expectedVersion: Int = 0,
+        ): HttpResult =
+            request(
+                "PATCH",
+                itemPath,
+                """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$columnId","expectedVersion":$expectedVersion$mutation}""",
+                account.accessToken,
+            )
+
+        assertValidation(
+            editItem(
+                ",\"title\":null,\"assigneePatch\":{\"action\":\"SET\",\"target\":{\"targetType\":\"PROJECT_MEMBER\",\"projectMemberId\":\"$ownerMemberId\"}}",
+            ),
+            "title",
+        )
+        assertValidation(editItem(",\"title\":\"must-not-save\",\"descriptionPatch\":null"), "descriptionPatch")
+        assertValidation(editItem(",\"title\":\"must-not-save\",\"assigneePatch\":null"), "assigneePatch")
+        assertValidation(editItem(",\"descriptionPatch\":{\"action\":\"SET\",\"value\":null}"), "descriptionPatch.value")
+        assertValidation(
+            editItem(",\"descriptionPatch\":{\"action\":\"CLEAR\",\"value\":\"illegal\"}"),
+            "descriptionPatch.value",
+        )
+        assertValidation(editItem(",\"assigneePatch\":{\"action\":\"SET\",\"target\":null}"), "assigneePatch.target")
+        assertValidation(
+            editItem(
+                ",\"assigneePatch\":{\"action\":\"CLEAR\",\"target\":{\"targetType\":\"PROJECT_MEMBER\",\"projectMemberId\":\"$ownerMemberId\"}}",
+            ),
+            "assigneePatch.target",
+        )
+        assertValidation(editItem(""), "mutation")
+        assertValidation(editItem(",\"title\":\"Item\""), "mutation")
+        assertNull(request("GET", itemPath, bearer = account.accessToken).json()["assignee"])
+
+        assertEquals(200, editItem(",\"descriptionPatch\":{\"action\":\"SET\",\"value\":\"detail\"}").status)
+        assertEquals(200, editItem(",\"descriptionPatch\":{\"action\":\"CLEAR\"}", expectedVersion = 1).status)
+        assertEquals(
+            200,
+            editItem(
+                ",\"assigneePatch\":{\"action\":\"SET\",\"target\":{\"targetType\":\"PROJECT_MEMBER\",\"projectMemberId\":\"$ownerMemberId\"}}",
+                expectedVersion = 2,
+            ).status,
+        )
+        assertEquals(200, editItem(",\"assigneePatch\":{\"action\":\"CLEAR\"}", expectedVersion = 3).status)
+
+        val secondColumn =
+            request(
+                "POST",
+                "/v1/boards/$boardId/columns",
+                """{"requestId":"${UUID.randomUUID()}","expectedBoardVersion":3,"name":"Done"}""",
+                account.accessToken,
+            )
+        assertEquals(201, secondColumn.status)
+        val secondColumnId =
+            secondColumn
+                .json()
+                .listOfObjects("columns")
+                .last()
+                .requiredText("columnId")
+        val moved =
+            request(
+                "PATCH",
+                itemPath,
+                """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$secondColumnId","expectedBoardVersion":4,"expectedPlacementVersion":0,"expectedVersion":4}""",
+                account.accessToken,
+            )
+        assertEquals(200, moved.status)
+        assertEquals("4", moved.json().nested("workItem").requiredText("version"))
+        assertEquals("5", moved.json().nested("board").requiredText("version"))
+        assertValidation(
+            request(
+                "PATCH",
+                itemPath,
+                """{"boardId":"$boardId","currentColumnId":"$secondColumnId","targetColumnId":"$secondColumnId","expectedVersion":4,"title":"${"x".repeat(
+                    ProductTextLimits.WORK_ITEM_TITLE + 1,
+                )}"}""",
+                account.accessToken,
+            ),
+            "title",
+        )
+        val authoritative = request("GET", itemPath, bearer = account.accessToken).json()
+        assertEquals("4", authoritative.requiredText("version"))
+        assertEquals("Item", authoritative.requiredText("title"))
+        assertNull(authoritative["assignee"])
     }
 
     @Test
@@ -1046,6 +1485,59 @@ class AuthenticationHttpIntegrationTest(
                 }
         }
         return memberId
+    }
+
+    private fun updateProjectText(
+        projectId: String,
+        name: String,
+        description: String,
+    ) {
+        postgres.createConnection("").use { connection ->
+            connection.prepareStatement("UPDATE project.projects SET name = ?, description = ? WHERE id = ?::uuid").use { statement ->
+                statement.setString(1, name)
+                statement.setString(2, description)
+                statement.setString(3, projectId)
+                assertEquals(1, statement.executeUpdate())
+            }
+        }
+    }
+
+    private fun updateBoardText(
+        boardId: String,
+        name: String,
+        description: String,
+    ) {
+        postgres.createConnection("").use { connection ->
+            connection.prepareStatement("UPDATE project.boards SET name = ?, description = ? WHERE id = ?::uuid").use { statement ->
+                statement.setString(1, name)
+                statement.setString(2, description)
+                statement.setString(3, boardId)
+                assertEquals(1, statement.executeUpdate())
+            }
+        }
+    }
+
+    private fun updateWorkItemText(
+        workItemId: String,
+        title: String,
+        description: String,
+    ) {
+        postgres.createConnection("").use { connection ->
+            connection.prepareStatement("UPDATE project.work_items SET title = ?, description = ? WHERE id = ?::uuid").use { statement ->
+                statement.setString(1, title)
+                statement.setString(2, description)
+                statement.setString(3, workItemId)
+                assertEquals(1, statement.executeUpdate())
+            }
+        }
+    }
+
+    private fun assertValidation(
+        response: HttpResult,
+        path: String,
+    ) {
+        assertProblem(response, 400, "VALIDATION_FAILED")
+        assertEquals(path, response.json().requiredText("path"))
     }
 
     private fun assertProblem(

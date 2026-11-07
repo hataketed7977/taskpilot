@@ -104,6 +104,7 @@ class FederatedAuthenticationController(
         federatedPollRequest: FederatedPollRequest,
     ): ResponseEntity<FederatedPollResponse> =
         mapFailures {
+            AuthenticationWireInputPolicy.pollSecret(federatedPollRequest.pollSecret)
             ResponseEntity.ok(
                 service
                     .poll(
@@ -121,12 +122,20 @@ class FederatedAuthenticationController(
         federatedAttemptSecretRequest: FederatedAttemptSecretRequest,
     ): ResponseEntity<Unit> =
         mapFailures {
+            AuthenticationWireInputPolicy.pollSecret(federatedAttemptSecretRequest.pollSecret)
             service.cancel(AttemptId(attemptId), federatedAttemptSecretRequest.pollSecret)
             ResponseEntity.noContent().build()
         }
 
     override fun register(federatedRegistrationRequest: FederatedRegistrationRequest): ResponseEntity<FederatedPollResponse> =
         mapFailures {
+            AuthenticationWireInputPolicy.registration(
+                federatedRegistrationRequest.continuationSecret,
+                federatedRegistrationRequest.legalBundleVersion,
+                federatedRegistrationRequest.termsVersion,
+                federatedRegistrationRequest.privacyVersion,
+                federatedRegistrationRequest.locale,
+            )
             val result =
                 service.register(
                     RegisterFederatedUserCommand(

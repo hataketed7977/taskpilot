@@ -97,7 +97,11 @@ export class ProjectWorkClient implements ProjectWorkPort {
     return board.parse(await this.transport.request({ method: 'POST', path: this.boards({ workspaceId, projectId }), body, accessToken }));
   }
   async editBoard(accessToken: string, input: EditBoardInput) {
-    const body = { expectedVersion: input.expectedVersion, name: input.name, description: input.description };
+    const body = {
+      expectedVersion: input.expectedVersion,
+      ...(input.name === undefined ? {} : { name: input.name }),
+      ...(input.descriptionPatch === undefined ? {} : { descriptionPatch: input.descriptionPatch }),
+    };
     return board.parse(await this.transport.request({ method: 'PATCH', path: this.board(input), body, accessToken }));
   }
   async permanentlyDeleteBoard(accessToken: string, input: DeleteBoardInput) {
@@ -154,8 +158,8 @@ export class ProjectWorkClient implements ProjectWorkPort {
       ...(input.expectedBoardVersion === undefined ? {} : { expectedBoardVersion: input.expectedBoardVersion }),
       ...(input.expectedPlacementVersion === undefined ? {} : { expectedPlacementVersion: input.expectedPlacementVersion }),
       expectedVersion: input.expectedVersion,
-      title: input.title,
-      description: input.description,
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.descriptionPatch === undefined ? {} : { descriptionPatch: input.descriptionPatch }),
       ...(input.assigneePatch === undefined ? {} : { assigneePatch: assigneePatch.parse(input.assigneePatch) }),
     };
     return editWorkItemResult.parse(await this.transport.request({ method: 'PATCH', path: this.workItem(input), body, accessToken }));

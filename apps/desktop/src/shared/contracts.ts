@@ -65,7 +65,10 @@ export interface ProjectHomeView {
 export interface ProjectLocationInput { workspaceId: string; projectId: string }
 export interface ProjectListInput { workspaceId: string; status: ProjectStatus; limit?: number; cursor?: string }
 export interface CreateProjectInput { workspaceId: string; requestId: string; name: string; description?: string; locale: 'zh-CN' | 'en' }
-export interface EditProjectInput extends ProjectLocationInput { expectedVersion: number; name: string; description?: string }
+export type DescriptionPatch =
+  | { action: 'SET'; value: string }
+  | { action: 'CLEAR'; value?: never };
+export interface EditProjectInput extends ProjectLocationInput { expectedVersion: number; name?: string; descriptionPatch?: DescriptionPatch }
 export interface ProjectStatusInput extends ProjectLocationInput { expectedVersion: number }
 export interface DeleteProjectInput extends ProjectStatusInput { confirmationName: string }
 
@@ -138,7 +141,7 @@ export interface BoardResponseKey extends ProjectResponseKey {
 export interface BoardLocationInput extends ProjectLocationInput { boardId: string }
 export type BoardProjectInput = ProjectLocationInput;
 export interface CreateBoardInput extends ProjectLocationInput { requestId: string; name: string; description?: string; locale: 'zh-CN' | 'en' }
-export interface EditBoardInput extends BoardLocationInput { expectedVersion: number; name: string; description?: string }
+export interface EditBoardInput extends BoardLocationInput { expectedVersion: number; name?: string; descriptionPatch?: DescriptionPatch }
 export interface DeleteBoardInput extends BoardLocationInput { expectedVersion: number; confirmationName: string }
 export type DeleteBoardOutcome =
   | { outcome: 'deleted'; home: BoardHomeView }
@@ -156,8 +159,8 @@ export interface EditWorkItemInput extends WorkItemLocationInput {
   expectedBoardVersion?: number;
   expectedPlacementVersion?: number;
   expectedVersion: number;
-  title: string;
-  description?: string;
+  title?: string;
+  descriptionPatch?: DescriptionPatch;
   assigneePatch?: AssigneePatch;
 }
 export interface MoveCardInput extends BoardLocationInput { workItemId: string; expectedBoardVersion: number; expectedPlacementVersion: number; targetColumnId: string; beforeWorkItemId?: string }

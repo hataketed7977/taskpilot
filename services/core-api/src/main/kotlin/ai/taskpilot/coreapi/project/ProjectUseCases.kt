@@ -34,13 +34,23 @@ data class CreateProjectCommand(
     val locale: String = "en",
 )
 
+enum class DescriptionPatchAction {
+    SET,
+    CLEAR,
+}
+
+data class DescriptionPatch(
+    val action: DescriptionPatchAction,
+    val value: String?,
+)
+
 data class EditProjectCommand(
     val actorUserId: UUID,
     val workspaceId: UUID,
     val projectId: UUID,
     val expectedVersion: Long,
-    val name: String,
-    val description: String?,
+    val name: String? = null,
+    val descriptionPatch: DescriptionPatch? = null,
 )
 
 data class ProjectStatusCommand(

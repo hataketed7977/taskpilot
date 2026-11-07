@@ -26,10 +26,12 @@ export const boardMessages = {
   moveFailed:
     "Could not move {{title}}. The previous layout was restored.",
   reload: "Reload",
+  validation: { required: "Enter a value." },
+  assignee: { label: "Assignee", unassigned: "Unassigned", loadFailed: "Members could not be loaded. You can still create this work item unassigned." },
   mutationError:
     "The board changed elsewhere or could not be updated. Reload and try again.",
   delete: {
-    action: "Permanently delete board",
+    action: "Delete board",
     title: "Permanently delete “{{name}}”?",
     irreversible: "This action cannot be undone.",
     emptyOnly: "Only an empty board with no cards can be deleted.",
@@ -100,9 +102,11 @@ export const boardMessages = {
   moveSucceeded: "已移动{{title}}。",
   moveFailed: "未能移动{{title}}，已恢复原布局。",
   reload: "重新加载",
+  validation: { required: "请输入内容。" },
+  assignee: { label: "负责人（可选）", unassigned: "未分配", loadFailed: "暂时无法加载项目成员，仍可按未分配创建工作项。" },
   mutationError: "看板已发生变化或暂时无法更新，请重新加载后再试。",
   delete: {
-    action: "永久删除看板",
+    action: "删除看板",
     title: "永久删除“{{name}}”？",
     irreversible: "此操作无法撤销。",
     emptyOnly: "只能删除没有卡片的空看板。",

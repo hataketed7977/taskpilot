@@ -59,6 +59,69 @@ describe('validated Desktop IPC inputs', () => {
 
 
 
+  it('enforces sparse non-null mutation envelopes before invoking owners', async () => {
+    const editProject = vi.fn().mockResolvedValue({});
+    const editBoard = vi.fn().mockResolvedValue({});
+    const editWorkItem = vi.fn().mockResolvedValue({});
+    const handlers = new Map<string, (event: typeof trusted, input?: unknown) => unknown>();
+    registerDesktopHandlers(
+      { handle: (channel, handler) => handlers.set(channel, handler as never), removeHandler: vi.fn() },
+      {
+        auth: {},
+        workspaces: { list: vi.fn() },
+        projects: { edit: editProject },
+        boards: { edit: editBoard, editWorkItem },
+      } as never,
+      { webContentsId: 7, generation: 1 },
+    );
+    const project = { workspaceId: uuid, projectId: uuid };
+    const board = { ...project, boardId: uuid };
+    const workItem = {
+      ...board,
+      workItemId: uuid,
+      currentColumnId: uuid,
+      targetColumnId: uuid,
+      expectedVersion: 0,
+    };
+
+    await expect(handlers.get(CHANNELS.editProject)!(trusted, {
+      ...project,
+      expectedVersion: 0,
+      descriptionPatch: { action: 'CLEAR' },
+    })).resolves.toMatchObject({ ok: true });
+    await expect(handlers.get(CHANNELS.editBoard)!(trusted, {
+      ...board,
+      expectedVersion: 0,
+      descriptionPatch: { action: 'SET', value: 'Notes' },
+    })).resolves.toMatchObject({ ok: true });
+    await expect(handlers.get(CHANNELS.editWorkItem)!(trusted, {
+      ...workItem,
+      assigneePatch: { action: 'CLEAR' },
+    })).resolves.toMatchObject({ ok: true });
+
+    const invalid: Array<[string, unknown]> = [
+      [CHANNELS.editProject, { ...project, expectedVersion: 0 }],
+      [CHANNELS.editProject, { ...project, expectedVersion: 0, name: null }],
+      [CHANNELS.editBoard, { ...board, expectedVersion: 0, descriptionPatch: null }],
+      [CHANNELS.editBoard, { ...board, expectedVersion: 0, descriptionPatch: { action: 'SET', value: null } }],
+      [CHANNELS.editBoard, { ...board, expectedVersion: 0, descriptionPatch: { action: 'CLEAR', value: 'unexpected' } }],
+      [CHANNELS.editWorkItem, { ...workItem, title: null, assigneePatch: { action: 'CLEAR' } }],
+      [CHANNELS.editWorkItem, { ...workItem, descriptionPatch: { action: 'SET', value: '' } }],
+      [CHANNELS.editWorkItem, { ...workItem, assigneePatch: null }],
+      [CHANNELS.editWorkItem, workItem],
+    ];
+    for (const [channel, input] of invalid) {
+      await expect(handlers.get(channel)!(trusted, input)).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'IPC_INPUT_INVALID', category: 'validation' },
+      });
+    }
+
+    expect(editProject).toHaveBeenCalledTimes(1);
+    expect(editBoard).toHaveBeenCalledTimes(1);
+    expect(editWorkItem).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts only Project Member assignee shapes for Work Item create and edit', async () => {
     const createWorkItem = vi.fn().mockResolvedValue({});
     const editWorkItem = vi.fn().mockResolvedValue({});

@@ -10,6 +10,8 @@ import ai.taskpilot.contract.generated.model.ProjectView
 import ai.taskpilot.coreapi.currentAuthenticatedActor
 import ai.taskpilot.coreapi.project.CreateProjectCommand
 import ai.taskpilot.coreapi.project.DeleteProjectCommand
+import ai.taskpilot.coreapi.project.DescriptionPatch
+import ai.taskpilot.coreapi.project.DescriptionPatchAction
 import ai.taskpilot.coreapi.project.EditProjectCommand
 import ai.taskpilot.coreapi.project.ProjectResourceScope
 import ai.taskpilot.coreapi.project.ProjectStatus
@@ -79,7 +81,9 @@ class ProjectController(
                     projectId,
                     editProjectRequest.expectedVersion,
                     editProjectRequest.name,
-                    editProjectRequest.description,
+                    editProjectRequest.descriptionPatch?.let {
+                        DescriptionPatch(DescriptionPatchAction.valueOf(it.action.value), it.value)
+                    },
                 ),
             )
         return ResponseEntity.ok(edited.toWireResponse())

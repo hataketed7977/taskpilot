@@ -25,6 +25,8 @@ import ai.taskpilot.coreapi.project.CreateColumnCommand
 import ai.taskpilot.coreapi.project.CreateWorkItemCommand
 import ai.taskpilot.coreapi.project.DeleteBoardCommand
 import ai.taskpilot.coreapi.project.DeleteColumnCommand
+import ai.taskpilot.coreapi.project.DescriptionPatch
+import ai.taskpilot.coreapi.project.DescriptionPatchAction
 import ai.taskpilot.coreapi.project.EditBoardCommand
 import ai.taskpilot.coreapi.project.EditColumnCommand
 import ai.taskpilot.coreapi.project.EditWorkItemCommand
@@ -97,7 +99,9 @@ class ProjectWorkController(
                     boardId,
                     editBoardRequest.expectedVersion,
                     editBoardRequest.name,
-                    editBoardRequest.description,
+                    editBoardRequest.descriptionPatch?.let {
+                        DescriptionPatch(DescriptionPatchAction.valueOf(it.action.value), it.value)
+                    },
                 ),
             )
         return ResponseEntity.ok(board.toWireResponse())
@@ -251,7 +255,9 @@ class ProjectWorkController(
                     editWorkItemRequest.expectedPlacementVersion,
                     editWorkItemRequest.expectedVersion,
                     editWorkItemRequest.title,
-                    editWorkItemRequest.description,
+                    editWorkItemRequest.descriptionPatch?.let {
+                        DescriptionPatch(DescriptionPatchAction.valueOf(it.action.value), it.value)
+                    },
                     editWorkItemRequest.assigneePatch?.let { patch ->
                         AssigneePatch(
                             AssigneePatchAction.valueOf(patch.action.value),

@@ -145,10 +145,13 @@ It calls typed Preload capabilities exposed on `window.taskpilot`; Main performs
 the credentialed HTTPS request and returns least-privilege serializable results.
 `renderer/shared` contains only business-neutral controls and pure helpers.
 Future generic hooks or common icons belong under `renderer/shared` only after
-they have actual cross-feature use. Feature-specific state, validation, pending
-behavior, and API/IPC parameters stay with the owning feature. Workspace- and Project-scoped cache or
-selection keys include their stable IDs and must not rely on mutable global
-"current" scope.
+they have actual cross-feature use. Feature-specific draft state, requiredness,
+server-path mapping, submission timing, pending behavior, and API/IPC parameters
+stay with the owning feature. Shared bounded-text primitives own only business-
+neutral candidate acceptance, Unicode NFC/code-point counting, counter visibility,
+and accessible feedback layout; they are not a global form framework. Workspace-
+and Project-scoped cache or selection keys include their stable IDs and must not
+rely on mutable global "current" scope.
 
 Renderer consumes provider-neutral Agent and Run view models plus normalized
 capabilities. It never receives provider SDK objects, credentials, raw callback
@@ -307,7 +310,12 @@ account/language controls, and logout. Activating a Card first requests
 `openWorkItem`; the Card projection supplies only location/loading context and
 never substitutes for the returned Work Item. Renderer owns the detail's
 loading, error, read-only, single-field editing, assignee selection, implicit saving, transient saved,
-pending-intent, validation/error recovery, and conflict presentation states. Main
+pending-intent, validation/error recovery, and conflict presentation states. An
+edited historical over-limit draft can enter `paused-invalid`: it remains locally
+visible while an independent sparse edit proceeds. If the authoritative field
+baseline is unchanged, the returned resource version is adopted and the draft is
+retained; a changed baseline enters explicit conflict, and closing requires a
+continue-editing or discard decision. Main
 also owns fixed-method-and-path Workspace/Project and Project Work clients,
 validates typed responses at
 the trust boundary, performs refresh and terminal credential cleanup, and fences
@@ -375,6 +383,10 @@ changes.
 - Transport types do not become business models automatically. Current
   hand-written contracts cover authentication/session, current User, PERSONAL
   Workspace, Project lifecycle, Boards, Columns, Work Items, and Placements.
+  Main/IPC edit inputs preserve sparse mutation intent: omitted means unchanged,
+  description and assignee use typed `SET`/`CLEAR` envelopes, and raw `null` or
+  an empty mutation fails closed. Response parsers remain compatible with readable
+  historical text above current write limits.
 - Gateway/network/Core 5xx or timeout failures map to temporary client errors;
   there is no direct-Core retry/fallback. An explicit `401` remains the terminal
   credential-invalid signal.

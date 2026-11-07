@@ -77,11 +77,25 @@ generated interfaces express bearer JSON operations, the GitHub HTML callback,
 204 responses, and PATCH/DELETE semantics without changing authorization or
 business behavior. Architecture checks reject generated transport dependencies
 outside API adapters. The complete Core gate depends on the contract
-`qualityCheck` before compiling or testing consumers.
+`qualityCheck` before compiling or testing consumers. Real HTTP tests also retain
+transport-only authentication request bounds when generated Bean Validation is
+disabled, including stable `VALIDATION_FAILED` field paths.
 
 **Current:** existing runtime OpenAPI contract tests remain until direct artifact
 serving and semantic-equality coverage replace their complete operation table.
 Do not add another parallel method/path fixture.
+
+Current persisted-text and sparse-mutation evidence is owned by real HTTP plus
+PostgreSQL integration tests. It covers trim plus Unicode NFC, Unicode-code-point
+`limit - 1` / `limit` / `limit + 1` boundaries, combining and supplementary
+characters, whole-candidate rejection without truncation, and stable Problem
+Details field paths. Project, Board, and Work Item tests distinguish omitted from
+explicit description or assignee `SET`/`CLEAR`; submit raw JSON `null` at scalar,
+patch, and patch-value positions; reject invalid action/value combinations and
+empty/no-op mutations; and prove stale-version, authorization, idempotency, and
+transaction rollback behavior. Historical over-limit values remain readable and
+do not block an unrelated sparse mutation, while resubmitting that field must
+bring it within the current product limit.
 
 ## Test Layers
 

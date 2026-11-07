@@ -9,6 +9,10 @@ import type {
   TaskPilotDesktopApi,
 } from '../../../shared/contracts';
 import { displayNameInitials } from '../../shared/lib/profile';
+import { PRODUCT_TEXT_LIMITS, normalizePersistedText } from '../../shared/lib/text-constraints';
+import { useBoundedText, type BoundedTextController } from '../../shared/ui/use-bounded-text';
+import { TextFeedback } from '../../shared/ui/text-feedback';
+import { useDialogFocusReturn } from '../../shared/ui/use-dialog-focus-return';
 import { BoardWorkspace } from '../board/board-workspace';
 import { LanguageSelector } from '../../shared/ui/language-selector';
 
@@ -16,7 +20,7 @@ type AuthenticatedSession = Extract<SessionView, { status: 'authenticated' }>;
 type Surface = 'home' | 'settings' | 'archived';
 type LoadState = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; home: ProjectHomeView; key: ProjectResponseKey };
 type ArchivedState = { kind: 'idle' | 'loading' | 'error' } | { kind: 'ready'; items: ProjectView[] };
-type CodedError = { code?: string; recovery?: string };
+type CodedError = { code?: string; recovery?: string; path?: string };
 
 export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; session: AuthenticatedSession }) {
   const { t } = useTranslation();
@@ -259,27 +263,85 @@ function ProjectSettings({ project, workspaceId, api, accepts, onBack, onSaved, 
   onBack(): void; onSaved(project: ProjectView): void; onArchived(): void; onDelete(): void;
 }) {
   const { t } = useTranslation();
-  const [name, setName] = useState(project.name);
-  const [description, setDescription] = useState(project.description);
   const [pending, setPending] = useState<'save' | 'archive'>();
   const [error, setError] = useState(false);
-  const fieldErrors = projectFieldErrors(name, description);
+  const [errorPath, setErrorPath] = useState<string>();
+  const [nameTouched, setNameTouched] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const clearFieldError = () => { setError(false); setErrorPath(undefined); };
+  const name = useBoundedText(project.name, PRODUCT_TEXT_LIMITS.projectName, {
+    authoritativeValue: project.name,
+    onAccepted: clearFieldError,
+  });
+  const description = useBoundedText(project.description, PRODUCT_TEXT_LIMITS.projectDescription, {
+    authoritativeValue: project.description,
+    onAccepted: clearFieldError,
+  });
+  const normalizedName = normalizePersistedText(name.value);
+  const normalizedDescription = normalizePersistedText(description.value);
+  const nameChanged = normalizedName !== normalizePersistedText(project.name);
+  const descriptionChanged = normalizedDescription !== normalizePersistedText(project.description);
+  const nameRequired = (nameTouched || submitted) && !normalizedName;
+  const submittedFieldsValid = Boolean(normalizedName)
+    && (!nameChanged || name.withinProductLimit)
+    && (!descriptionChanged || description.withinProductLimit);
   const save = async (event: FormEvent) => {
-    event.preventDefault(); if (!normalizeProjectText(name) || fieldErrors.invalid || pending) return;
-    setPending('save'); setError(false);
+    event.preventDefault();
+    setSubmitted(true);
+    if (!submittedFieldsValid || pending) {
+      if (!normalizedName) nameInput.current?.focus();
+      return;
+    }
+    const mutation = {
+      ...(nameChanged ? { name: normalizedName } : {}),
+      ...(descriptionChanged ? {
+        descriptionPatch: normalizedDescription
+          ? { action: 'SET' as const, value: normalizedDescription }
+          : { action: 'CLEAR' as const },
+      } : {}),
+    };
+    if (Object.keys(mutation).length === 0) { onBack(); return; }
+    setPending('save'); setError(false); setErrorPath(undefined);
     try {
-      const result = await api.projects.edit({ workspaceId, projectId: project.projectId, expectedVersion: project.version, name: normalizeProjectText(name), description: normalizeProjectText(description) });
+      const result = await api.projects.edit({ workspaceId, projectId: project.projectId, expectedVersion: project.version, ...mutation });
       if (accepts(result.key, { workspaceId, projectId: project.projectId })) onSaved(result.value);
-    } catch { setError(true); } finally { setPending(undefined); }
+    } catch (caught) {
+      const path = (caught as CodedError).path;
+      setError(true);
+      setErrorPath(path);
+      if (path === 'name') nameInput.current?.focus();
+    } finally { setPending(undefined); }
   };
   const archive = async () => {
-    if (pending) return; setPending('archive'); setError(false);
+    if (pending) return;
+    setPending('archive'); setError(false); setErrorPath(undefined);
     try {
       const result = await api.projects.archive({ workspaceId, projectId: project.projectId, expectedVersion: project.version });
       if (accepts(result.key, { workspaceId, projectId: project.projectId })) onArchived();
     } catch { setError(true); } finally { setPending(undefined); }
   };
-  return <div className="project-page settings-page"><header className="settings-header"><button type="button" className="back-action" onClick={onBack}>← {t('project.back')}</button><p>{t('project.personalSpace')}</p><h1>{t('project.settingsTitle')}</h1></header><form className="settings-form" aria-describedby={error ? 'project-settings-error' : undefined} onSubmit={(event) => void save(event)}><ProjectFields name={name} description={description} setName={setName} setDescription={setDescription} /><div className="form-actions"><button type="submit" className="project-button project-button--primary" disabled={!normalizeProjectText(name) || fieldErrors.invalid || Boolean(pending)}>{pending === 'save' ? t('project.saving') : t('project.save')}</button></div>{error ? <p id="project-settings-error" className="project-error" role="alert">{t('project.mutationError')}</p> : null}</form><section className="settings-section"><div><h2>{t('project.archiveTitle')}</h2><p>{t('project.archiveDetail')}</p></div><button type="button" className="project-button" disabled={Boolean(pending)} onClick={() => void archive()}>{pending === 'archive' ? t('project.archiving') : t('project.archiveAction')}</button></section><section className="settings-section settings-section--danger"><div><h2>{t('project.dangerTitle')}</h2><p>{t('project.dangerDetail')}</p></div><button type="button" className="project-button project-button--danger" onClick={onDelete}>{t('project.deleteAction')}</button></section></div>;
+  return (
+    <div className="project-page settings-page">
+      <header className="settings-header"><button type="button" className="back-action" onClick={onBack}>← {t('project.back')}</button><p>{t('project.personalSpace')}</p><h1>{t('project.settingsTitle')}</h1></header>
+      <form className="settings-form" aria-describedby={error ? 'project-settings-error' : undefined} onSubmit={(event) => void save(event)}>
+        <ProjectFields
+          name={name}
+          description={description}
+          inputRef={nameInput}
+          nameError={nameRequired ? t('project.nameRequired') : undefined}
+          nameInvalid={nameRequired || errorPath === 'name'}
+          descriptionInvalid={errorPath?.startsWith('descriptionPatch')}
+          serverErrorId={error ? 'project-settings-error' : undefined}
+          onNameBlur={() => setNameTouched(true)}
+        />
+        <div className="form-actions"><button type="submit" className="project-button project-button--primary" disabled={Boolean(pending)}>{pending === 'save' ? t('project.saving') : t('project.save')}</button></div>
+        {error ? <p id="project-settings-error" className="project-error" role="alert">{t('project.mutationError')}</p> : null}
+      </form>
+      <section className="settings-section"><div><h2>{t('project.archiveTitle')}</h2><p>{t('project.archiveDetail')}</p></div><button type="button" className="project-button" disabled={Boolean(pending)} onClick={() => void archive()}>{pending === 'archive' ? t('project.archiving') : t('project.archiveAction')}</button></section>
+      <section className="settings-section settings-section--danger"><div><h2>{t('project.dangerTitle')}</h2><p>{t('project.dangerDetail')}</p></div><button type="button" className="project-button project-button--danger" onClick={onDelete}>{t('project.deleteAction')}</button></section>
+    </div>
+  );
 }
 
 function ArchivedProjects({ state, current, workspaceId, api, accepts, onBack, onRetry, onRestored, onDelete }: {
@@ -308,18 +370,57 @@ function CreateProjectDialog({ workspaceId, api, accepts, onClose, onCreated }: 
 }) {
   const { t } = useTranslation();
   const { locale } = useLocale();
-  const [name, setName] = useState(''); const [description, setDescription] = useState(''); const [pending, setPending] = useState(false); const [error, setError] = useState(false);
-  const input = useRef<HTMLInputElement>(null); const requestIdentity = useRef<{ fingerprint: string; requestId: string } | undefined>(undefined);
-  const fieldErrors = projectFieldErrors(name, description);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState(false);
+  const [errorPath, setErrorPath] = useState<string>();
+  const [nameTouched, setNameTouched] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const clearFieldError = () => { setError(false); setErrorPath(undefined); };
+  const name = useBoundedText('', PRODUCT_TEXT_LIMITS.projectName, { onAccepted: clearFieldError });
+  const description = useBoundedText('', PRODUCT_TEXT_LIMITS.projectDescription, { onAccepted: clearFieldError });
+  const input = useRef<HTMLInputElement>(null);
+  const requestIdentity = useRef<{ fingerprint: string; requestId: string } | undefined>(undefined);
+  const normalizedName = normalizePersistedText(name.value);
+  const nameRequired = (nameTouched || submitted) && !normalizedName;
   useInitialFocus(input);
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); if (!normalizeProjectText(name) || fieldErrors.invalid || pending) return; setPending(true); setError(false);
-    const fingerprint = JSON.stringify([normalizeProjectText(name), normalizeProjectText(description)]);
+    event.preventDefault();
+    setSubmitted(true);
+    if (!normalizedName || pending) {
+      if (!normalizedName) input.current?.focus();
+      return;
+    }
+    setPending(true); setError(false); setErrorPath(undefined);
+    const normalizedDescription = normalizePersistedText(description.value);
+    const fingerprint = JSON.stringify([normalizedName, normalizedDescription]);
     if (requestIdentity.current?.fingerprint !== fingerprint) requestIdentity.current = { fingerprint, requestId: crypto.randomUUID() };
-    try { const result = await api.projects.create({ workspaceId, requestId: requestIdentity.current.requestId, name: normalizeProjectText(name), description: normalizeProjectText(description), locale }); if (accepts(result.key, { workspaceId, projectId: result.value.projectId })) onCreated(result.value, result.key); }
-    catch { setError(true); } finally { setPending(false); }
+    try {
+      const result = await api.projects.create({ workspaceId, requestId: requestIdentity.current.requestId, name: normalizedName, description: normalizedDescription, locale });
+      if (accepts(result.key, { workspaceId, projectId: result.value.projectId })) onCreated(result.value, result.key);
+    } catch (caught) {
+      const path = (caught as CodedError).path;
+      setError(true); setErrorPath(path);
+      if (path === 'name') input.current?.focus();
+    } finally { setPending(false); }
   };
-  return <Modal title={t('project.createTitle')} onClose={onClose} pending={pending}><form aria-describedby={error ? 'project-create-error' : undefined} onSubmit={(event) => void submit(event)}><ProjectFields inputRef={input} name={name} description={description} setName={setName} setDescription={setDescription} /><div className="dialog-actions"><button type="button" className="project-button" disabled={pending} onClick={onClose}>{t('project.cancel')}</button><button type="submit" className="project-button project-button--primary" disabled={pending || !normalizeProjectText(name) || fieldErrors.invalid}>{pending ? t('project.creating') : t('project.create')}</button></div>{error ? <p id="project-create-error" className="project-error" role="alert">{t('project.mutationError')}</p> : null}</form></Modal>;
+  return (
+    <Modal title={t('project.createTitle')} onClose={onClose} pending={pending}>
+      <form aria-describedby={error ? 'project-create-error' : undefined} onSubmit={(event) => void submit(event)}>
+        <ProjectFields
+          inputRef={input}
+          name={name}
+          description={description}
+          nameError={nameRequired ? t('project.nameRequired') : undefined}
+          nameInvalid={nameRequired || errorPath === 'name'}
+          descriptionInvalid={errorPath?.startsWith('description')}
+          serverErrorId={error ? 'project-create-error' : undefined}
+          onNameBlur={() => setNameTouched(true)}
+        />
+        <div className="dialog-actions"><button type="button" className="project-button" disabled={pending} onClick={onClose}>{t('project.cancel')}</button><button type="submit" className="project-button project-button--primary" disabled={pending}>{pending ? t('project.creating') : t('project.create')}</button></div>
+        {error ? <p id="project-create-error" className="project-error" role="alert">{t('project.mutationError')}</p> : null}
+      </form>
+    </Modal>
+  );
 }
 
 function DeleteProjectDialog({ project, workspaceId, api, accepts, onClose, onDeleted }: {
@@ -334,10 +435,7 @@ function DeleteProjectDialog({ project, workspaceId, api, accepts, onClose, onDe
 function Modal({ title, children, onClose, pending, danger = false }: { title: string; children: ReactNode; onClose(): void; pending: boolean; danger?: boolean }) {
   const { t } = useTranslation();
   const dialog = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const returnTarget = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    return () => { returnTarget?.focus(); };
-  }, []);
+  useDialogFocusReturn(dialog);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
@@ -361,27 +459,46 @@ function Modal({ title, children, onClose, pending, danger = false }: { title: s
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onClose(); }}><section ref={dialog} className={`project-dialog${danger ? ' project-dialog--danger' : ''}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title"><header><h2 id="dialog-title">{title}</h2><button type="button" className="icon-action" aria-label={t('project.close')} disabled={pending} onClick={onClose}>×</button></header>{children}</section></div>;
 }
 
-function ProjectFields({ name, description, setName, setDescription, inputRef }: { name: string; description: string; setName(value: string): void; setDescription(value: string): void; inputRef?: RefObject<HTMLInputElement | null> }) {
+function ProjectFields({
+  name,
+  description,
+  inputRef,
+  nameError,
+  nameInvalid = false,
+  descriptionInvalid = false,
+  serverErrorId,
+  onNameBlur,
+}: {
+  name: BoundedTextController;
+  description: BoundedTextController;
+  inputRef?: RefObject<HTMLInputElement | null>;
+  nameError?: string;
+  nameInvalid?: boolean;
+  descriptionInvalid?: boolean;
+  serverErrorId?: string;
+  onNameBlur?(): void;
+}) {
   const { t } = useTranslation();
   const id = useId();
-  const errors = projectFieldErrors(name, description);
-  const nameErrorId = `${id}-project-name-error`;
-  const descriptionErrorId = `${id}-project-description-error`;
-  return <div className="project-fields"><label className="project-field"><span>{t('project.name')}</span><input ref={inputRef} name="projectName" autoComplete="off" required value={name} aria-invalid={errors.name || undefined} aria-describedby={errors.name ? nameErrorId : undefined} onChange={event => setName(event.target.value)} />{errors.name ? <span id={nameErrorId} className="project-error" role="alert">{t('project.nameTooLong')}</span> : null}</label><label className="project-field"><span>{t('project.description')}</span><textarea name="projectDescription" autoComplete="off" rows={4} value={description} aria-invalid={errors.description || undefined} aria-describedby={errors.description ? descriptionErrorId : undefined} onChange={event => setDescription(event.target.value)} />{errors.description ? <span id={descriptionErrorId} className="project-error" role="alert">{t('project.descriptionTooLong')}</span> : null}</label></div>;
-}
-
-function projectFieldErrors(name: string, description: string) {
-  const nameTooLong = [...normalizeProjectText(name)].length > 200;
-  const descriptionTooLong = [...normalizeProjectText(description)].length > 2000;
-  return { name: nameTooLong, description: descriptionTooLong, invalid: nameTooLong || descriptionTooLong };
-}
-
-function normalizeProjectText(value: string) {
-  let start = 0;
-  let end = value.length;
-  while (start < end && value.charCodeAt(start) <= 0x20) start += 1;
-  while (end > start && value.charCodeAt(end - 1) <= 0x20) end -= 1;
-  return value.slice(start, end);
+  const nameLabelId = `${id}-project-name-label`;
+  const nameFeedbackId = `${id}-project-name-feedback`;
+  const descriptionLabelId = `${id}-project-description-label`;
+  const descriptionFeedbackId = `${id}-project-description-feedback`;
+  const describedBy = (feedbackId: string) => `${feedbackId}${serverErrorId ? ` ${serverErrorId}` : ''}`;
+  return (
+    <div className="project-fields">
+      <label className="project-field">
+        <span id={nameLabelId}>{t('project.name')}</span>
+        <input ref={inputRef} name="projectName" autoComplete="off" required aria-labelledby={nameLabelId} aria-invalid={nameInvalid || undefined} aria-describedby={describedBy(nameFeedbackId)} onBlur={onNameBlur} {...name.inputProps} />
+        <TextFeedback id={nameFeedbackId} count={name.count} limit={name.limit} showCount={name.showCount} limitReached={name.limitReached} error={nameError} />
+      </label>
+      <label className="project-field">
+        <span id={descriptionLabelId}>{t('project.description')}</span>
+        <textarea name="projectDescription" autoComplete="off" rows={4} aria-labelledby={descriptionLabelId} aria-invalid={descriptionInvalid || undefined} aria-describedby={describedBy(descriptionFeedbackId)} {...description.inputProps} />
+        <TextFeedback id={descriptionFeedbackId} count={description.count} limit={description.limit} showCount={description.showCount} limitReached={description.limitReached} />
+      </label>
+    </div>
+  );
 }
 
 function AccountMenu({ api, user }: { api: TaskPilotDesktopApi; user: AuthenticatedSession['currentUser'] }) {

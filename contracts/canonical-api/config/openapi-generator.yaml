@@ -7,8 +7,7 @@ useJakartaEe: true
 useTags: true
 skipDefaultInterface: true
 requestMappingMode: api_interface
-performBeanValidation: true
-useBeanValidation: true
 useResponseEntity: true
 serializationLibrary: jackson
 hideGenerationTimestamp: true
+useBeanValidation: false

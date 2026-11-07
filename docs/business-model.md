@@ -547,6 +547,17 @@ may store definitions and values as validated JSON/JSONB rather than introducing
 an EAV table for every value. Publishing a new version does not silently change
 existing Work Items; migration is explicit.
 
+**Current persisted-text write policy:** required names and titles are trimmed,
+normalized to Unicode NFC, and rejected when empty or above their product limit;
+optional descriptions use the same normalization and may be empty. Limits are
+measured in Unicode code points: User display name 80, Project name 100, Project
+description 1,000, Board name 80, Board description 1,000, Column name 50, Work
+Item title 160, and Work Item description 5,000. An over-limit write is rejected
+as a whole and is never truncated. These product limits do not reduce database
+column capacity or invalidate historical values already stored. Sparse edits
+validate only fields the actor actually submitted; an unchanged historical value
+above a current limit remains readable and does not block an unrelated valid edit.
+
 Human and Agent assignments are distinct:
 
 - **Current:** human assignment identifies the one current responsible Project Member for a Work Item. It may be set, replaced, or cleared by an authorized Project OWNER, and the selected membership must belong to the same Project and an active User.

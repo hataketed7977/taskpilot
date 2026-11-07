@@ -64,12 +64,12 @@
 | `main/credentials` | OS credential persistence adapters and in-memory test doubles; no Renderer exposure |
 | `main/projects` | Typed Workspace/Project/Project Work response validation, Project/Board-home selection, session and Board-generation fencing, and environment-plus-User scoped recent Project/Board device preferences |
 | `main/session` | Main-owned authenticated session view, refresh, logout, subscription, and credential coordination |
-| `main/ipc` | IPC sender/origin/session authorization, schema validation, rate/size limits, result serialization, and dispatch |
-| `preload` | Narrow typed capabilities exposed to a sandboxed Renderer |
+| `main/ipc` | IPC sender/origin/session authorization, schema validation, sparse typed mutation admission, raw-null/empty-mutation rejection, rate/size limits, result serialization, and dispatch |
+| `preload` | Narrow typed capabilities exposed to a sandboxed Renderer; no token, URL, generic transport, or raw mutation escape hatch |
 | `renderer/app` | React entry, providers, and top-level session/state routing |
-| `renderer/features` | Cohesive first-party UI feature areas such as auth, shell, board, and detail; feature owners keep validation, pending state, submission timing, and API/IPC parameters |
-| `renderer/shared/ui` | Business-neutral React controls and small presentation primitives, including controlled Select; no business object ownership |
-| `renderer/shared/lib` | Pure DOM, text, date, and formatting helpers with no IPC, credential, or persistence access; future generic hooks or common icons stay in `renderer/shared` only after real cross-feature use |
+| `renderer/features` | Cohesive first-party UI feature areas such as auth, shell, board, and detail; feature owners keep draft state, requiredness, server-path mapping, pending state, submission timing, and API/IPC parameters |
+| `renderer/shared/ui` | Business-neutral React controls and small presentation primitives, including controlled Select and bounded-text feedback; no business object or submission ownership |
+| `renderer/shared/lib` | Pure DOM, text, date, formatting, normalization, and code-point candidate helpers with no IPC, credential, persistence, or feature-specific form ownership; future generic hooks or common icons stay in `renderer/shared` only after real cross-feature use |
 | `renderer/i18n` | Supported locale resolution, safe local preference, static message catalogs, fallback policy and document-language synchronization |
 | `renderer/styles` | Design tokens, base CSS, shared UI CSS, and feature CSS loaded in an explicit order |
 | `shared-ipc` | Serializable process-boundary schemas; no implementation logic |
@@ -123,6 +123,10 @@ Renderer keeps persistent description labeling, equal read/edit layout slots,
 conditional adjacent live feedback, and transient detail/loading/error/read-only
 state. At most one title or description editor is active, including its draft,
 validation, one in-flight implicit save that keeps the editor/draft mounted,
+and an explicit `paused-invalid` state for a historical over-limit draft. An
+unrelated sparse save may advance the local version while retaining that draft
+only when its authoritative field baseline is unchanged; otherwise the detail
+enters conflict, and closing cannot bypass the continue/discard gate. It also owns
 pending close/switch/assignee-open intent, transient saved feedback, field-local recovery, IME
 composition guard, and conflict choices. Requesting the assignee picker while a dirty
 content field is active first saves that draft; only a successful authoritative response

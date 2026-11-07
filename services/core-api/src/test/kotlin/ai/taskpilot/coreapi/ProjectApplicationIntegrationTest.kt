@@ -2,6 +2,8 @@ package ai.taskpilot.coreapi
 
 import ai.taskpilot.coreapi.project.CreateProjectCommand
 import ai.taskpilot.coreapi.project.DeleteProjectCommand
+import ai.taskpilot.coreapi.project.DescriptionPatch
+import ai.taskpilot.coreapi.project.DescriptionPatchAction
 import ai.taskpilot.coreapi.project.EditProjectCommand
 import ai.taskpilot.coreapi.project.ProjectDeleteRestricted
 import ai.taskpilot.coreapi.project.ProjectIdempotencyConflict
@@ -151,22 +153,22 @@ class ProjectApplicationIntegrationTest {
 
         assertEquals("x", service.create(createCommand(owner, workspace, UUID.randomUUID(), " x ", null)).name)
         assertEquals(
-            200,
-            service.create(createCommand(owner, workspace, UUID.randomUUID(), "😀".repeat(200), null)).name.codePointCount(0, 400),
+            100,
+            service.create(createCommand(owner, workspace, UUID.randomUUID(), "😀".repeat(100), null)).name.codePointCount(0, 200),
         )
         assertEquals(
-            2000,
+            1000,
             service
                 .create(
-                    createCommand(owner, workspace, UUID.randomUUID(), "Description", "😀".repeat(2000)),
+                    createCommand(owner, workspace, UUID.randomUUID(), "Description", "😀".repeat(1000)),
                 ).description
-                .codePointCount(0, 4000),
+                .codePointCount(0, 2000),
         )
 
         assertValidationPath("name") { service.create(createCommand(owner, workspace, UUID.randomUUID(), " ", null)) }
-        assertValidationPath("name") { service.create(createCommand(owner, workspace, UUID.randomUUID(), "😀".repeat(201), null)) }
+        assertValidationPath("name") { service.create(createCommand(owner, workspace, UUID.randomUUID(), "😀".repeat(101), null)) }
         assertValidationPath("description") {
-            service.create(createCommand(owner, workspace, UUID.randomUUID(), "Description", "😀".repeat(2001)))
+            service.create(createCommand(owner, workspace, UUID.randomUUID(), "Description", "😀".repeat(1001)))
         }
     }
 
@@ -345,7 +347,17 @@ class ProjectApplicationIntegrationTest {
         assertFailsWith<ProjectNotFound> {
             service.edit(EditProjectCommand(member, workspace, projectId, 0, "Denied", null))
         }
-        val edited = service.edit(EditProjectCommand(owner, workspace, projectId, 0, " After ", " Updated "))
+        val edited =
+            service.edit(
+                EditProjectCommand(
+                    owner,
+                    workspace,
+                    projectId,
+                    0,
+                    " After ",
+                    DescriptionPatch(DescriptionPatchAction.SET, " Updated "),
+                ),
+            )
         assertEquals("After", edited.name)
         assertEquals("Updated", edited.description)
         assertEquals(1, edited.version)

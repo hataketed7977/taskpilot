@@ -1,5 +1,6 @@
 import { BoardWorkspace } from '../../src/renderer/features/board/board-workspace';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
+import { PRODUCT_TEXT_LIMITS } from '../../src/renderer/shared/lib/text-constraints';
 import type {
   BoardResponseKey,
   BoardView,
@@ -338,6 +339,20 @@ async function dispatchChromiumMouse(
   });
 }
 
+function setNativeTextValue(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+  inputType = 'insertText',
+) {
+  const prototype = element instanceof HTMLTextAreaElement
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+  if (!setter) throw new Error('Native text value setter is unavailable');
+  setter.call(element, value);
+  element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType }));
+}
+
 async function dispatchChromiumTab() {
   const key = {
     key: 'Tab',
@@ -399,6 +414,28 @@ function mountBoard(
 describe('Project Board experience', () => {
   beforeEach(() => cy.viewport(960, 640));
 
+  it('orders Work Item creation as title, assignee, then description without redundant default help', () => {
+    const api = apiFor();
+    mountBoard(api, 'zh-CN');
+
+    cy.findAllByRole('button', { name: '添加工作项' }).first().click();
+    cy.findByRole('dialog', { name: '添加工作项' }).within(() => {
+      cy.findByLabelText('标题').then(($title) => {
+        cy.findByRole('combobox', { name: '负责人（可选）' }).then(($assignee) => {
+          cy.findByLabelText('描述（可选）').then(($description) => {
+            const titleTop = $title[0].getBoundingClientRect().top;
+            const assigneeTop = $assignee[0].getBoundingClientRect().top;
+            const descriptionTop = $description[0].getBoundingClientRect().top;
+            expect(titleTop, 'title is the first field').to.be.lessThan(assigneeTop);
+            expect(assigneeTop, 'assignee is the second field').to.be.lessThan(descriptionTop);
+          });
+        });
+      });
+      cy.findByRole('combobox', { name: '负责人（可选）' }).should('contain.text', '未分配');
+      cy.contains('默认未分配。').should('not.exist');
+    });
+  });
+
   it('deletes an empty Board from the keyboard and uses the authoritative zero-Board home', () => {
     const emptyBoard: BoardView = {
       ...initialBoard,
@@ -414,7 +451,7 @@ describe('Project Board experience', () => {
     cy.findByRole('button', { name: 'Board actions' })
       .focus()
       .trigger('keydown', { key: 'Enter' });
-    cy.findByRole('menuitem', { name: 'Permanently delete board' })
+    cy.findByRole('menuitem', { name: 'Delete board' })
       .should('be.focused')
       .trigger('keydown', { key: 'Enter' });
     cy.findByRole('dialog', {
@@ -435,6 +472,24 @@ describe('Project Board experience', () => {
     cy.findByRole('button', { name: 'New board' }).should('be.visible');
   });
 
+  it('dismisses Board actions on the same real pointer action and restores trigger focus on Escape', () => {
+    const api = apiFor();
+    mountBoard(api, 'en');
+
+    cy.findByRole('button', { name: 'Board actions' }).as('actions').click();
+    cy.findByRole('menuitem', { name: 'Delete board' }).should('be.visible');
+    cy.findByRole('button', { name: 'Edit board' }).click();
+    cy.findByRole('menuitem', { name: 'Delete board' }).should('not.exist');
+    cy.findByRole('dialog', { name: 'Edit board' }).should('be.visible');
+    cy.findByRole('button', { name: 'Close' }).click();
+
+    cy.get('@actions').click();
+    cy.findByRole('menuitem', { name: 'Delete board' }).should('be.focused');
+    cy.get('body').trigger('keydown', { key: 'Escape' });
+    cy.findByRole('menuitem', { name: 'Delete board' }).should('not.exist');
+    cy.get('@actions').should('be.focused');
+  });
+
   it('gates dirty Escape, blocks duplicate pending submission, and restores Board action focus', () => {
     const emptyBoard: BoardView = {
       ...initialBoard,
@@ -447,7 +502,7 @@ describe('Project Board experience', () => {
     mountBoard(api, 'zh-CN');
 
     cy.findByRole('button', { name: '看板操作' }).as('actions').click();
-    cy.findByRole('menuitem', { name: '永久删除看板' }).click();
+    cy.findByRole('menuitem', { name: '删除看板' }).click();
     cy.findByLabelText(`输入“${emptyBoard.name}”以确认`).type('部分名称{esc}');
     cy.findByRole('dialog', { name: '放弃删除确认？' }).should('be.visible');
     cy.findByRole('button', { name: '继续确认' }).click();
@@ -486,7 +541,7 @@ describe('Project Board experience', () => {
       .onSecondCall().rejects({ code: 'BOARD_DELETE_RESULT_UNKNOWN' });
     mountBoard(api, 'zh-CN');
     cy.findByRole('button', { name: '看板操作' }).click();
-    cy.findByRole('menuitem', { name: '永久删除看板' }).click();
+    cy.findByRole('menuitem', { name: '删除看板' }).click();
     cy.findByLabelText(`输入“${emptyBoard.name}”以确认`).type(emptyBoard.name);
     cy.findByRole('button', { name: '永久删除' }).click();
 
@@ -499,7 +554,7 @@ describe('Project Board experience', () => {
     cy.wrap(api.boards.permanentlyDelete).should('have.been.calledOnce');
 
     cy.findByRole('button', { name: '看板操作' }).click();
-    cy.findByRole('menuitem', { name: '永久删除看板' }).click();
+    cy.findByRole('menuitem', { name: '删除看板' }).click();
     cy.findByLabelText(`输入“${emptyBoard.name}”以确认`).type(emptyBoard.name);
     cy.findByRole('button', { name: '永久删除' }).click();
     cy.findByRole('button', { name: '离开项目' }).click();
@@ -515,7 +570,7 @@ describe('Project Board experience', () => {
     const api = apiFor('success', longBoard);
     mountBoard(api, 'zh-CN');
     cy.findByRole('button', { name: '看板操作' }).click();
-    cy.findByRole('menuitem', { name: '永久删除看板' }).click();
+    cy.findByRole('menuitem', { name: '删除看板' }).click();
     cy.findByRole('dialog', { name: `永久删除“${longBoard.name}”？` })
       .should('be.visible')
       .and(($dialog) => {
@@ -777,7 +832,12 @@ describe('Project Board experience', () => {
       .should('have.been.calledOnce')
       .its('firstCall.args.0')
       .should((input) => {
-        expect(input).to.include({ description: updatedDescription, expectedVersion: 0 });
+        expect(input).to.include({ expectedVersion: 0 });
+        expect(input).to.have.property('descriptionPatch').deep.equal({
+          action: 'SET',
+          value: updatedDescription,
+        });
+        expect(input).not.to.have.property('title');
       });
     cy.findByRole('listbox', { name: 'Assignee options' }).should('not.exist');
 
@@ -1191,7 +1251,6 @@ describe('Project Board experience', () => {
       targetColumnId: todoId,
       expectedVersion: 4,
       title: 'Release candidate ready',
-      description: 'Server-confirmed description',
     });
     cy.findByRole('button', { name: '编辑标题' })
       .should('contain.text', 'Release candidate ready')
@@ -1213,8 +1272,7 @@ describe('Project Board experience', () => {
       currentColumnId: todoId,
       targetColumnId: todoId,
       expectedVersion: 5,
-      title: 'Release candidate ready',
-      description: 'First line\nSecond line',
+      descriptionPatch: { action: 'SET', value: 'First line\nSecond line' },
     });
     cy.findByRole('button', { name: '编辑描述' })
       .should('contain.text', 'First line')
@@ -1334,7 +1392,6 @@ describe('Project Board experience', () => {
       targetColumnId: todoId,
       expectedVersion: 2,
       title: revisedTitle,
-      description: latestWorkItem.description,
     });
     cy.findByRole('button', { name: 'Edit title' })
       .should('contain.text', revisedTitle);
@@ -1833,7 +1890,7 @@ describe('Project Board experience', () => {
 
   it('keeps a long title single-line without moving the shell or hiding detail content', () => {
     const api = apiFor();
-    const longTitle = 'A long title that remains a single-line field '.repeat(6).trim();
+    const longTitle = 'A long title that remains a single-line field '.repeat(3).trim();
     let resolveSave: ((value: unknown) => void) | undefined;
     api.boards.editWorkItem = cy.stub().returns(
       new Promise((resolve) => {
@@ -1889,6 +1946,113 @@ describe('Project Board experience', () => {
     cy.findByText('In column').should('not.exist');
   });
 
+  it('atomically rejects over-limit typing, paste, and IME commits while preserving correction paths', () => {
+    const api = apiFor();
+    openDetail(api, 'en');
+    cy.findByRole('button', { name: 'Edit title' }).click();
+    const limitValue = '😀'.repeat(PRODUCT_TEXT_LIMITS.workItemTitle);
+    const pastedCandidate = `${limitValue}pasted`;
+
+    cy.findByRole('textbox', { name: 'Title' }).then(($input) => {
+      const input = $input[0] as HTMLInputElement;
+      setNativeTextValue(input, limitValue);
+    });
+    cy.findByRole('textbox', { name: 'Title' })
+      .should('have.value', limitValue)
+      .and('be.focused');
+    cy.findByLabelText(`${PRODUCT_TEXT_LIMITS.workItemTitle} of ${PRODUCT_TEXT_LIMITS.workItemTitle} characters`)
+      .should('be.visible');
+
+    cy.findByRole('textbox', { name: 'Title' }).type('x');
+    cy.findByRole('textbox', { name: 'Title' })
+      .should('have.value', limitValue)
+      .and('be.focused');
+    cy.findAllByRole('status').filter(':contains("Limit reached")').should('have.length', 1);
+
+    cy.findByRole('textbox', { name: 'Title' }).then(($input) => {
+      const input = $input[0] as HTMLInputElement;
+      setNativeTextValue(input, pastedCandidate, 'insertFromPaste');
+    });
+    cy.findByRole('textbox', { name: 'Title' }).should('have.value', limitValue);
+
+    cy.findByRole('textbox', { name: 'Title' }).then(($input) => {
+      const input = $input[0] as HTMLInputElement;
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      setNativeTextValue(input, `${limitValue}候选`, 'insertCompositionText');
+      expect(input.value, 'composition intermediate remains visible').to.equal(`${limitValue}候选`);
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '候选' }));
+    });
+    cy.findByRole('textbox', { name: 'Title' })
+      .should('have.value', limitValue)
+      .and('be.focused');
+
+    cy.findByRole('textbox', { name: 'Title' })
+      .type('{selectall}A')
+      .should('have.value', 'A');
+    const correctableLimit = `A${'x'.repeat(PRODUCT_TEXT_LIMITS.workItemTitle - 1)}`;
+    cy.findByRole('textbox', { name: 'Title' }).then(($input) => {
+      setNativeTextValue($input[0] as HTMLInputElement, correctableLimit);
+    });
+    cy.findByRole('textbox', { name: 'Title' })
+      .type('{backspace}')
+      .should('have.value', `A${'x'.repeat(PRODUCT_TEXT_LIMITS.workItemTitle - 2)}`);
+    cy.wrap(api.boards.editWorkItem).should('not.have.been.called');
+  });
+
+  it('keeps an over-limit historical draft through assignee save and gates closing it', () => {
+    const baseline = 'x'.repeat(PRODUCT_TEXT_LIMITS.workItemDescription + 20);
+    const draft = 'x'.repeat(PRODUCT_TEXT_LIMITS.workItemDescription + 10);
+    const historical: BoardView = {
+      ...initialBoard,
+      columns: initialBoard.columns.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) => card.workItemId === workItemId
+          ? { ...card, description: baseline }
+          : card),
+      })),
+    };
+    const assigned = withAssignee(historical);
+    const api = apiFor('success', historical);
+    api.boards.editWorkItem = cy.stub().resolves({
+      key: key(1),
+      value: { workItem: { ...item(assigned), version: 1 }, board: assigned },
+    });
+    mountBoard(api, 'en');
+    cy.findByRole('button', { name: initialBoard.columns[0].cards[0].title }).click();
+    cy.findByRole('button', { name: 'Edit description' }).click();
+    cy.findByRole('textbox', { name: 'Description' }).then(($input) => {
+      const input = $input[0] as HTMLTextAreaElement;
+      setNativeTextValue(input, draft, 'deleteContentBackward');
+    });
+
+    cy.findByRole('button', { name: 'Change assignee. Current: Unassigned' }).click();
+    cy.wrap(api.boards.editWorkItem).should('not.have.been.called');
+    cy.findByRole('button', { name: 'Unsaved changes paused' })
+      .should('be.visible');
+    cy.findByRole('button', { name: 'Edit description' }).should('contain.text', draft);
+    cy.findByRole('option', { name: /Avery Owner/ }).click();
+
+    cy.wrap(api.boards.editWorkItem).should('have.been.calledOnce');
+    cy.wrap(api.boards.editWorkItem).its('firstCall.args.0').should((input) => {
+      expect(input).to.deep.include({ expectedVersion: 0 });
+      expect(input).to.have.property('assigneePatch');
+      expect(input).not.to.have.property('descriptionPatch');
+    });
+    cy.findByRole('button', { name: 'Edit description' }).should('contain.text', draft);
+    cy.findByRole('button', { name: 'Unsaved changes paused' }).should('be.visible');
+
+    cy.findByRole('button', { name: 'Close' }).click();
+    cy.findByRole('alertdialog').should('contain.text', 'Discard unsaved changes?');
+    cy.findByRole('button', { name: 'Continue editing' }).click();
+    cy.findByRole('textbox', { name: 'Description' })
+      .should('have.value', draft)
+      .and('be.focused');
+    cy.findByRole('button', { name: 'Close' }).click();
+    cy.findByRole('alertdialog').should('be.visible');
+    cy.findByRole('button', { name: 'Discard and close' }).click();
+    cy.findByRole('dialog').should('not.exist');
+  });
+
   it('does not submit the title during an IME composition in real Chromium', () => {
     const api = apiFor();
     api.boards.editWorkItem = cy.stub().resolves({
@@ -1928,7 +2092,10 @@ describe('Project Board experience', () => {
     captureGeometry().then((geometry) => { invalidGeometry = geometry; });
 
     cy.findByRole('textbox', { name: 'Title' }).type('Pending save{enter}');
-    cy.findByRole('alert').should('contain.text', 'could not be saved temporarily');
+    cy.findByRole('alert').should(
+      'contain.text',
+      'Couldn’t save the title. Your changes are still here.',
+    );
     cy.findByText('Description').should('be.visible');
     cy.findByText('In column').should('not.exist');
     cy.screenshot('work-item-geometry-title-temporary-failure');

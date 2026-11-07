@@ -140,6 +140,147 @@ class ContractToolTest {
         assertTrue(projectManifest(api).isEmpty())
     }
 
+    @Test
+    fun `write schemas declare product text limits sparse mutations and readable legacy responses`() {
+        val api = parse(java.nio.file.Path.of("openapi.yaml"))
+        val schemas = api.components.schemas
+
+        assertText(schemas, "FederatedRegistrationRequest", "displayName", 1, 80)
+        assertText(schemas, "CreateProjectRequest", "name", 1, 100)
+        assertText(schemas, "CreateProjectRequest", "description", null, 1000)
+        assertText(schemas, "CreateBoardRequest", "name", 1, 80)
+        assertText(schemas, "CreateBoardRequest", "description", null, 1000)
+        assertText(schemas, "CreateColumnRequest", "name", 1, 50)
+        assertText(schemas, "EditColumnRequest", "name", 1, 50)
+        assertText(schemas, "CreateWorkItemRequest", "title", 1, 160)
+        assertText(schemas, "CreateWorkItemRequest", "description", null, 5000)
+
+        assertSparseEdit(schemas, "EditProjectRequest", "name", "DescriptionPatch1000", 1, 100)
+        assertSparseEdit(schemas, "EditBoardRequest", "name", "DescriptionPatch1000", 1, 80)
+        assertSparseEdit(schemas, "EditWorkItemRequest", "title", "DescriptionPatch5000", 1, 160)
+        assertNullFail(schemas, "EditWorkItemRequest", "assigneePatch")
+        assertNullFail(schemas, "AssigneePatch", "target")
+
+        assertDescriptionPatch(schemas, "DescriptionPatch1000", 1000)
+        assertDescriptionPatch(schemas, "DescriptionPatch5000", 5000)
+
+        val createWorkItem = schemas.getValue("CreateWorkItemRequest")
+        assertTrue("assignee" !in createWorkItem.required.orEmpty())
+        val createAssignee = createWorkItem.properties.getValue("assignee")
+        assertEquals(2, createAssignee.oneOf.size)
+        val nullAssignee = createAssignee.oneOf.single {
+            it.type == "null" || "null" in it.types.orEmpty()
+        }
+        assertTrue(
+            nullAssignee.type == "null" || "null" in nullAssignee.types.orEmpty(),
+            "CreateWorkItemRequest.assignee must accept explicit JSON null",
+        )
+        val selection = createAssignee.oneOf.single { it !== nullAssignee }
+        assertEquals(schemas.getValue("AssigneeSelection").properties.keys, selection.properties.keys)
+        assertTrue(schemas.getValue("TaskPilotProblemDetails").properties.containsKey("path"))
+
+        listOf("ProjectView" to "name", "ProjectView" to "description", "BoardView" to "name",
+            "BoardView" to "description", "BoardColumnView" to "name", "WorkItemView" to "title",
+            "WorkItemView" to "description", "CardView" to "title", "CardView" to "description",
+        ).forEach { (schemaName, propertyName) ->
+            val property = schemas.getValue(schemaName).properties.getValue(propertyName)
+            assertEquals(null, property.maxLength, "$schemaName.$propertyName must keep historical values readable")
+        }
+    }
+
+    @Test
+    fun `generated projection uses Jackson null fail without Jakarta Bean Validation`() {
+        val generatedRoot = java.nio.file.Path.of("build/generated/openapi/src/main/kotlin")
+        val kotlinFiles = java.nio.file.Files.walk(generatedRoot).use { files ->
+            files.filter { java.nio.file.Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+                .map(java.nio.file.Files::readString)
+                .toList()
+        }
+        assertTrue(kotlinFiles.isNotEmpty())
+        assertTrue(kotlinFiles.none { "jakarta.validation" in it })
+        assertTrue(kotlinFiles.none { Regex("@(Valid|Validated|NotNull|Size|Pattern|Min|Max)\\b").containsMatchIn(it) })
+
+        val generatedModels = generatedRoot.resolve("ai/taskpilot/contract/generated/model")
+        mapOf(
+            "EditProjectRequest.kt" to listOf("name", "descriptionPatch"),
+            "EditBoardRequest.kt" to listOf("name", "descriptionPatch"),
+            "EditWorkItemRequest.kt" to listOf("title", "descriptionPatch", "assigneePatch"),
+            "DescriptionPatch1000.kt" to listOf("value"),
+            "DescriptionPatch5000.kt" to listOf("value"),
+            "AssigneePatch.kt" to listOf("target"),
+        ).forEach { (fileName, properties) ->
+            val source = java.nio.file.Files.readString(generatedModels.resolve(fileName))
+            properties.forEach { property ->
+                val declaration = Regex(
+                    "@param:com\\.fasterxml\\.jackson\\.annotation\\.JsonSetter\\(nulls = com\\.fasterxml\\.jackson\\.annotation\\.Nulls\\.FAIL\\)" +
+                        "[\\s\\S]{0,240}val $property:",
+                )
+                assertTrue(declaration.containsMatchIn(source), "$fileName.$property must reject explicit JSON null")
+            }
+        }
+    }
+
+    private fun assertText(
+        schemas: Map<String, io.swagger.v3.oas.models.media.Schema<*>>,
+        schemaName: String,
+        propertyName: String,
+        min: Int?,
+        max: Int,
+    ) {
+        val property = schemas.getValue(schemaName).properties.getValue(propertyName)
+        assertEquals(min, property.minLength, "$schemaName.$propertyName minLength")
+        assertEquals(max, property.maxLength, "$schemaName.$propertyName maxLength")
+    }
+
+    private fun assertSparseEdit(
+        schemas: Map<String, io.swagger.v3.oas.models.media.Schema<*>>,
+        schemaName: String,
+        scalarName: String,
+        patchName: String,
+        min: Int,
+        max: Int,
+    ) {
+        val schema = schemas.getValue(schemaName)
+        assertTrue(scalarName !in schema.required.orEmpty(), "$schemaName.$scalarName must be optional")
+        assertText(schemas, schemaName, scalarName, min, max)
+        assertNullFail(schemas, schemaName, scalarName)
+        assertTrue("descriptionPatch" !in schema.required.orEmpty())
+        val descriptionPatch = schema.properties.getValue("descriptionPatch")
+        assertEquals(schemas.getValue(patchName).properties.keys, descriptionPatch.properties.keys)
+        assertEquals(
+            schemas.getValue(patchName).properties.getValue("value").maxLength,
+            descriptionPatch.properties.getValue("value").maxLength,
+        )
+        assertNullFail(schemas, schemaName, "descriptionPatch")
+        assertTrue("description" !in schema.properties)
+    }
+
+    private fun assertDescriptionPatch(
+        schemas: Map<String, io.swagger.v3.oas.models.media.Schema<*>>,
+        schemaName: String,
+        max: Int,
+    ) {
+        val schema = schemas.getValue(schemaName)
+        assertEquals(listOf("SET", "CLEAR"), schema.properties.getValue("action").enum)
+        assertEquals(listOf("action"), schema.required)
+        assertText(schemas, schemaName, "value", 1, max)
+        assertNullFail(schemas, schemaName, "value")
+    }
+
+    private fun assertNullFail(
+        schemas: Map<String, io.swagger.v3.oas.models.media.Schema<*>>,
+        schemaName: String,
+        propertyName: String,
+    ) {
+        val extension = schemas.getValue(schemaName).properties.getValue(propertyName)
+            .extensions?.get("x-field-extra-annotation")
+        assertEquals(
+            "@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)",
+            extension,
+            "$schemaName.$propertyName null handling",
+        )
+    }
+
     private fun minimalApi(secretSchema: StringSchema): OpenAPI {
         val response = ApiResponse().description("ok")
         val operation = Operation()

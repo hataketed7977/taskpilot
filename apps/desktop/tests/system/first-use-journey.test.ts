@@ -264,7 +264,7 @@ describe('Desktop first-use system journey', () => {
         ['workItemId', 'title', 'description', 'workItemVersion', 'placementVersion', 'position', 'assignee'].sort(),
       );
       // Mount the real Renderer against the same Main/IPC/Preload/Core API seam.
-      // Enter invokes the field's implicit-save trigger; portal geometry remains Cypress-owned.
+      // Blur exercises the same implicit-save interaction used during manual acceptance; portal geometry remains Cypress-owned.
       window.localStorage.clear();
       render(createElement(LocaleProvider, { initialLanguages: ['en'], children:
         createElement(BoardWorkspace, {
@@ -283,7 +283,7 @@ describe('Desktop first-use system journey', () => {
       fireEvent.click(sheet.getByRole('button', { name: 'Edit title' }));
       const titleInput = sheet.getByRole('textbox', { name: 'Title' });
       fireEvent.change(titleInput, { target: { value: 'Verify release candidate' } });
-      fireEvent.keyDown(titleInput, { key: 'Enter' });
+      fireEvent.blur(titleInput);
       await waitFor(() => expect(screen.getByRole('dialog', { name: 'Verify release candidate' })).toBeTruthy());
       await screen.findByText('Saved');
       cleanup();

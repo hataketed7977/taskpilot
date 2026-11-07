@@ -17,6 +17,8 @@
 | Manifest projection | Manifest equals all and only `canonical` and `provider-callback` operations; `none` is excluded |
 | Determinism | Repeated normalized projections are byte-identical |
 | Artifact boundary | Generated outputs remain under `build/` and are not tracked |
+| Write/response compatibility | Exact write limits, optional/required sparse properties, create-assignee omitted/null semantics, SET/CLEAR envelopes, and unchanged historical-capable responses |
+| Generated Jackson boundary | Optional-but-non-null mutation properties emit null-fail annotations; generated Kotlin/Spring source has no Bean Validation imports or annotations |
 
 Approved secret-bearing request/response properties may be declared. Tests
 reject examples/defaults on those fields, known sentinel or environment values,

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../../../src/renderer/app/App';
@@ -423,6 +423,45 @@ describe('GitHub authentication UX', () => {
     expect(document.body).not.toHaveTextContent('provider-secret-value');
   });
 
+  it('enforces the display-name code-point limit at input time and reveals required feedback only after interaction', async () => {
+    const api = signedOutApi();
+    vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue(registrationRequired());
+    const operator = userEvent.setup();
+    renderApp(api);
+    await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
+
+    const name = await screen.findByLabelText('显示名称');
+    expect(screen.queryByText('请输入显示名称。')).not.toBeInTheDocument();
+    await operator.clear(name);
+    expect(screen.queryByText('请输入显示名称。')).not.toBeInTheDocument();
+    await operator.tab();
+    expect(screen.getByRole('alert')).toHaveTextContent('请输入显示名称。');
+
+    fireEvent.change(name, { target: { value: '😀'.repeat(80) } });
+    expect(name).toHaveValue('😀'.repeat(80));
+    expect(screen.getByText('80 / 80')).toBeInTheDocument();
+    fireEvent.change(name, { target: { value: '😀'.repeat(81) } });
+    expect(name).toHaveValue('😀'.repeat(80));
+  });
+
+  it('blocks an over-limit provider display name before registration', async () => {
+    const api = signedOutApi();
+    vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue(
+      registrationRequired({ suggestedDisplayName: '😀'.repeat(81) }),
+    );
+    const operator = userEvent.setup();
+    renderApp(api);
+    await operator.click(await screen.findByRole('button', { name: '使用 GitHub 登录' }));
+    await operator.click(await screen.findByRole('checkbox', { name: /我已阅读并同意《用户协议》，并确认已阅读《隐私政策》/ }));
+    await operator.click(screen.getByRole('button', { name: '创建 TaskPilot 账号' }));
+
+    const name = screen.getByLabelText('显示名称');
+    expect(name).toHaveFocus();
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('显示名称不能超过 80 个字符');
+    expect(api.auth.completeGitHubRegistration).not.toHaveBeenCalled();
+  });
+
   it('associates a server validation path with the display-name field', async () => {
     const api = signedOutApi();
     vi.mocked(api.auth.startGitHubSignIn).mockResolvedValue({
@@ -439,6 +478,6 @@ describe('GitHub authentication UX', () => {
     const name = screen.getByLabelText('显示名称');
     expect(name).toHaveFocus();
     expect(name).toHaveAttribute('aria-invalid', 'true');
-    expect(name).toHaveAttribute('aria-describedby', error.id);
+    expect(name.getAttribute('aria-describedby')?.split(/\s+/)).toContain(error.id);
   });
 });

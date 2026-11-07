@@ -26,6 +26,17 @@ Core remains the owner of business behavior, authentication, authorization,
 transactions, and persistence. Gateway remains the owner of transport admission
 and policy. Neither consumer may create a second complete contract source.
 
+Write schemas document the current product limits and sparse mutation shape, while
+response schemas deliberately retain historical-value compatibility. Optional
+mutation properties are non-null when present and generated with property-level
+Jackson null-fail annotations. Description and assignee clearing use explicit
+SET/CLEAR envelopes rather than raw JSON `null`; Work Item creation separately
+allows an omitted or explicit-null assignee to mean unassigned. Kotlin/Spring Bean
+Validation projection is disabled because its UTF-16 length semantics cannot own
+TaskPilot's trimmed NFC Unicode-code-point policy. Core application validation owns
+persisted product text, while Core HTTP adapters explicitly retain transport-only
+credential and legal-metadata bounds declared by the contract.
+
 ## Dependency Direction
 
 ```mermaid

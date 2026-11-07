@@ -432,10 +432,50 @@ describe("Project board deletion", () => {
     await screen.findByRole("heading", { name: board.name });
     await operator.click(screen.getByRole("button", { name: "看板操作" }));
     await operator.click(
-      screen.getByRole("menuitem", { name: "永久删除看板" }),
+      screen.getByRole("menuitem", { name: "删除看板" }),
     );
     return operator;
   }
+
+  it("dismisses Board actions on the same outside pointer action without swallowing its target", async () => {
+    const api = apiFor();
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: "看板操作" }));
+    expect(screen.getByRole("menuitem", { name: "删除看板" })).toBeInTheDocument();
+
+    await operator.click(screen.getByRole("button", { name: "新建看板" }));
+
+    expect(screen.queryByRole("menuitem", { name: "删除看板" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "新建看板" })).toBeInTheDocument();
+  });
+
+  it("keeps owned menu pointer actions open, restores trigger focus on Escape, and removes listeners", async () => {
+    const add = vi.spyOn(document, "addEventListener");
+    const remove = vi.spyOn(document, "removeEventListener");
+    const api = apiFor();
+    const operator = userEvent.setup();
+    const view = renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    const trigger = screen.getByRole("button", { name: "看板操作" });
+    await operator.click(trigger);
+    const menuItem = screen.getByRole("menuitem", { name: "删除看板" });
+    fireEvent.pointerDown(menuItem);
+    expect(menuItem).toBeInTheDocument();
+
+    await operator.keyboard("{Escape}");
+    expect(screen.queryByRole("menuitem", { name: "删除看板" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(remove).toHaveBeenCalledWith("pointerdown", expect.any(Function), true);
+
+    await operator.click(trigger);
+    view.unmount();
+    expect(remove.mock.calls.filter(([type]) => type === "pointerdown").length)
+      .toBeGreaterThanOrEqual(add.mock.calls.filter(([type]) => type === "pointerdown").length);
+    add.mockRestore();
+    remove.mockRestore();
+  });
 
   it("places deletion in local Board actions and requires the exact current name", async () => {
     const api = apiFor();
@@ -626,7 +666,7 @@ describe("Project board deletion", () => {
     await screen.findByRole("heading", { name: "工作看板" });
     await operator.click(screen.getByRole("button", { name: "看板操作" }));
     await operator.click(
-      screen.getByRole("menuitem", { name: "永久删除看板" }),
+      screen.getByRole("menuitem", { name: "删除看板" }),
     );
     await operator.type(
       screen.getByLabelText("输入“工作看板”以确认"),
@@ -663,7 +703,7 @@ describe("Project board deletion", () => {
     });
     await operator.click(screen.getByRole("button", { name: "看板操作" }));
     await operator.click(
-      screen.getByRole("menuitem", { name: "永久删除看板" }),
+      screen.getByRole("menuitem", { name: "删除看板" }),
     );
     await operator.type(
       screen.getByLabelText("输入“工作看板”以确认"),
@@ -810,8 +850,6 @@ describe("Work Item read-only detail", () => {
         currentColumnId: todoId,
         targetColumnId: todoId,
         expectedVersion: 0,
-        title: "准备发布",
-        description: "检查版本",
         assigneePatch: {
           action: "SET",
           target: {
@@ -861,7 +899,7 @@ describe("Work Item read-only detail", () => {
 
     await waitFor(() => expect(api.boards.editWorkItem).toHaveBeenCalledTimes(1));
     expect(api.boards.editWorkItem).toHaveBeenLastCalledWith(expect.objectContaining({
-      description: "更新后的描述",
+      descriptionPatch: { action: "SET", value: "更新后的描述" },
       expectedVersion: 0,
     }));
     expect(screen.queryByRole("listbox", { name: "负责人选项" })).not.toBeInTheDocument();
@@ -887,6 +925,62 @@ describe("Work Item read-only detail", () => {
     expect(screen.getByRole("searchbox", { name: "搜索项目成员" })).toHaveFocus();
   });
 
+  it("keeps a paused historical draft visible while saving an assignee against the latest version", async () => {
+    const baseline = "x".repeat(5_020);
+    const draft = "x".repeat(5_010);
+    const historical: BoardView = {
+      ...initialBoard,
+      columns: initialBoard.columns.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) =>
+          card.workItemId === workItemId
+            ? { ...card, description: baseline }
+            : card,
+        ),
+      })),
+    };
+    const assigned = withAssignee(historical);
+    const api = apiFor(historical);
+    vi.mocked(api.boards.editWorkItem).mockResolvedValue({
+      key: key(boardId, 1),
+      value: {
+        workItem: { ...toWorkItem(assigned.columns[0].cards[0]), version: 1 },
+        board: assigned,
+      },
+    });
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: "准备发布" }));
+    await operator.click(await screen.findByRole("button", { name: "编辑描述" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "描述" }), {
+      target: { value: draft },
+    });
+
+    await operator.click(
+      screen.getByRole("button", { name: "更改负责人。当前：未分配" }),
+    );
+
+    expect(api.boards.editWorkItem).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "编辑描述" })).toHaveTextContent(draft);
+    expect(screen.getByRole("button", { name: "未保存内容已暂停" })).toBeInTheDocument();
+    await operator.click(await screen.findByRole("option", { name: /周负责/ }));
+
+    await waitFor(() => expect(api.boards.editWorkItem).toHaveBeenCalledTimes(1));
+    expect(api.boards.editWorkItem).toHaveBeenCalledWith(expect.objectContaining({
+      expectedVersion: 0,
+      assigneePatch: {
+        action: "SET",
+        target: {
+          targetType: "PROJECT_MEMBER",
+          projectMemberId: projectMember.projectMemberId,
+        },
+      },
+    }));
+    expect(screen.getByRole("button", { name: "编辑描述" })).toHaveTextContent(draft);
+    expect(screen.getByRole("button", { name: "未保存内容已暂停" })).toBeInTheDocument();
+  });
+
   it("keeps the assignee picker closed when saving the active description fails", async () => {
     const api = apiFor();
     vi.mocked(api.boards.editWorkItem).mockRejectedValue(new Error("temporary"));
@@ -900,7 +994,7 @@ describe("Work Item read-only detail", () => {
     await operator.type(description, "未保存的描述");
     await operator.click(screen.getByRole("button", { name: "更改负责人。当前：未分配" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("暂时无法保存描述");
+    expect(await screen.findByRole("alert")).toHaveTextContent("描述保存失败，内容未丢失");
     expect(screen.getByRole("textbox", { name: "描述" })).toHaveValue("未保存的描述");
     expect(screen.queryByRole("listbox", { name: "负责人选项" })).not.toBeInTheDocument();
   });
@@ -1085,7 +1179,6 @@ describe("Work Item title and description fields", () => {
       targetColumnId: todoId,
       expectedVersion: 4,
       title: "准备正式发布",
-      description: "服务端描述",
     });
     expect(
       await screen.findByRole("button", { name: "编辑标题" }),
@@ -1093,6 +1186,89 @@ describe("Work Item title and description fields", () => {
     expect(
       screen.getByRole("button", { name: "准备正式发布" }),
     ).toBeInTheDocument();
+  });
+
+  it("sparsely saves a valid title without validating an untouched historical description", async () => {
+    const historicalDescription = "旧".repeat(5_001);
+    const historical: BoardView = {
+      ...initialBoard,
+      columns: initialBoard.columns.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) => ({ ...card, description: historicalDescription })),
+      })),
+    };
+    const api = apiFor(historical);
+    const authoritative = editedBoard(historical, "新的标题");
+    vi.mocked(api.boards.editWorkItem).mockResolvedValue({
+      key: key(boardId, 1),
+      value: {
+        workItem: { ...toWorkItem(authoritative.columns[0].cards[0]), version: 1 },
+        board: authoritative,
+      },
+    });
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: "准备发布" }));
+    await operator.click(await screen.findByRole("button", { name: "编辑标题" }));
+    const title = screen.getByRole("textbox", { name: "标题" });
+    await operator.clear(title);
+    await operator.type(title, "新的标题{Enter}");
+
+    await waitFor(() => expect(api.boards.editWorkItem).toHaveBeenCalledTimes(1));
+    expect(api.boards.editWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "新的标题" }),
+    );
+    expect(api.boards.editWorkItem).toHaveBeenCalledWith(
+      expect.not.objectContaining({ descriptionPatch: expect.anything() }),
+    );
+  });
+
+  it("sparsely saves a valid description without validating an untouched historical title", async () => {
+    const historicalTitle = "旧".repeat(161);
+    const historical: BoardView = {
+      ...initialBoard,
+      columns: initialBoard.columns.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) => ({ ...card, title: historicalTitle })),
+      })),
+    };
+    const api = apiFor(historical);
+    const authoritative: BoardView = {
+      ...historical,
+      columns: historical.columns.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) => ({
+          ...card,
+          description: "新的描述",
+          workItemVersion: card.workItemVersion + 1,
+        })),
+      })),
+    };
+    vi.mocked(api.boards.editWorkItem).mockResolvedValue({
+      key: key(boardId, 1),
+      value: {
+        workItem: { ...toWorkItem(authoritative.columns[0].cards[0]), version: 1 },
+        board: authoritative,
+      },
+    });
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: historicalTitle }));
+    await operator.click(await screen.findByRole("button", { name: "编辑描述" }));
+    const description = screen.getByRole("textbox", { name: "描述" });
+    await operator.clear(description);
+    await operator.type(description, "新的描述");
+    await operator.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() => expect(api.boards.editWorkItem).toHaveBeenCalledTimes(1));
+    expect(api.boards.editWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({ descriptionPatch: { action: "SET", value: "新的描述" } }),
+    );
+    expect(api.boards.editWorkItem).toHaveBeenCalledWith(
+      expect.not.objectContaining({ title: expect.anything() }),
+    );
   });
 
   it("saves title on true focus exit and Escape discards a later draft", async () => {
@@ -1274,7 +1450,7 @@ describe("Work Item title and description fields", () => {
     await operator.type(title, "迟到响应{Enter}");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "暂时无法保存标题",
+      "标题保存失败，内容未丢失",
     );
     expect(screen.getByRole("textbox", { name: "标题" })).toHaveValue(
       "迟到响应",
@@ -1377,8 +1553,7 @@ describe("Work Item title and description fields", () => {
     await operator.keyboard("{Control>}{Enter}{/Control}");
     expect(api.boards.editWorkItem).toHaveBeenCalledWith(
       expect.objectContaining({
-        description: "第一行\n第二行",
-        title: "准备发布",
+        descriptionPatch: { action: "SET", value: "第一行\n第二行" },
       }),
     );
   });
@@ -1403,7 +1578,7 @@ describe("Work Item title and description fields", () => {
 
     await operator.type(title, "保留这个草稿{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "暂时无法保存标题",
+      "标题保存失败，内容未丢失",
     );
     expect(screen.getByRole("textbox", { name: "标题" })).toHaveValue(
       "保留这个草稿",
@@ -1480,6 +1655,92 @@ describe("Project board workspace", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps required feedback quiet until blur or submit and focuses the invalid Board name", async () => {
+    const api = apiFor();
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+
+    await operator.click(screen.getByRole("button", { name: "新建看板" }));
+    const name = screen.getByLabelText("看板名称");
+    expect(name).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText("请输入内容。")).not.toBeInTheDocument();
+
+    await operator.tab();
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("请输入内容。")).toBeInTheDocument();
+
+    await operator.type(name, "   ");
+    await operator.click(screen.getByRole("button", { name: "保存更改" }));
+    expect(name).toHaveFocus();
+    expect(api.boards.create).not.toHaveBeenCalled();
+
+    await operator.clear(name);
+    await operator.type(name, "发布计划");
+    expect(name).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText("请输入内容。")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      dialog: "新建看板",
+      field: "看板名称",
+      open: async (operator: ReturnType<typeof userEvent.setup>) => {
+        await operator.click(screen.getByRole("button", { name: "新建看板" }));
+      },
+    },
+    {
+      dialog: "添加列表",
+      field: "列表名称",
+      open: async (operator: ReturnType<typeof userEvent.setup>) => {
+        await operator.click(screen.getByRole("button", { name: "添加列表" }));
+      },
+    },
+    {
+      dialog: "添加工作项",
+      field: "标题",
+      open: async (operator: ReturnType<typeof userEvent.setup>) => {
+        await operator.click(screen.getAllByRole("button", { name: "添加工作项" })[0]!);
+      },
+    },
+  ])("keeps $dialog pristine through the production StrictMode focus lifecycle", async ({ field, open }) => {
+    const api = apiFor();
+    const operator = userEvent.setup();
+    renderBoard(api, false, vi.fn(), true);
+    await screen.findByRole("heading", { name: "工作看板" });
+
+    await open(operator);
+    const name = screen.getByLabelText(field);
+    expect(name).toHaveFocus();
+    expect(name).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText("请输入内容。")).not.toBeInTheDocument();
+
+    await operator.tab();
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("请输入内容。")).toBeInTheDocument();
+  });
+
+  it("maps a Board mutation Problem path to the field without duplicating the alert", async () => {
+    const api = apiFor();
+    vi.mocked(api.boards.create).mockRejectedValueOnce(
+      Object.assign(new Error("invalid"), { path: "name" }),
+    );
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+
+    await operator.click(screen.getByRole("button", { name: "新建看板" }));
+    const name = screen.getByLabelText("看板名称");
+    await operator.type(name, "发布计划");
+    await operator.click(screen.getByRole("button", { name: "保存更改" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(name).toHaveFocus();
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name.getAttribute("aria-describedby")?.split(/\s+/)).toContain(alert.id);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+  });
+
   it("creates a Work Item in the selected Column with one stable request id", async () => {
     const api = apiFor();
     const operator = userEvent.setup();
@@ -1501,6 +1762,143 @@ describe("Project board workspace", () => {
       title: "评审发布说明",
       description: "确认升级步骤",
     });
+  });
+
+  it("creates a Work Item with a selected Project Member assignee", async () => {
+    const api = apiFor();
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getAllByRole("button", { name: "添加工作项" })[1]);
+    const title = screen.getByLabelText("标题");
+    const assignee = screen.getByRole("combobox", { name: "负责人（可选）" });
+    const description = screen.getByLabelText("描述（可选）");
+    expect(title.compareDocumentPosition(assignee) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(assignee.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("默认未分配。")).not.toBeInTheDocument();
+
+    await operator.type(title, "分配发布检查");
+    expect(assignee).toHaveTextContent("未分配");
+    await operator.click(assignee);
+    await operator.click(await screen.findByRole("option", { name: "周负责" }));
+    await operator.click(screen.getByRole("button", { name: "保存更改" }));
+
+    expect(api.boards.createWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "分配发布检查",
+        assignee: {
+          targetType: "PROJECT_MEMBER",
+          projectMemberId: projectMember.projectMemberId,
+        },
+      }),
+    );
+  });
+
+  it("changes the create request id with the assignee fingerprint and reuses it for the same retry", async () => {
+    const api = apiFor();
+    vi.mocked(api.boards.createWorkItem)
+      .mockRejectedValueOnce(new Error("temporary"))
+      .mockRejectedValueOnce(new Error("temporary"))
+      .mockResolvedValueOnce({
+        key: key(boardId, 1),
+        value: { workItem: toWorkItem(initialBoard.columns[0].cards[0]), board: initialBoard },
+      });
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getAllByRole("button", { name: "添加工作项" })[1]);
+    await operator.type(screen.getByLabelText("标题"), "验证幂等身份");
+    const save = screen.getByRole("button", { name: "保存更改" });
+
+    await operator.click(save);
+    await screen.findByRole("alert");
+    const firstRequestId = vi.mocked(api.boards.createWorkItem).mock.calls[0][0].requestId;
+
+    await operator.click(screen.getByRole("combobox", { name: "负责人（可选）" }));
+    await operator.click(await screen.findByRole("option", { name: "周负责" }));
+    await operator.click(save);
+    await screen.findByRole("alert");
+    const secondRequestId = vi.mocked(api.boards.createWorkItem).mock.calls[1][0].requestId;
+    expect(secondRequestId).not.toBe(firstRequestId);
+
+    await operator.click(save);
+    const thirdRequestId = vi.mocked(api.boards.createWorkItem).mock.calls[2][0].requestId;
+    expect(thirdRequestId).toBe(secondRequestId);
+  });
+
+  it("allows unassigned Work Item creation when Project members fail to load", async () => {
+    const api = apiFor();
+    vi.mocked(api.boards.listProjectMembers).mockRejectedValueOnce(new Error("offline"));
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getAllByRole("button", { name: "添加工作项" })[0]);
+    await operator.type(screen.getByLabelText("标题"), "离线创建");
+
+    expect(await screen.findByText("暂时无法加载项目成员，仍可按未分配创建工作项。")).toBeInTheDocument();
+    await operator.click(screen.getByRole("button", { name: "保存更改" }));
+    expect(api.boards.createWorkItem).toHaveBeenCalledWith(
+      expect.not.objectContaining({ assignee: expect.anything() }),
+    );
+  });
+
+  it("keeps an unchanged historical long Board name while sparsely saving its description", async () => {
+    const historical = {
+      ...initialBoard,
+      name: "历史看板".repeat(30),
+    };
+    const api = apiFor(historical);
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: historical.name });
+    await operator.click(screen.getByRole("button", { name: "编辑看板" }));
+    expect(screen.getByLabelText("看板名称")).toHaveValue(historical.name);
+    await operator.type(screen.getByLabelText("描述（可选）"), "新的说明");
+    await operator.click(screen.getByRole("button", { name: "保存更改" }));
+
+    expect(api.boards.edit).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      boardId,
+      expectedVersion: 3,
+      descriptionPatch: { action: "SET", value: "新的说明" },
+    });
+  });
+
+  it("keeps an unchanged historical long Board description while sparsely saving its name", async () => {
+    const historical = {
+      ...initialBoard,
+      description: "历史说明".repeat(300),
+    };
+    const api = apiFor(historical);
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: historical.name });
+    await operator.click(screen.getByRole("button", { name: "编辑看板" }));
+    expect(screen.getByLabelText("描述（可选）")).toHaveValue(historical.description);
+    const name = screen.getByLabelText("看板名称");
+    await operator.clear(name);
+    await operator.type(name, "发布看板");
+    await operator.click(screen.getByRole("button", { name: "保存更改" }));
+
+    expect(api.boards.edit).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      boardId,
+      expectedVersion: 3,
+      name: "发布看板",
+    });
+  });
+
+  it("closes an unchanged edit form without sending an empty mutation", async () => {
+    const api = apiFor();
+    const operator = userEvent.setup();
+    renderBoard(api);
+    await screen.findByRole("heading", { name: "工作看板" });
+    await operator.click(screen.getByRole("button", { name: "编辑看板" }));
+    await operator.click(screen.getByRole("button", { name: "保存更改" }));
+    expect(api.boards.edit).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "编辑看板" })).not.toBeInTheDocument();
   });
 
   it("edits the Board and Column, reorders Columns, and deletes only an empty non-final Column", async () => {

@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useId,
   useRef,
   useState,
   type DragEvent,
@@ -18,6 +19,7 @@ import type {
   BoardView,
   CardView,
   PersonSummary,
+  ProjectMemberSummary,
   ProjectView,
   TaskPilotDesktopApi,
 } from "../../../shared/contracts";
@@ -27,6 +29,10 @@ import {
   type WorkItemDetailTarget,
 } from "../detail/work-item-detail-dialog";
 import { BoardModal } from "./board-modal";
+import { PRODUCT_TEXT_LIMITS, normalizePersistedText } from "../../shared/lib/text-constraints";
+import { useBoundedText } from "../../shared/ui/use-bounded-text";
+import { TextFeedback } from "../../shared/ui/text-feedback";
+import { Select } from "../../shared/ui/select";
 
 type BoardState =
   | { kind: "loading" }
@@ -42,7 +48,7 @@ type BoardDialog =
   | { kind: "edit-column"; board: BoardView; column: BoardColumnView }
   | { kind: "create-card"; board: BoardView; column: BoardColumnView }
   | undefined;
-type CodedError = { code?: string; recovery?: string };
+type CodedError = { code?: string; recovery?: string; path?: string };
 
 type BoardWorkspaceProps = {
   api: TaskPilotDesktopApi;
@@ -102,6 +108,27 @@ export function BoardWorkspace({
 
   useEffect(() => {
     if (boardActionsOpen) boardDeleteAction.current?.focus();
+  }, [boardActionsOpen]);
+
+  useEffect(() => {
+    if (!boardActionsOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      const path = event.composedPath();
+      if (path.includes(boardActionsTrigger.current as EventTarget) || path.some((target) => target instanceof Element && target.closest('.board-actions__menu'))) return;
+      setBoardActionsOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setBoardActionsOpen(false);
+      boardActionsTrigger.current?.focus();
+    };
+    document.addEventListener('pointerdown', dismiss, true);
+    window.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss, true);
+      window.removeEventListener('keydown', escape);
+    };
   }, [boardActionsOpen]);
 
   const clearBoardTransientState = useCallback(() => {
@@ -1171,7 +1198,11 @@ function BoardDialogView({
         dialog.kind === "edit-board" ? dialog.board.description : ""
       }
       onClose={onClose}
-      onSubmit={async (name, description, requestId) => {
+      loadMembers={dialog.kind === "create-card" ? async () => {
+        const result = await api.boards.listProjectMembers({ workspaceId, projectId });
+        return result.value;
+      } : undefined}
+      onSubmit={async (name, description, requestId, _targetColumnId, assignee) => {
         const selection = getSelection();
         if (dialog.kind === "create-board") {
           const result = await api.boards.create({
@@ -1191,8 +1222,10 @@ function BoardDialogView({
             projectId,
             boardId: dialog.board.boardId,
             expectedVersion: dialog.board.version,
-            name,
-            description,
+            ...(name === dialog.board.name ? {} : { name }),
+            ...(description === dialog.board.description ? {} : {
+              descriptionPatch: description ? { action: "SET", value: description } : { action: "CLEAR" },
+            }),
           });
           onBoard(result.value, result.key, false, selection);
           return;
@@ -1232,6 +1265,7 @@ function BoardDialogView({
             expectedBoardVersion: board.version,
             title: name,
             description,
+            ...(assignee ? { assignee: { targetType: "PROJECT_MEMBER", projectMemberId: assignee } as const } : {}),
           });
           onBoard(result.value.board, result.key, false, selection);
           return;
@@ -1399,112 +1433,220 @@ function EntityDialog({
   initialDescription,
   onClose,
   onSubmit,
+  loadMembers,
 }: {
   kind: Exclude<BoardDialog, undefined | { kind: "delete-board" }>["kind"];
   initialName: string;
   initialDescription: string;
   onClose(): void;
+  loadMembers?(): Promise<ProjectMemberSummary[]>;
   onSubmit(
     name: string,
     description: string,
     requestId: string,
     targetColumnId?: string,
+    assigneeProjectMemberId?: string,
   ): Promise<void>;
 }) {
   const { t } = useTranslation();
-  const [name, setName] = useState(initialName);
-  const [description, setDescription] = useState(initialDescription);
+  const supportsDescription = kind === "create-board" || kind === "edit-board" || kind === "create-card";
+  const nameLimit = kind === "create-column" || kind === "edit-column"
+    ? PRODUCT_TEXT_LIMITS.columnName
+    : kind === "create-card" ? PRODUCT_TEXT_LIMITS.workItemTitle : PRODUCT_TEXT_LIMITS.boardName;
+  const descriptionLimit = kind === "create-card" ? PRODUCT_TEXT_LIMITS.workItemDescription : PRODUCT_TEXT_LIMITS.boardDescription;
   const [pending, setPending] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [nameTouched, setNameTouched] = useState(false);
   const [error, setError] = useState(false);
-  const request = useRef<{ fingerprint: string; id: string } | undefined>(
-    undefined,
-  );
-  const supportsDescription =
-    kind === "create-board" || kind === "edit-board" || kind === "create-card";
-  const normalizedName = normalize(name);
-  const normalizedDescription = normalize(description);
-  const limits =
-    kind === "create-column" || kind === "edit-column"
-      ? { name: 80, description: 0 }
-      : kind === "create-card"
-        ? { name: 300, description: 10_000 }
-        : { name: 120, description: 2_000 };
-  const invalid =
-    !normalizedName ||
-    [...normalizedName].length > limits.name ||
-    [...normalizedDescription].length > limits.description;
-  const nameField =
-    kind === "create-column" || kind === "edit-column"
-      ? "column-name"
-      : kind === "create-card"
-        ? "work-item-title"
-        : "board-name";
-  const descriptionField =
-    kind === "create-card" ? "work-item-description" : "board-description";
+  const [errorPath, setErrorPath] = useState<string>();
+  const [members, setMembers] = useState<ProjectMemberSummary[]>([]);
+  const [membersFailed, setMembersFailed] = useState(false);
+  const unassignedValue = "__taskpilot_unassigned__";
+  const [assignee, setAssignee] = useState(unassignedValue);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const request = useRef<{ fingerprint: string; id: string } | undefined>(undefined);
+  const clearServerError = () => {
+    setError(false);
+    setErrorPath(undefined);
+  };
+  const name = useBoundedText(initialName, nameLimit, {
+    authoritativeValue: initialName,
+    onAccepted: clearServerError,
+  });
+  const description = useBoundedText(initialDescription, descriptionLimit, {
+    authoritativeValue: initialDescription,
+    onAccepted: clearServerError,
+  });
+  const normalizedName = normalizePersistedText(name.value);
+  const normalizedDescription = normalizePersistedText(description.value);
+  const nameChanged = normalizedName !== normalizePersistedText(initialName);
+  const descriptionChanged = normalizedDescription !== normalizePersistedText(initialDescription);
+  const nameRequired = (nameTouched || submitted) && !normalizedName;
+  const fieldsValid = Boolean(normalizedName)
+    && (!nameChanged || name.withinProductLimit)
+    && (!descriptionChanged || description.withinProductLimit);
+  const nameLabelId = useId();
+  const descriptionLabelId = useId();
+  const nameFeedbackId = useId();
+  const descriptionFeedbackId = useId();
+  const assigneeFeedbackId = useId();
+  const formErrorId = useId();
+  const nameErrorPath = errorPath === "name" || errorPath === "title";
+  const descriptionErrorPath = errorPath?.startsWith("description");
+  const assigneeErrorPath = errorPath?.startsWith("assignee");
+  const mappedErrorPath = nameErrorPath || descriptionErrorPath || assigneeErrorPath;
+  const describedBy = (feedbackId: string, fieldError: boolean) =>
+    `${feedbackId}${error && fieldError ? ` ${formErrorId}` : ""}`;
+
+  useEffect(() => {
+    if (!loadMembers) return;
+    let active = true;
+    void loadMembers()
+      .then((value) => { if (active) setMembers(value); })
+      .catch(() => { if (active) setMembersFailed(true); });
+    return () => { active = false; };
+  }, [loadMembers]);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (invalid || pending) return;
-    const fingerprint = JSON.stringify([normalizedName, normalizedDescription]);
-    if (request.current?.fingerprint !== fingerprint)
+    setSubmitted(true);
+    if (!fieldsValid || pending) {
+      if (!normalizedName) nameInput.current?.focus();
+      return;
+    }
+    if (
+      (kind === "edit-board" && !nameChanged && !descriptionChanged) ||
+      (kind === "edit-column" && !nameChanged)
+    ) {
+      onClose();
+      return;
+    }
+    const assigneeProjectMemberId = assignee === unassignedValue ? undefined : assignee;
+    const fingerprint = JSON.stringify([
+      normalizedName,
+      normalizedDescription,
+      assigneeProjectMemberId ?? null,
+    ]);
+    if (request.current?.fingerprint !== fingerprint) {
       request.current = { fingerprint, id: crypto.randomUUID() };
+    }
     setPending(true);
     setError(false);
+    setErrorPath(undefined);
     try {
-      await onSubmit(normalizedName, normalizedDescription, request.current.id);
-    } catch {
+      await onSubmit(
+        normalizedName,
+        normalizedDescription,
+        request.current.id,
+        undefined,
+        assigneeProjectMemberId,
+      );
+    } catch (caught) {
+      const path = (caught as CodedError).path;
       setError(true);
+      setErrorPath(path);
+      if (path === "name" || path === "title") nameInput.current?.focus();
     } finally {
       setPending(false);
     }
   };
+  const nameField = kind === "create-column" || kind === "edit-column"
+    ? "column-name"
+    : kind === "create-card" ? "work-item-title" : "board-name";
+  const descriptionField = kind === "create-card" ? "work-item-description" : "board-description";
+  const assigneeOptions = [
+    { value: unassignedValue, label: t("board.assignee.unassigned") },
+    ...members.map((member) => ({
+      value: member.projectMemberId,
+      label: member.user.displayName,
+    })),
+  ];
   return (
-    <BoardModal
-      title={t(`board.dialog.${kind}.title`)}
-      pending={pending}
-      onClose={onClose}
-    >
-      <form onSubmit={(event) => void submit(event)}>
+    <BoardModal title={t(`board.dialog.${kind}.title`)} pending={pending} onClose={onClose}>
+      <form
+        noValidate
+        aria-describedby={error && !mappedErrorPath ? formErrorId : undefined}
+        onSubmit={(event) => void submit(event)}
+      >
         <label className="project-field">
-          <span>{t(`board.dialog.${kind}.name`)}</span>
+          <span id={nameLabelId}>{t(`board.dialog.${kind}.name`)}</span>
           <input
+            ref={nameInput}
             name={nameField}
-            value={name}
             autoComplete="off"
             required
-            onChange={(event) => setName(event.target.value)}
+            aria-labelledby={nameLabelId}
+            aria-invalid={nameRequired || nameErrorPath || undefined}
+            aria-describedby={describedBy(nameFeedbackId, nameErrorPath)}
+            onBlur={() => setNameTouched(true)}
+            {...name.inputProps}
+          />
+          <TextFeedback
+            id={nameFeedbackId}
+            count={name.count}
+            limit={name.limit}
+            showCount={name.showCount}
+            limitReached={name.limitReached}
+            error={nameRequired ? t("board.validation.required") : undefined}
           />
         </label>
+        {kind === "create-card" ? (
+          <div className="project-field">
+            <span id={`${assigneeFeedbackId}-label`}>{t("board.assignee.label")}</span>
+            <Select
+              labelledBy={`${assigneeFeedbackId}-label`}
+              value={assignee}
+              options={assigneeOptions}
+              onValueChange={(value) => {
+                setAssignee(value);
+                clearServerError();
+              }}
+              ariaDescribedBy={
+                membersFailed
+                  ? describedBy(assigneeFeedbackId, Boolean(assigneeErrorPath))
+                  : error && assigneeErrorPath ? formErrorId : undefined
+              }
+            />
+            {membersFailed ? (
+              <span id={assigneeFeedbackId} className="text-feedback">
+                <span className="text-feedback__message">
+                  {t("board.assignee.loadFailed")}
+                </span>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {supportsDescription ? (
           <label className="project-field">
-            <span>{t("board.description")}</span>
+            <span id={descriptionLabelId}>{t("board.description")}</span>
             <textarea
               name={descriptionField}
-              value={description}
               autoComplete="off"
               rows={4}
-              onChange={(event) => setDescription(event.target.value)}
+              aria-labelledby={descriptionLabelId}
+              aria-invalid={descriptionErrorPath || undefined}
+              aria-describedby={describedBy(descriptionFeedbackId, Boolean(descriptionErrorPath))}
+              {...description.inputProps}
+            />
+            <TextFeedback
+              id={descriptionFeedbackId}
+              count={description.count}
+              limit={description.limit}
+              showCount={description.showCount}
+              limitReached={description.limitReached}
             />
           </label>
         ) : null}
         <div className="dialog-actions">
-          <button
-            type="button"
-            className="project-button"
-            disabled={pending}
-            onClick={onClose}
-          >
+          <button type="button" className="project-button" disabled={pending} onClick={onClose}>
             {t("project.cancel")}
           </button>
-          <button
-            type="submit"
-            className="project-button project-button--primary"
-            disabled={pending || invalid}
-          >
+          <button type="submit" className="project-button project-button--primary" disabled={pending}>
             {pending ? t("board.saving") : t("project.save")}
           </button>
         </div>
         {error ? (
-          <p className="project-error" role="alert">
+          <p id={formErrorId} className="project-error" role="alert">
             {t("board.mutationError")}
           </p>
         ) : null}
@@ -1683,9 +1825,6 @@ function toSummary(board: BoardView): BoardSummary {
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
   };
-}
-function normalize(value: string) {
-  return value.trim().normalize("NFC");
 }
 function BoardGlyph() {
   return (

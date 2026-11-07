@@ -106,7 +106,10 @@ explicitly marked Current.
 is the checked-in owner of canonical HTTP representation and generates
 build-only Spring interfaces and wire models. Core HTTP adapters implement those
 interfaces and explicitly map generated wire models to existing application
-commands/results. Generated transport types remain under API adapter packages;
+commands/results. Write DTOs map omitted properties to unchanged application
+fields and explicit description/assignee SET/CLEAR envelopes to one mutation; raw
+JSON `null` for optional-but-non-null properties fails during Jackson binding.
+Generated transport types remain under API adapter packages;
 architecture checks prevent application, domain, authorization, persistence,
 and repository code from depending on them. Core continues to authenticate
 credentials and authorize every operation. Project Work HTTP adapters map `createdBy`, nullable `assignee`, assignee patch semantics, and `GET /v1/projects/{projectId}/members` between the generated wire models and application use cases while keeping generated types out of application and persistence code. In Local/Test, `/v3/api-docs`
@@ -293,6 +296,14 @@ A normal write use case follows this shape:
 6. Insert any durable job, audit fact, or reliable notification required by the
    committed result in the same transaction.
 7. Return an immutable application result for transport mapping.
+
+Current persisted text is normalized at the application boundary with trim plus
+Unicode NFC and measured by Unicode code point against the field-specific product
+limit. The shared policy lives at the Core application root because Access and
+Project both consume it; it is not a new business capability. Sparse updates
+normalize and validate only submitted fields, reject empty/no-op mutations without
+version churn, and preserve larger historical values on unrelated edits. Database
+column capacities and Flyway migrations remain unchanged.
 
 A transaction may update Work Item, Workflow Run, Step Run, Agent Run, approval,
 or job records together when one use case requires a consistent result. Do not

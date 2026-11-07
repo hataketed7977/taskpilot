@@ -25,7 +25,7 @@ describe('WorkspaceProjectClient', () => {
     await client.listProjects(token, { workspaceId, status: 'ACTIVE', limit: 50, cursor: 'opaque/cursor+' });
     await client.getProject(token, { workspaceId, projectId });
     await client.createProject(token, { workspaceId, requestId, name: 'Alpha', description: '' });
-    await client.editProject(token, { workspaceId, projectId, expectedVersion: 1, name: 'Beta', description: 'Notes' });
+    await client.editProject(token, { workspaceId, projectId, expectedVersion: 1, name: 'Beta', descriptionPatch: { action: 'SET', value: 'Notes' } });
     await client.archiveProject(token, { workspaceId, projectId, expectedVersion: 2 });
     await client.restoreProject(token, { workspaceId, projectId, expectedVersion: 3 });
     await client.permanentlyDeleteProject(token, { workspaceId, projectId, expectedVersion: 4, confirmationName: 'Beta' });
@@ -41,6 +41,24 @@ describe('WorkspaceProjectClient', () => {
       `POST /v1/projects/${projectId}:permanentlyDelete`,
     ]);
     expect(request.mock.calls[3]?.[0]).toMatchObject({ accessToken: token, body: { requestId, name: 'Alpha', description: '' } });
+    expect(request.mock.calls[4]?.[0].body).toEqual({
+      expectedVersion: 1,
+      name: 'Beta',
+      descriptionPatch: { action: 'SET', value: 'Notes' },
+    });
+  });
+
+  it('accepts historical Project text above current write limits', async () => {
+    const historicalProject = {
+      ...project,
+      name: 'P'.repeat(200),
+      description: 'D'.repeat(2_000),
+    };
+    const client = new WorkspaceProjectClient({
+      request: vi.fn().mockResolvedValue(historicalProject),
+    } as HttpTransport);
+
+    await expect(client.getProject('token', { workspaceId, projectId })).resolves.toEqual(historicalProject);
   });
 
   it('rejects malformed server responses at the Main trust boundary', async () => {

@@ -760,6 +760,9 @@
   font-size: 20px;
   letter-spacing: -0.025em;
 }
+.project-dialog .project-button--primary {
+  min-width: 120px;
+}
 .dialog-copy {
   color: var(--muted);
   line-height: 1.6;
@@ -815,3 +818,16 @@
     padding-left: 24px;
   }
 }
+.text-feedback {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.text-feedback__message[role="alert"] { color: var(--danger); }
+.text-feedback__meta { display: inline-flex; gap: 10px; margin-left: auto; white-space: nowrap; }

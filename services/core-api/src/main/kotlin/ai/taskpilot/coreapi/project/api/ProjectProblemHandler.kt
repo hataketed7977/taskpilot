@@ -28,6 +28,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import tools.jackson.core.JacksonException
 import java.net.URI
 
 @RestControllerAdvice(assignableTypes = [ProjectController::class, ProjectWorkController::class])
@@ -205,9 +206,24 @@ class ProjectProblemHandler {
             when (failure) {
                 is MethodArgumentTypeMismatchException -> failure.name
                 is MissingServletRequestParameterException -> failure.parameterName
+                is HttpMessageNotReadableException -> failure.jsonPath()
                 else -> null
             },
         )
+
+    private fun HttpMessageNotReadableException.jsonPath(): String? {
+        var candidate: Throwable? = this
+        while (candidate != null) {
+            if (candidate is JacksonException && candidate.path.isNotEmpty()) {
+                return candidate.path
+                    .joinToString(".") { reference ->
+                        reference.propertyName ?: "[${reference.index}]"
+                    }.replace(".[", "[")
+            }
+            candidate = candidate.cause
+        }
+        return null
+    }
 
     private fun problem(
         status: HttpStatus,

@@ -23,6 +23,13 @@ import type {
 } from "../../../shared/contracts";
 import { useLocale } from "../../i18n/locale-state";
 import {
+  PRODUCT_TEXT_LIMITS,
+  normalizePersistedText,
+  normalizedCodePointLength,
+} from "../../shared/lib/text-constraints";
+import { TextFeedback } from "../../shared/ui/text-feedback";
+import { useBoundedText } from "../../shared/ui/use-bounded-text";
+import {
   initialWorkItemDetailState,
   transitionWorkItemDetail,
 } from "./work-item-detail-state";
@@ -43,9 +50,6 @@ type ProjectMembersState =
 const ASSIGNEE_DEFAULT_MEMBER_LIMIT = 6;
 const ASSIGNEE_SEARCH_MEMBER_LIMIT = 8;
 
-function normalize(value: string) {
-  return value.trim().normalize("NFC");
-}
 
 export function WorkItemDetailDialog({
   target,
@@ -91,6 +95,7 @@ export function WorkItemDetailDialog({
   const [projectMembers, setProjectMembers] = useState<ProjectMembersState>({ kind: "idle" });
   const [assigneeSaving, setAssigneeSaving] = useState(false);
   const [assigneeError, setAssigneeError] = useState<string>();
+  const closeGateOpen = detail.kind === "paused-invalid" && detail.closeGate;
 
   useLayoutEffect(() => {
     boardRef.current = board;
@@ -108,8 +113,8 @@ export function WorkItemDetailDialog({
   }, [detail.kind]);
 
   useLayoutEffect(() => {
-    if (detail.kind === "conflict") decisionFocus.current?.focus();
-  }, [detail.kind]);
+    if (detail.kind === "conflict" || closeGateOpen) decisionFocus.current?.focus();
+  }, [closeGateOpen, detail.kind]);
 
   useEffect(() => {
     mounted.current = true;
@@ -214,27 +219,26 @@ export function WorkItemDetailDialog({
     if (detail.kind !== "saving" || saveInFlight.current) return;
     saveInFlight.current = true;
     const snapshot = detail;
-    const title = normalize(
-      snapshot.field === "title" ? snapshot.draft : snapshot.confirmed.workItem.title,
-    );
-    const description = normalize(
-      snapshot.field === "description"
-        ? snapshot.draft
-        : snapshot.confirmed.workItem.description,
-    );
+    const value = normalizePersistedText(snapshot.draft);
     const failValidation = (message: string) => {
       saveInFlight.current = false;
       dispatch({ type: "validation-failed", message });
     };
-    if (!title) {
+    if (snapshot.field === "title" && !value) {
       failValidation(t("board.workItemDetail.validation.titleRequired"));
       return;
     }
-    if ([...title].length > 300) {
+    if (
+      snapshot.field === "title" &&
+      normalizedCodePointLength(value) > PRODUCT_TEXT_LIMITS.workItemTitle
+    ) {
       failValidation(t("board.workItemDetail.validation.titleTooLong"));
       return;
     }
-    if ([...description].length > 10_000) {
+    if (
+      snapshot.field === "description" &&
+      normalizedCodePointLength(value) > PRODUCT_TEXT_LIMITS.workItemDescription
+    ) {
       failValidation(t("board.workItemDetail.validation.descriptionTooLong"));
       return;
     }
@@ -266,8 +270,9 @@ export function WorkItemDetailDialog({
             expectedPlacementVersion: placement.card.placementVersion,
           }),
       expectedVersion: snapshot.confirmed.workItem.version,
-      title,
-      description,
+      ...(snapshot.field === "title" ? { title: value } : {
+        descriptionPatch: value ? { action: "SET", value } : { action: "CLEAR" },
+      }),
     }).then((result) => {
       if (!mounted.current || selection !== getSelection()) return;
       if (!onBoard(result.value.board, result.key, selection)) {
@@ -346,7 +351,8 @@ export function WorkItemDetailDialog({
     if (
       snapshot.kind !== "read-only" &&
       snapshot.kind !== "saved" &&
-      snapshot.kind !== "assignee-open"
+      snapshot.kind !== "assignee-open" &&
+      snapshot.kind !== "paused-invalid"
     ) return;
     const confirmed = snapshot.confirmed;
     const currentAssignee = confirmed.workItem.assignee;
@@ -378,8 +384,6 @@ export function WorkItemDetailDialog({
         currentColumnId: confirmed.columnId,
         targetColumnId: confirmed.columnId,
         expectedVersion: confirmed.workItem.version,
-        title: confirmed.workItem.title,
-        description: confirmed.workItem.description,
         assigneePatch: patch,
       });
       if (
@@ -478,7 +482,8 @@ export function WorkItemDetailDialog({
     detail.kind === "editing" ||
     detail.kind === "saving" ||
     detail.kind === "conflict" ||
-    detail.kind === "saved"
+    detail.kind === "saved" ||
+    detail.kind === "paused-invalid"
       ? detail.confirmed
       : undefined;
   const fieldActive =
@@ -490,7 +495,10 @@ export function WorkItemDetailDialog({
   const pending = detail.kind === "saving";
   const fieldError = detail.kind === "editing" ? detail.error : undefined;
   const assigneeDisabled = assigneeSaving;
-  const assigneeOpen = detail.kind === "assignee-open";
+  const assigneeOpen = detail.kind === "assignee-open" || (detail.kind === "paused-invalid" && detail.assigneeOpen);
+  const pausedDraft = detail.kind === "paused-invalid"
+    ? detail.paused
+    : activeState?.suspended;
 
   const beginEdit = (field: "title" | "description") => {
     restoreFieldFocus.current = field;
@@ -516,23 +524,30 @@ export function WorkItemDetailDialog({
   const acknowledgeAssigneeOpen = useCallback(() => {
     dispatch({ type: "close-assignee" });
   }, []);
-  const compositionEvents = {
-    onCompositionStart: () => dispatch({ type: "composition-start" }),
-    onCompositionEnd: () => dispatch({ type: "composition-end" }),
-  };
-
   const statusText = pending
     ? t("board.workItemDetail.saving")
     : detail.kind === "saved"
       ? t("board.workItemDetail.saved")
       : "";
 
-  const feedbackNode = (field: "title" | "description") =>
-    (pending || detail.kind === "saved") && detail.field === field ? (
+  const feedbackNode = (field: "title" | "description") => {
+    if (pausedDraft?.field === field) {
+      return (
+        <button
+          type="button"
+          className="work-item-detail__paused-status"
+          onClick={() => beginEdit(field)}
+        >
+          {t("board.workItemDetail.paused.status")}
+        </button>
+      );
+    }
+    return (pending || detail.kind === "saved") && detail.field === field ? (
       <span className="work-item-detail__save-status" role="status" aria-live="polite">
         {statusText}
       </span>
     ) : null;
+  };
 
   const attachTitleTrigger = useCallback((element: HTMLButtonElement | null) => {
     fieldTriggers.current.title = element;
@@ -554,34 +569,26 @@ export function WorkItemDetailDialog({
         aria-label={t("board.workItemDetail.editTitle")}
         onClick={() => beginEdit("title")}
       >
-        <span className="work-item-detail__value">{confirmed.workItem.title}</span>
+        <span className="work-item-detail__value">
+          {pausedDraft?.field === "title" ? pausedDraft.draft : confirmed.workItem.title}
+        </span>
       </button>
     ) : undefined;
 
   const titleEditor =
-    confirmed && activeField === "title" ? (
-      <input
-        type="text"
-        className="work-item-detail__title-input"
-        autoFocus
-        name="workItemTitle"
-        autoComplete="off"
-        aria-label={t("board.workItemDetail.titleLabel")}
-        aria-invalid={Boolean(fieldError)}
-        aria-describedby={fieldError ? fieldErrorId : undefined}
-        value={activeState?.draft ?? ""}
-        readOnly={pending}
-        onChange={(event) => dispatch({ type: "draft", value: event.target.value })}
+    confirmed && activeField === "title" && activeState ? (
+      <BoundedDetailEditor
+        key={`title:${activeState.baseline}`}
+        field="title"
+        draft={activeState.draft}
+        baseline={activeState.baseline}
+        pending={pending}
+        error={fieldError}
+        errorId={fieldErrorId}
+        onDraft={(value) => dispatch({ type: "draft", value })}
         onBlur={blurField}
-        {...compositionEvents}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Escape") escapeField(event);
-          else if (event.key === "Enter") {
-            event.preventDefault();
-            dispatch({ type: "submit" });
-          }
-        }}
+        onEscape={escapeField}
+        onSubmit={() => dispatch({ type: "submit" })}
       />
     ) : undefined;
 
@@ -589,29 +596,19 @@ export function WorkItemDetailDialog({
   const descriptionEditor = activeField === "description";
   const descriptionNode = confirmed ? (
     <div className="work-item-detail__surface">
-      {descriptionEditor ? (
-        <textarea
-          className="work-item-detail__textarea"
-          rows={1}
-          autoFocus
-          name="workItemDescription"
-          autoComplete="off"
-          aria-label={descriptionLabel}
-          aria-invalid={Boolean(fieldError)}
-          aria-describedby={fieldError ? fieldErrorId : undefined}
-          value={activeState?.draft ?? ""}
-          readOnly={pending}
-          onChange={(event) => dispatch({ type: "draft", value: event.target.value })}
+      {descriptionEditor && activeState ? (
+        <BoundedDetailEditor
+          key={`description:${activeState.baseline}`}
+          field="description"
+          draft={activeState.draft}
+          baseline={activeState.baseline}
+          pending={pending}
+          error={fieldError}
+          errorId={fieldErrorId}
+          onDraft={(value) => dispatch({ type: "draft", value })}
           onBlur={blurField}
-          {...compositionEvents}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === "Escape") escapeField(event);
-            else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-              event.preventDefault();
-              dispatch({ type: "submit" });
-            }
-          }}
+          onEscape={escapeField}
+          onSubmit={() => dispatch({ type: "submit" })}
         />
       ) : (
         <button
@@ -624,13 +621,14 @@ export function WorkItemDetailDialog({
           onClick={() => beginEdit("description")}
         >
           <span className="work-item-detail__value">
-            {confirmed.workItem.description || t("board.workItemDetail.emptyDescription")}
+            {(pausedDraft?.field === "description"
+              ? pausedDraft.draft
+              : confirmed.workItem.description) || t("board.workItemDetail.emptyDescription")}
           </span>
         </button>
       )}
     </div>
   ) : null;
-
 
 
   const headingTitle =
@@ -719,6 +717,38 @@ export function WorkItemDetailDialog({
               </div>
               {descriptionNode}
             </section>
+            {detail.kind === "paused-invalid" && detail.closeGate ? (
+              <div
+                className="work-item-detail__gate"
+                role="alertdialog"
+                aria-labelledby={`${fieldErrorId}-paused-title`}
+                aria-describedby={`${fieldErrorId}-paused-detail`}
+              >
+                <p id={`${fieldErrorId}-paused-title`}>
+                  <strong>{t("board.workItemDetail.paused.closeTitle")}</strong>
+                </p>
+                <p id={`${fieldErrorId}-paused-detail`}>
+                  {t("board.workItemDetail.paused.closeDetail")}
+                </p>
+                <div className="work-item-detail__recovery-actions">
+                  <button
+                    type="button"
+                    ref={decisionFocus}
+                    className="project-button"
+                    onClick={() => dispatch({ type: "continue-editing" })}
+                  >
+                    {t("board.workItemDetail.paused.continueEditing")}
+                  </button>
+                  <button
+                    type="button"
+                    className="project-button project-button--danger"
+                    onClick={() => dispatch({ type: "discard-and-close" })}
+                  >
+                    {t("board.workItemDetail.paused.discardAndClose")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {detail.kind === "conflict" ? (
               <div
                 className="work-item-detail__gate"
@@ -761,6 +791,100 @@ export function WorkItemDetailDialog({
         </div>
       ) : null}
     </DetailModal>
+  );
+}
+
+
+function BoundedDetailEditor({
+  field,
+  draft,
+  baseline,
+  pending,
+  error,
+  errorId,
+  onDraft,
+  onBlur,
+  onEscape,
+  onSubmit,
+}: {
+  field: "title" | "description";
+  draft: string;
+  baseline: string;
+  pending: boolean;
+  error?: string;
+  errorId: string;
+  onDraft(value: string): void;
+  onBlur(event: FocusEvent<HTMLElement>): void;
+  onEscape(event: ReactKeyboardEvent): void;
+  onSubmit(): void;
+}) {
+  const { t } = useTranslation();
+  const limit = field === "title"
+    ? PRODUCT_TEXT_LIMITS.workItemTitle
+    : PRODUCT_TEXT_LIMITS.workItemDescription;
+  const bounded = useBoundedText(draft, limit, {
+    authoritativeValue: baseline,
+    onAccepted: onDraft,
+  });
+  const feedbackId = `${errorId}-${field}-feedback`;
+  const common = {
+    autoFocus: true,
+    name: field === "title" ? "workItemTitle" : "workItemDescription",
+    autoComplete: "off",
+    "aria-label": t(`board.workItemDetail.${field}Label`),
+    "aria-invalid": Boolean(error) || !bounded.withinProductLimit,
+    "aria-describedby": error ? `${feedbackId} ${errorId}` : feedbackId,
+    readOnly: pending,
+    onBlur,
+    ...bounded.inputProps,
+  };
+  const feedback = (
+    <TextFeedback
+      id={feedbackId}
+      count={bounded.count}
+      limit={bounded.limit}
+      showCount={bounded.showCount}
+      limitReached={bounded.limitReached}
+      error={undefined}
+    />
+  );
+  if (field === "title") {
+    return (
+      <>
+        <input
+          type="text"
+          className="work-item-detail__title-input"
+          {...common}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") onEscape(event);
+            else if (event.key === "Enter") {
+              event.preventDefault();
+              onSubmit();
+            }
+          }}
+        />
+        {feedback}
+      </>
+    );
+  }
+  return (
+    <>
+      <textarea
+        className="work-item-detail__textarea"
+        rows={1}
+        {...common}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Escape") onEscape(event);
+          else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
+      />
+      {feedback}
+    </>
   );
 }
 

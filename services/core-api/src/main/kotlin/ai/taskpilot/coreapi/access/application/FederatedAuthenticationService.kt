@@ -1,5 +1,6 @@
 package ai.taskpilot.coreapi.access.application
 
+import ai.taskpilot.coreapi.ProductTextLimits
 import ai.taskpilot.coreapi.access.FederatedAccountBootstrap
 import ai.taskpilot.coreapi.access.FederatedAccountProvisioner
 import ai.taskpilot.coreapi.access.FederatedAccountProvisioningRequest
@@ -11,6 +12,7 @@ import ai.taskpilot.coreapi.access.model.FederatedLoginAttemptStatus
 import ai.taskpilot.coreapi.access.model.FederatedUserProfile
 import ai.taskpilot.coreapi.access.model.UserId
 import ai.taskpilot.coreapi.access.model.UserStatus
+import ai.taskpilot.coreapi.normalizeRequiredText
 import java.net.URI
 import java.security.GeneralSecurityException
 import java.time.Duration
@@ -197,7 +199,9 @@ class FederatedAuthenticationService(
         try {
             val identity = dependencies.codec.readIdentity(claim.attemptId, claim.encryptedIdentityCandidate)
             val displayName =
-                command.displayName.trim().takeIf(String::isNotBlank) ?: throw IllegalArgumentException("displayName")
+                normalizeRequiredText(command.displayName, ProductTextLimits.USER_DISPLAY_NAME) {
+                    IllegalArgumentException("displayName")
+                }
             val avatarUrl = if (command.useSuggestedAvatar) identity.suggestedAvatarUrl else null
             val proposedUserId = UUID.randomUUID()
             var bootstrap: FederatedAccountBootstrap? = null

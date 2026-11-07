@@ -38,7 +38,13 @@ export const CHANNELS = {
 } as const;
 
 const uuid = z.string().uuid();
-const boundedText = (maximum: number) => z.string().refine(value => [...value].length <= maximum);
+const normalizedLength = (value: string) => [...value.trim().normalize('NFC')].length;
+const boundedRequiredText = (maximum: number) => z.string().refine(value => normalizedLength(value) > 0 && normalizedLength(value) <= maximum);
+const boundedOptionalText = (maximum: number) => z.string().refine(value => normalizedLength(value) <= maximum);
+const descriptionPatch = (maximum: number) => z.discriminatedUnion('action', [
+  z.object({ action: z.literal('SET'), value: boundedRequiredText(maximum) }).strict(),
+  z.object({ action: z.literal('CLEAR') }).strict(),
+]);
 const location = z.object({ workspaceId: uuid, projectId: uuid }).strict();
 const version = z.number().int().nonnegative();
 const locale = z.enum(['zh-CN', 'en']);
@@ -57,7 +63,7 @@ const schemas = {
   continueGitHubSignIn: z.object({ flowId: uuid }).strict(),
   completeGitHubRegistration: z.object({
     flowId: uuid,
-    displayName: z.string().trim().min(1).max(200),
+    displayName: boundedRequiredText(80),
     useSuggestedAvatar: z.boolean(),
     legalBundleVersion: z.string().min(1).max(128),
     termsVersion: z.string().min(1).max(128),
@@ -73,25 +79,27 @@ const schemas = {
     workspaceId: uuid, status: z.enum(['ACTIVE', 'ARCHIVED']), limit: z.number().int().min(1).max(100).optional(), cursor: z.string().min(1).max(2048).optional(),
   }).strict(),
   openProject: location,
-  createProject: z.object({ workspaceId: uuid, requestId: uuid, name: boundedText(200), description: boundedText(2000).optional(), locale }).strict(),
-  editProject: statusMutation.extend({ name: boundedText(200), description: boundedText(2000).optional() }).strict(),
+  createProject: z.object({ workspaceId: uuid, requestId: uuid, name: boundedRequiredText(100), description: boundedOptionalText(1000).optional(), locale }).strict(),
+  editProject: statusMutation.extend({ name: boundedRequiredText(100).optional(), descriptionPatch: descriptionPatch(1000).optional() }).strict()
+    .refine(input => input.name !== undefined || input.descriptionPatch !== undefined, { path: ['mutation'] }),
   archiveProject: statusMutation,
   restoreProject: statusMutation,
-  permanentlyDeleteProject: statusMutation.extend({ confirmationName: boundedText(200) }).strict(),
+  permanentlyDeleteProject: statusMutation.extend({ confirmationName: boundedOptionalText(200) }).strict(),
   resolveBoardHome: location,
   listProjectMembers: location,
   listBoards: location,
   openBoard: boardLocation,
-  createBoard: location.extend({ requestId: uuid, name: boundedText(120), description: boundedText(2000).optional(), locale }).strict(),
-  editBoard: boardLocation.extend({ expectedVersion: version, name: boundedText(120), description: boundedText(2000).optional() }).strict(),
-  permanentlyDeleteBoard: boardLocation.extend({ expectedVersion: version, confirmationName: boundedText(120) }).strict(),
-  createColumn: boardLocation.extend({ requestId: uuid, expectedBoardVersion: version, name: boundedText(80) }).strict(),
-  editColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version, name: boundedText(80) }).strict(),
+  createBoard: location.extend({ requestId: uuid, name: boundedRequiredText(80), description: boundedOptionalText(1000).optional(), locale }).strict(),
+  editBoard: boardLocation.extend({ expectedVersion: version, name: boundedRequiredText(80).optional(), descriptionPatch: descriptionPatch(1000).optional() }).strict()
+    .refine(input => input.name !== undefined || input.descriptionPatch !== undefined, { path: ['mutation'] }),
+  permanentlyDeleteBoard: boardLocation.extend({ expectedVersion: version, confirmationName: boundedOptionalText(120) }).strict(),
+  createColumn: boardLocation.extend({ requestId: uuid, expectedBoardVersion: version, name: boundedRequiredText(50) }).strict(),
+  editColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version, name: boundedRequiredText(50) }).strict(),
   reorderColumns: boardLocation.extend({ expectedBoardVersion: version, columnIds: z.array(uuid).min(1).max(50) }).strict(),
   deleteColumn: columnLocation.extend({ expectedBoardVersion: version, expectedColumnVersion: version }).strict(),
   createWorkItem: boardLocation.extend({
-    columnId: uuid, requestId: uuid, expectedBoardVersion: version, title: boundedText(300),
-    description: boundedText(10_000).optional(), assignee: assigneeSelection.optional(),
+    columnId: uuid, requestId: uuid, expectedBoardVersion: version, title: boundedRequiredText(160),
+    description: boundedOptionalText(5000).optional(), assignee: assigneeSelection.optional(),
   }).strict(),
   openWorkItem: workItemLocation,
   editWorkItem: workItemLocation.extend({
@@ -101,12 +109,13 @@ const schemas = {
     expectedBoardVersion: version.optional(),
     expectedPlacementVersion: version.optional(),
     expectedVersion: version,
-    title: boundedText(300),
-    description: boundedText(10_000).optional(),
+    title: boundedRequiredText(160).optional(),
+    descriptionPatch: descriptionPatch(5000).optional(),
     assigneePatch: assigneePatch.optional(),
   }).strict()
     .refine(input => input.currentColumnId === input.targetColumnId || input.expectedBoardVersion !== undefined, { path: ['expectedBoardVersion'] })
-    .refine(input => input.currentColumnId === input.targetColumnId || input.expectedPlacementVersion !== undefined, { path: ['expectedPlacementVersion'] }),
+    .refine(input => input.currentColumnId === input.targetColumnId || input.expectedPlacementVersion !== undefined, { path: ['expectedPlacementVersion'] })
+    .refine(input => input.currentColumnId !== input.targetColumnId || input.title !== undefined || input.descriptionPatch !== undefined || input.assigneePatch !== undefined, { path: ['mutation'] }),
   moveCard: boardLocation.extend({ workItemId: uuid, expectedBoardVersion: version, expectedPlacementVersion: version, targetColumnId: uuid, beforeWorkItemId: uuid.optional() }).strict(),
 };
 type Method = keyof typeof schemas;

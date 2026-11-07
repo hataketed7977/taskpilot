@@ -541,6 +541,10 @@ threshold is an architectural policy change, not a local test workaround.
   on resources and stable IDs rather than Desktop/Web/Mobile/CLI/MCP client
   names.
 - The checked-in [`canonical OpenAPI artifact`](../contracts/canonical-api/openapi.yaml)
+  separates bounded write schemas from response compatibility: product limits
+  constrain new mutations while responses remain able to carry historical values.
+  Optional mutation properties are non-null when present; explicit patch envelopes
+  represent description/assignee SET and CLEAR, and omitted fields mean unchanged.
   owns that surface's HTTP representation: method/path, operation ID,
   parameters, wire schemas, responses, security declarations, descriptions,
   tags, and explicit ingress classification. Its local

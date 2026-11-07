@@ -107,8 +107,8 @@ data class EditBoardCommand(
     val projectId: UUID,
     val boardId: UUID,
     val expectedVersion: Long,
-    val name: String,
-    val description: String?,
+    val name: String? = null,
+    val descriptionPatch: DescriptionPatch? = null,
 )
 
 data class CreateColumnCommand(
@@ -189,8 +189,8 @@ data class EditWorkItemCommand(
     val expectedBoardVersion: Long?,
     val expectedPlacementVersion: Long?,
     val expectedVersion: Long,
-    val title: String,
-    val description: String?,
+    val title: String? = null,
+    val descriptionPatch: DescriptionPatch? = null,
     val assigneePatch: AssigneePatch? = null,
 )
 

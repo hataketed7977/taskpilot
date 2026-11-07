@@ -113,7 +113,10 @@ and late-result rejection after logout or account replacement. Project Work
 Main tests additionally cover the fixed empty-Board deletion request, preference
 cleanup, earliest/zero-Board home, committed-delete refresh failure, all three
 response-lost reconciliation outcomes, scoped result-unknown isolation,
-authoritative Work Item detail/update contracts, Project Member list contracts, assignee parser/IPC/patch validation, and rejection of late Board
+authoritative Work Item detail/update contracts, Project Member list contracts,
+create-assignee and assignee parser/IPC/patch validation, sparse request bodies,
+raw-null/empty-mutation rejection, Problem Details field-path propagation,
+historical over-limit response parsing, and rejection of late Board
 read/detail/mutation completions. The pure detail-state reducer covers one active
 field, field-local drafts and errors, Escape discard, implicit saving, repeated-intent
 deduplication, transient saved feedback, conflict choices, saving-state immunity
@@ -205,11 +208,23 @@ Renderer integration covers loading/error/read-only/editing/saving/conflict
 states, Card avatar-only assignee semantics, detail assignee set/clear/save-failure recovery, immutable creator display in the audit footer, and response fencing; it locks editor/draft and persistent-label
 retention during saving, IME composition suppression, and single-snapshot saves
 across rapid field switches, close requests, and assignee-open requests. Reducer and
-Renderer integration tests verify that a dirty field saves before the picker opens and
-that save failure keeps the picker closed with the draft recoverable.
+Renderer pure/component tests additionally cover NFC/code-point semantics,
+supplementary and combining characters, the 80% counter threshold, required-error
+visibility, candidate rejection for keys/paste/IME/selection, deletion and undo,
+session ceilings for historical values, stable feedback association, and known or
+unknown server paths. Renderer integration tests verify that a dirty field saves
+before the picker opens, that save failure keeps the picker closed with the draft
+recoverable, and that `paused-invalid` drafts survive unrelated assignee saves or
+enter conflict when their authoritative baseline changes.
 Cypress covers equal fixed Card height for assigned/unassigned and short/long content, real Chromium top-right avatar geometry and two-line title/description clamping, keyboard set/clear, picker geometry,
 picker error state, dirty-description save-first sequencing and search-focus transfer,
-creator/timestamp footer alignment, and the 560px sheet. Pointer and keyboard-equivalent movement, optimistic rollback, focus/live-region
+creator/timestamp footer alignment, and the 560px sheet. Real Chromium also
+covers hard-limit keys, atomic paste and IME commit, selection replacement,
+post-limit correction with retained focus, paused-draft close gates, and bilingual
+minimum/standard viewport geometry. Board-menu evidence uses real pointer targets
+to prove outside dismissal without swallowing the action, Portal-owned regions,
+Escape closure, and trigger-focus restoration; the permanent-delete Dialog keeps
+its separate modal gate. Pointer and keyboard-equivalent movement, optimistic rollback, focus/live-region
 behavior, and the horizontally scrollable Column region remain covered. The
 system journey uses a provider/browser double plus packaged Gateway, real Core
 API, PostgreSQL, and Redis; it does not prove real GitHub OAuth, production Core

@@ -133,6 +133,110 @@ describe('work item detail state', () => {
     });
   });
 
+  it('pauses a dirty historical over-limit draft and opens assignee without saving it', () => {
+    const historical = {
+      ...confirmed,
+      workItem: { ...workItem, description: 'x'.repeat(5_020) },
+    };
+    let state = transitionWorkItemDetail(
+      { kind: 'read-only', confirmed: historical },
+      { type: 'edit', field: 'description' },
+    );
+    state = transitionWorkItemDetail(state, {
+      type: 'draft', value: 'x'.repeat(5_010),
+    });
+    state = transitionWorkItemDetail(state, { type: 'request-assignee' });
+    expect(state).toMatchObject({
+      kind: 'paused-invalid',
+      assigneeOpen: true,
+      closeGate: false,
+      paused: {
+        field: 'description',
+        draft: 'x'.repeat(5_010),
+        baseline: 'x'.repeat(5_020),
+      },
+    });
+  });
+
+  it('keeps a paused historical draft after an assignee save with a newer version', () => {
+    const historical = {
+      ...confirmed,
+      workItem: { ...workItem, description: 'x'.repeat(5_020) },
+    };
+    let state = transitionWorkItemDetail(
+      { kind: 'read-only', confirmed: historical },
+      { type: 'edit', field: 'description' },
+    );
+    state = transitionWorkItemDetail(state, { type: 'draft', value: 'x'.repeat(5_010) });
+    state = transitionWorkItemDetail(state, { type: 'request-assignee' });
+    const afterAssignee = {
+      ...historical,
+      workItem: {
+        ...historical.workItem,
+        version: 5,
+        assignee: {
+          targetType: 'PROJECT_MEMBER' as const,
+          projectMemberId: 'member-1',
+          role: 'OWNER' as const,
+          user: creator,
+        },
+      },
+    };
+    expect(transitionWorkItemDetail(state, {
+      type: 'assignee-saved', confirmed: afterAssignee,
+    })).toMatchObject({
+      kind: 'paused-invalid',
+      confirmed: afterAssignee,
+      paused: { draft: 'x'.repeat(5_010) },
+    });
+  });
+
+  it('turns a paused draft into an explicit conflict if its authoritative baseline changes', () => {
+    const historical = {
+      ...confirmed,
+      workItem: { ...workItem, description: 'x'.repeat(5_020) },
+    };
+    let state = transitionWorkItemDetail(
+      { kind: 'read-only', confirmed: historical },
+      { type: 'edit', field: 'description' },
+    );
+    state = transitionWorkItemDetail(state, { type: 'draft', value: 'x'.repeat(5_010) });
+    state = transitionWorkItemDetail(state, { type: 'request-assignee' });
+    const concurrent = {
+      ...historical,
+      workItem: { ...historical.workItem, description: 'y'.repeat(5_015), version: 5 },
+    };
+    expect(transitionWorkItemDetail(state, {
+      type: 'assignee-saved', confirmed: concurrent,
+    })).toMatchObject({
+      kind: 'conflict',
+      field: 'description',
+      draft: 'x'.repeat(5_010),
+      baseline: 'x'.repeat(5_020),
+      confirmed: concurrent,
+    });
+  });
+
+  it('gates closing a paused draft until the user continues or explicitly discards it', () => {
+    const historical = {
+      ...confirmed,
+      workItem: { ...workItem, description: 'x'.repeat(5_020) },
+    };
+    let state = transitionWorkItemDetail(
+      { kind: 'read-only', confirmed: historical },
+      { type: 'edit', field: 'description' },
+    );
+    state = transitionWorkItemDetail(state, { type: 'draft', value: 'x'.repeat(5_010) });
+    state = transitionWorkItemDetail(state, { type: 'blur' });
+    state = transitionWorkItemDetail(state, { type: 'request-close' });
+    expect(state).toMatchObject({ kind: 'paused-invalid', closeGate: true });
+    expect(transitionWorkItemDetail(state, { type: 'request-close' })).toEqual(state);
+    expect(transitionWorkItemDetail(state, { type: 'continue-editing' })).toMatchObject({
+      kind: 'editing', field: 'description', draft: 'x'.repeat(5_010), dirty: true,
+    });
+    expect(transitionWorkItemDetail(state, { type: 'discard-and-close' })).toEqual({ kind: 'closed' });
+  });
+
   it('requests the assignee picker immediately for a clean field without saving', () => {
     const clean = transitionWorkItemDetail(loaded(), { type: 'edit', field: 'description' });
     expect(transitionWorkItemDetail(clean, { type: 'request-assignee' })).toEqual({

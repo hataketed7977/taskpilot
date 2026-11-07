@@ -1,5 +1,40 @@
 import { apiFor, mountApp, project, projectKey, user, workspace } from './app-harness';
 
+type ProjectDialogGeometry = Readonly<{
+  nameLabel: { left: number; top: number };
+  nameControl: { left: number; top: number };
+  descriptionLabel: { left: number; top: number };
+  descriptionControl: { left: number; top: number };
+  primaryAction: { left: number; top: number };
+}>;
+
+function captureProjectDialogGeometry(): Cypress.Chainable<ProjectDialogGeometry> {
+  return cy.findByRole('dialog').then(($dialog) => {
+    const dialog = $dialog[0];
+    const origin = (element: Element | null, label: string) => {
+      expect(element, label).to.not.equal(null);
+      const bounds = (element as HTMLElement).getBoundingClientRect();
+      return { left: bounds.left, top: bounds.top };
+    };
+    const name = dialog.querySelector<HTMLInputElement>('[name="projectName"]');
+    const description = dialog.querySelector<HTMLTextAreaElement>('[name="projectDescription"]');
+    return {
+      nameLabel: origin(name?.closest('label')?.querySelector(':scope > span') ?? null, 'name label'),
+      nameControl: origin(name, 'name control'),
+      descriptionLabel: origin(description?.closest('label')?.querySelector(':scope > span') ?? null, 'description label'),
+      descriptionControl: origin(description, 'description control'),
+      primaryAction: origin(dialog.querySelector('button[type="submit"]'), 'primary action'),
+    };
+  });
+}
+
+function assertProjectDialogGeometry(actual: ProjectDialogGeometry, expected: ProjectDialogGeometry) {
+  for (const part of Object.keys(expected) as Array<keyof ProjectDialogGeometry>) {
+    expect(actual[part].left, `${part} left`).to.be.closeTo(expected[part].left, 1);
+    expect(actual[part].top, `${part} top`).to.be.closeTo(expected[part].top, 1);
+  }
+}
+
 describe('Desktop shell experience', () => {
   beforeEach(() => { cy.clearLocalStorage(); });
   it('lands in the Project home and confirms logout before signing out', () => {
@@ -101,6 +136,43 @@ describe('Desktop shell experience', () => {
     cy.document().then((document) => {
       expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth);
     });
+  });
+
+  it('keeps Project validation, counters, and pending feedback geometrically stable across locales and viewports', () => {
+    const scenarios = [
+      { locale: 'zh-CN' as const, width: 960, height: 640, create: '新建项目', name: '项目名称', required: '请输入项目名称。', submit: '创建项目', pending: '正在创建…' },
+      { locale: 'en' as const, width: 1280, height: 800, create: 'New project', name: 'Project name', required: 'Enter a project name.', submit: 'Create project', pending: 'Creating…' },
+    ];
+
+    for (const scenario of scenarios) {
+      const api = apiFor({ status: 'authenticated', currentUser: user });
+      const pendingCreate = new Cypress.Promise(() => undefined);
+      (api.projects.create as Cypress.Agent<sinon.SinonStub>).returns(pendingCreate);
+      let baseline: ProjectDialogGeometry;
+
+      cy.viewport(scenario.width, scenario.height);
+      mountApp(api, scenario.locale);
+      cy.findAllByRole('button', { name: scenario.create }).first().click();
+      captureProjectDialogGeometry().then((geometry) => { baseline = geometry; });
+
+      cy.findByLabelText(scenario.name).blur();
+      cy.findByRole('alert').should('contain.text', scenario.required);
+      captureProjectDialogGeometry().then((geometry) => assertProjectDialogGeometry(geometry, baseline));
+
+      cy.findByLabelText(scenario.name).type('a'.repeat(80));
+      cy.findByText('80 / 100').should('be.visible');
+      captureProjectDialogGeometry().then((geometry) => assertProjectDialogGeometry(geometry, baseline));
+
+      cy.findByLabelText(scenario.name).type('a'.repeat(20));
+      cy.findByText('100 / 100').should('be.visible');
+      cy.findAllByRole('status').filter(':visible').should('have.length.at.least', 1);
+      captureProjectDialogGeometry().then((geometry) => assertProjectDialogGeometry(geometry, baseline));
+
+      cy.findByRole('button', { name: scenario.submit }).click();
+      cy.findByRole('button', { name: scenario.pending }).should('be.disabled');
+      captureProjectDialogGeometry().then((geometry) => assertProjectDialogGeometry(geometry, baseline));
+      cy.wrap(api.projects.create).should('have.been.calledOnce');
+    }
   });
 
   it('traps dialog focus, restores it on close, and associates a mutation error', () => {

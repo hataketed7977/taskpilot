@@ -41,7 +41,7 @@ describe('ProjectWorkClient', () => {
     await client.listProjectMembers(token, project);
     await client.getBoard(token, location);
     await client.createBoard(token, { ...project, requestId, name: 'Delivery', locale: 'en' });
-    await client.editBoard(token, { ...location, expectedVersion: 0, name: 'Delivery', description: 'Now' });
+    await client.editBoard(token, { ...location, expectedVersion: 0, name: 'Delivery', descriptionPatch: { action: 'SET', value: 'Now' } });
     await client.permanentlyDeleteBoard(token, { ...location, expectedVersion: 0, confirmationName: 'Delivery' });
     await client.createColumn(token, { ...location, requestId, expectedBoardVersion: 1, name: 'Done' });
     await client.editColumn(token, { ...location, columnId, expectedBoardVersion: 2, expectedColumnVersion: 0, name: 'Ready' });
@@ -79,6 +79,11 @@ describe('ProjectWorkClient', () => {
     ]);
     expect(await client.listProjectMembers(token, project)).toEqual([member]);
     expect(request.mock.calls[3]?.[0]).toMatchObject({ accessToken: token, body: { requestId, name: 'Delivery', locale: 'en' } });
+    expect(request.mock.calls[4]?.[0].body).toEqual({
+      expectedVersion: 0,
+      name: 'Delivery',
+      descriptionPatch: { action: 'SET', value: 'Now' },
+    });
     expect(request.mock.calls[5]?.[0]).toMatchObject({
       accessToken: token,
       body: { expectedVersion: 0, confirmationName: 'Delivery' },
@@ -98,7 +103,6 @@ describe('ProjectWorkClient', () => {
       targetColumnId: columnId,
       expectedVersion: 0,
       title: 'Ship now',
-      description: undefined,
       assigneePatch: { action: 'SET', target: { targetType: 'PROJECT_MEMBER', projectMemberId } },
     });
   });
@@ -131,7 +135,6 @@ describe('ProjectWorkClient', () => {
         expectedPlacementVersion: 2,
         expectedVersion: 1,
         title: 'Move it',
-        description: undefined,
         assigneePatch: { action: 'CLEAR' },
       },
     }));
@@ -146,6 +149,32 @@ describe('ProjectWorkClient', () => {
     expect(await client.getWorkItem('token', { workspaceId, projectId, boardId, workItemId })).toEqual(assignedWorkItem);
     expect(await client.getBoard('token', { workspaceId, projectId, boardId })).toEqual(responseBoard);
     expect(await client.listProjectMembers('token', { workspaceId, projectId })).toEqual([member]);
+  });
+
+  it('accepts historical Board and Work Item text above current write limits', async () => {
+    const historicalBoardName = 'B'.repeat(120);
+    const historicalBoardDescription = 'D'.repeat(2_000);
+    const historicalTitle = 'T'.repeat(300);
+    const historicalDescription = 'W'.repeat(10_000);
+    const historicalCard = { ...card, title: historicalTitle, description: historicalDescription };
+    const historicalBoard = {
+      ...board,
+      name: historicalBoardName,
+      description: historicalBoardDescription,
+      columns: [{ ...board.columns[0], cards: [historicalCard] }],
+    };
+    const historicalWorkItem = {
+      ...workItem,
+      title: historicalTitle,
+      description: historicalDescription,
+    };
+    const request = vi.fn()
+      .mockResolvedValueOnce(historicalBoard)
+      .mockResolvedValueOnce(historicalWorkItem);
+    const client = new ProjectWorkClient({ request } as HttpTransport);
+
+    await expect(client.getBoard('token', { workspaceId, projectId, boardId })).resolves.toEqual(historicalBoard);
+    await expect(client.getWorkItem('token', { workspaceId, projectId, boardId, workItemId })).resolves.toEqual(historicalWorkItem);
   });
 
   it.each(['lifecycle', 'status', 'history', 'versions', 'activity'])('fails closed on old or future %s in Work Item and Card responses', async field => {

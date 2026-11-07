@@ -15,9 +15,16 @@ export const detailMessages = {
   saved: "Saved",
   validation: {
     titleRequired: "Title is required.",
-    titleTooLong: "Title must be 300 characters or fewer.",
+    titleTooLong: "Title must be 160 characters or fewer.",
     descriptionTooLong:
-      "Description must be 10,000 characters or fewer.",
+      "Description must be 5,000 characters or fewer.",
+  },
+  paused: {
+    status: "Unsaved changes paused",
+    closeTitle: "Discard unsaved changes?",
+    closeDetail: "This content is still above the current limit. Continue editing it or discard the changes before closing.",
+    continueEditing: "Continue editing",
+    discardAndClose: "Discard and close",
   },
   assignee: {
     label: "Assignee",
@@ -43,15 +50,15 @@ export const detailMessages = {
   },
   saveError: {
     title:
-      "Title could not be saved temporarily. Your draft is preserved.",
+      "Couldn’t save the title. Your changes are still here.",
     description:
-      "Description could not be saved temporarily. Your draft is preserved.",
+      "Couldn’t save the description. Your changes are still here.",
   },
   conflict: {
     title: { title: "Title conflict" },
     description: { title: "Description conflict" },
     latest: "Latest value: {{value}}",
-    draft: "Local draft: {{value}}",
+    draft: "Your changes: {{value}}",
     retry: "Retry with latest version",
     useLatest: "Use latest content",
   },
@@ -72,8 +79,15 @@ export const detailMessages = {
   saved: "已保存",
   validation: {
     titleRequired: "标题不能为空。",
-    titleTooLong: "标题最多 300 个字符。",
-    descriptionTooLong: "描述最多 10000 个字符。",
+    titleTooLong: "标题最多 160 个字符。",
+    descriptionTooLong: "描述最多 5000 个字符。",
+  },
+  paused: {
+    status: "未保存内容已暂停",
+    closeTitle: "放弃未保存的内容？",
+    closeDetail: "当前内容仍超过长度上限。请继续修改，或放弃更改后关闭。",
+    continueEditing: "继续编辑",
+    discardAndClose: "放弃并关闭",
   },
   assignee: {
     label: "负责人",
@@ -98,14 +112,14 @@ export const detailMessages = {
     },
   },
   saveError: {
-    title: "暂时无法保存标题，草稿已保留。",
-    description: "暂时无法保存描述，草稿已保留。",
+    title: "标题保存失败，内容未丢失。",
+    description: "描述保存失败，内容未丢失。",
   },
   conflict: {
     title: { title: "标题发生冲突" },
     description: { title: "描述发生冲突" },
     latest: "最新值：{{value}}",
-    draft: "本地草稿：{{value}}",
+    draft: "你的更改：{{value}}",
     retry: "基于最新版本重试",
     useLatest: "使用最新内容",
   },

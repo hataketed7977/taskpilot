@@ -1778,6 +1778,37 @@ components:
           - CLEAR
         target:
           $ref: '#/components/schemas/AssigneeSelection'
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
+      required:
+      - action
+    DescriptionPatch1000:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+          - SET
+          - CLEAR
+        value:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
+      required:
+      - action
+    DescriptionPatch5000:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+          - SET
+          - CLEAR
+        value:
+          type: string
+          minLength: 1
+          maxLength: 5000
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
       required:
       - action
     ProjectMemberAssignee:
@@ -1811,10 +1842,13 @@ components:
           format: uuid
         name:
           type: string
+          minLength: 1
+          maxLength: 100
         description:
           type:
           - string
           - 'null'
+          maxLength: 1000
         locale:
           type: string
           default: en
@@ -1935,10 +1969,13 @@ components:
           format: uuid
         name:
           type: string
+          minLength: 1
+          maxLength: 80
         description:
           type:
           - string
           - 'null'
+          maxLength: 1000
         locale:
           type: string
       required:
@@ -1957,8 +1994,8 @@ components:
           minLength: 0
         displayName:
           type: string
-          maxLength: 200
-          minLength: 0
+          minLength: 1
+          maxLength: 80
         useSuggestedAvatar:
           type:
           - boolean
@@ -2141,12 +2178,17 @@ components:
           format: uuid
         title:
           type: string
+          minLength: 1
+          maxLength: 160
         description:
           type:
           - string
           - 'null'
+          maxLength: 5000
         assignee:
-          $ref: '#/components/schemas/AssigneeSelection'
+          oneOf:
+          - $ref: '#/components/schemas/AssigneeSelection'
+          - type: 'null'
       required:
       - requestId
       - expectedBoardVersion
@@ -2230,6 +2272,8 @@ components:
           format: int64
         name:
           type: string
+          minLength: 1
+          maxLength: 50
       required:
       - requestId
       - expectedBoardVersion
@@ -2261,18 +2305,20 @@ components:
           format: int64
         title:
           type: string
-        description:
-          type:
-          - string
-          - 'null'
+          minLength: 1
+          maxLength: 160
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
+        descriptionPatch:
+          $ref: '#/components/schemas/DescriptionPatch5000'
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
         assigneePatch:
           $ref: '#/components/schemas/AssigneePatch'
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
       required:
       - boardId
       - currentColumnId
       - targetColumnId
       - expectedVersion
-      - title
     EditWorkItemResult:
       type: object
       properties:
@@ -2291,13 +2337,14 @@ components:
           format: int64
         name:
           type: string
-        description:
-          type:
-          - string
-          - 'null'
+          minLength: 1
+          maxLength: 100
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
+        descriptionPatch:
+          $ref: '#/components/schemas/DescriptionPatch1000'
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
       required:
       - expectedVersion
-      - name
     EditColumnRequest:
       type: object
       properties:
@@ -2309,6 +2356,8 @@ components:
           format: int64
         name:
           type: string
+          minLength: 1
+          maxLength: 50
       required:
       - expectedBoardVersion
       - expectedColumnVersion
@@ -2321,13 +2370,14 @@ components:
           format: int64
         name:
           type: string
-        description:
-          type:
-          - string
-          - 'null'
+          minLength: 1
+          maxLength: 80
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
+        descriptionPatch:
+          $ref: '#/components/schemas/DescriptionPatch1000'
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
       required:
       - expectedVersion
-      - name
     PersonalWorkspaceResponse:
       type: object
       properties:

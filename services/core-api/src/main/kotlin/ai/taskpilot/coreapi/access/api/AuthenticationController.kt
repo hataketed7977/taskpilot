@@ -20,11 +20,13 @@ import org.springframework.web.bind.annotation.RestController
 class AuthenticationController(
     private val sessions: SessionUseCases,
 ) : SessionApi {
-    override fun refresh(refreshRequest: RefreshRequest): ResponseEntity<SessionResponse> =
-        when (val result = sessions.refresh(refreshRequest.refreshToken)) {
+    override fun refresh(refreshRequest: RefreshRequest): ResponseEntity<SessionResponse> {
+        AuthenticationWireInputPolicy.refreshToken(refreshRequest.refreshToken)
+        return when (val result = sessions.refresh(refreshRequest.refreshToken)) {
             is RefreshSessionResult.Refreshed -> ResponseEntity.ok(result.session.toWireResponse())
             RefreshSessionResult.AuthenticationRequired -> fail(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED")
         }
+    }
 
     override fun logout(): ResponseEntity<Unit> {
         val accessToken =

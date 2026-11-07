@@ -1,7 +1,11 @@
 package ai.taskpilot.coreapi.project.internal
 
+import ai.taskpilot.coreapi.ProductTextLimits
+import ai.taskpilot.coreapi.normalizeOptionalText
+import ai.taskpilot.coreapi.normalizeRequiredText
 import ai.taskpilot.coreapi.project.CreateProjectCommand
 import ai.taskpilot.coreapi.project.DeleteProjectCommand
+import ai.taskpilot.coreapi.project.DescriptionPatchAction
 import ai.taskpilot.coreapi.project.EditProjectCommand
 import ai.taskpilot.coreapi.project.ProjectDeleteRestricted
 import ai.taskpilot.coreapi.project.ProjectIdempotencyConflict
@@ -158,29 +162,26 @@ class ProjectApplicationService(
     override fun edit(command: EditProjectCommand): ProjectView {
         requireWorkspaceOwner(command.actorUserId, command.workspaceId)
         if (command.expectedVersion < 0) throw ProjectValidationFailed("expectedVersion")
-        val input = normalizedInput(command.name, command.description)
         return requireNotNull(
             transactions.execute {
-                findAuthorizedProject(command.actorUserId, command.workspaceId, command.projectId)
-                    ?: throw ProjectNotFound()
+                val current =
+                    findAuthorizedProjectForUpdate(command.actorUserId, command.workspaceId, command.projectId)
+                        ?: throw ProjectNotFound()
+                if (current.version != command.expectedVersion) throw ProjectVersionConflict()
+                val name = command.name?.let(::normalizeProjectName) ?: current.name
+                val description = resolveDescription(command.descriptionPatch, current.description)
+                if (name == current.name && description == current.description) throw ProjectValidationFailed("mutation")
                 val updated =
                     jdbc.update(
-                        """
-                        UPDATE project.projects p
-                        SET name = ?, description = ?, version = version + 1, updated_at = ?
-                        WHERE p.id = ? AND p.workspace_id = ? AND p.version = ?
-                          AND EXISTS (
-                              SELECT 1 FROM project.project_memberships m
-                              WHERE m.project_id = p.id AND m.user_id = ? AND m.role = 'OWNER'
-                          )
-                        """.trimIndent(),
-                        input.name,
-                        input.description,
+                        """UPDATE project.projects
+                           SET name = ?, description = ?, version = version + 1, updated_at = ?
+                           WHERE id = ? AND workspace_id = ? AND version = ?""",
+                        name,
+                        description,
                         clock.instant().atOffset(ZoneOffset.UTC),
                         command.projectId,
                         command.workspaceId,
                         command.expectedVersion,
-                        command.actorUserId,
                     )
                 if (updated != 1) throw ProjectVersionConflict()
                 findAuthorizedProject(command.actorUserId, command.workspaceId, command.projectId)
@@ -188,6 +189,31 @@ class ProjectApplicationService(
             },
         )
     }
+
+    private fun resolveDescription(
+        patch: ai.taskpilot.coreapi.project.DescriptionPatch?,
+        current: String,
+    ): String =
+        when (patch?.action) {
+            null -> {
+                current
+            }
+
+            DescriptionPatchAction.CLEAR -> {
+                if (patch.value != null) throw ProjectValidationFailed("descriptionPatch.value")
+                ""
+            }
+
+            DescriptionPatchAction.SET -> {
+                val value = patch.value ?: throw ProjectValidationFailed("descriptionPatch.value")
+                normalizeRequiredText(value, ProductTextLimits.PROJECT_DESCRIPTION) {
+                    ProjectValidationFailed("descriptionPatch.value")
+                }
+            }
+        }
+
+    private fun normalizeProjectName(value: String): String =
+        normalizeRequiredText(value, ProductTextLimits.PROJECT_NAME) { ProjectValidationFailed("name") }
 
     override fun archive(command: ProjectStatusCommand): ProjectView = transition(command, ProjectStatus.ARCHIVED)
 
@@ -345,17 +371,13 @@ class ProjectApplicationService(
     private fun normalizedInput(
         name: String,
         description: String?,
-    ): NormalizedProjectInput {
-        val normalizedName = name.trim()
-        val normalizedDescription = description?.trim().orEmpty()
-        if (normalizedName.codePointCount() !in 1..MAXIMUM_NAME_CODE_POINTS) {
-            throw ProjectValidationFailed("name")
-        }
-        if (normalizedDescription.codePointCount() > MAXIMUM_DESCRIPTION_CODE_POINTS) {
-            throw ProjectValidationFailed("description")
-        }
-        return NormalizedProjectInput(normalizedName, normalizedDescription)
-    }
+    ): NormalizedProjectInput =
+        NormalizedProjectInput(
+            normalizeProjectName(name),
+            normalizeOptionalText(description, ProductTextLimits.PROJECT_DESCRIPTION) {
+                ProjectValidationFailed("description")
+            },
+        )
 
     private fun fingerprint(
         input: NormalizedProjectInput,
@@ -373,8 +395,6 @@ class ProjectApplicationService(
         if (locale !in SUPPORTED_LOCALES) throw ProjectValidationFailed("locale")
         return locale
     }
-
-    private fun String.codePointCount() = codePointCount(0, length)
 
     private data class NormalizedProjectInput(
         val name: String,
@@ -430,8 +450,6 @@ class ProjectApplicationService(
     private companion object {
         const val MINIMUM_LIMIT = 1
         const val MAXIMUM_LIMIT = 100
-        const val MAXIMUM_NAME_CODE_POINTS = 200
-        const val MAXIMUM_DESCRIPTION_CODE_POINTS = 2000
         val SUPPORTED_LOCALES = setOf("zh-CN", "en")
         const val CURSOR_PARTS = 6
         const val CURSOR_VERSION = "v1"

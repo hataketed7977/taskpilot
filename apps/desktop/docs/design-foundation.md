@@ -367,8 +367,10 @@ owner should normally be returned by the API. Creator display remains read-only
 and never implies the creator is automatically responsible. Title saves
 with `Enter` or true focus exit; description keeps ordinary `Enter` for newlines
 and saves on true focus exit or `Ctrl/Cmd+Enter`. A field `Escape` discards only
-its unsubmitted draft. Switching fields or dismissing the detail saves a dirty
-field once, then continues only after success. Lightweight saving/saved text
+its unsubmitted draft. Switching fields or dismissing the detail saves a valid
+dirty field once, then continues only after success. An edited historical value
+that is still above the current product limit is the exception described below.
+Lightweight saving/saved text
 renders only when meaningful, adjacent to the affected field without a permanent
 blank row or layout shift, and settles without spatial animation. Validation,
 temporary failure, and conflict alone reveal compact recovery actions. Closing
@@ -378,6 +380,50 @@ Conflict presentation keeps the local draft visibly distinct from the reloaded
 authoritative value and requires retry or discard; it never implies automatic
 merge or success. These interaction states are transient UI state, not a Current
 Work Item business lifecycle.
+
+Persistent name, title, and description controls use a hard input boundary for
+their canonical product limit. The boundary is evaluated after trim and Unicode
+NFC by Unicode code point, so native HTML `maxlength` is not the business rule:
+it counts UTF-16 code units and can reject valid supplementary characters. An
+edit is accepted or rejected as one complete proposal. Once a normal value is
+at its limit, a keypress, selection replacement, paste, or IME commit that would
+exceed it leaves the last accepted draft and focus in place and does not start
+auto-save. Paste and composition text are never silently sliced to fit.
+
+This boundary must not make the field feel disabled. Deletion, undo, and any
+selection replacement whose complete result fits remain available. IME
+composition is left alone until commit. A counter appears only from 80% of the
+limit; at the limit it remains visible and a stable, deduplicated live status
+says `已达到上限` / `Limit reached` without moving focus or resizing the form.
+Known local length overflow must never send Work Item detail into the network
+save/error/`Retry` state. Core still validates every request because the UI is
+not a security boundary.
+
+Historical values above a newer product limit are the exception: show and
+select the full authoritative text, and use that initial normalized code-point
+count as the edit session ceiling. Deletion, replacement, and undo remain usable
+within that ceiling; growth beyond the historical ceiling is rejected, and the
+field auto-saves only after it returns within the current product limit. Merely
+opening an unchanged historical field is not dirty and must not block sparse
+edits elsewhere.
+
+When an edited historical draft is still too long, activating the assignee or
+another independently editable field pauses that draft instead of trying to
+save it. The draft remains locally visible, explicitly marked unsaved, and can
+be resumed; the target field becomes editable in the same interaction. Its
+sparse mutation uses the latest authoritative resource version. A successful
+unrelated save adopts the returned version while retaining the paused draft only
+if that draft's authoritative field baseline is unchanged. If the authoritative
+field changed, keep the local draft and show the normal explicit conflict state;
+never silently overwrite either value.
+
+Closing detail with a paused over-limit draft keeps the sheet open and presents
+`继续编辑` / `Continue editing` and `放弃并关闭` / `Discard and close`. The first
+action restores the field and focus; the second restores the authoritative value
+before closing. Outside pointer dismissal and detail-level Escape cannot bypass
+this gate. Field-level `Escape` while actively editing still discards only that
+field's draft. Exact-name destructive confirmation remains a separate read-and-
+compare control and must accept the complete historical name.
 
 Card move supports pointer drag;
 the pointer's closest Card edge selects an exact insertion position, while one

@@ -16,6 +16,8 @@ import ai.taskpilot.coreapi.project.CreateWorkItemCommand
 import ai.taskpilot.coreapi.project.DeleteBoardCommand
 import ai.taskpilot.coreapi.project.DeleteColumnCommand
 import ai.taskpilot.coreapi.project.DeleteProjectCommand
+import ai.taskpilot.coreapi.project.DescriptionPatch
+import ai.taskpilot.coreapi.project.DescriptionPatchAction
 import ai.taskpilot.coreapi.project.EditBoardCommand
 import ai.taskpilot.coreapi.project.EditColumnCommand
 import ai.taskpilot.coreapi.project.EditWorkItemCommand
@@ -467,7 +469,7 @@ class ProjectWorkApplicationIntegrationTest {
                     null,
                     0,
                     "Assigned",
-                    "Owned",
+                    DescriptionPatch(DescriptionPatchAction.SET, "Owned"),
                     AssigneePatch(AssigneePatchAction.SET, AssigneeSelection("PROJECT_MEMBER", secondMember)),
                 ),
             )
@@ -499,7 +501,7 @@ class ProjectWorkApplicationIntegrationTest {
                     null,
                     1,
                     "Assigned",
-                    "Owned",
+                    DescriptionPatch(DescriptionPatchAction.SET, "Owned"),
                     AssigneePatch(AssigneePatchAction.CLEAR, null),
                 ),
             )
@@ -642,7 +644,7 @@ class ProjectWorkApplicationIntegrationTest {
                     0,
                     0,
                     "Should roll back",
-                    "No partial write",
+                    DescriptionPatch(DescriptionPatchAction.SET, "No partial write"),
                     AssigneePatch(
                         AssigneePatchAction.SET,
                         AssigneeSelection("PROJECT_MEMBER", crossProjectMember),
@@ -672,7 +674,15 @@ class ProjectWorkApplicationIntegrationTest {
         val f = fixtureProject()
         val editedBoard =
             work.editBoard(
-                EditBoardCommand(f.owner, f.workspace, f.project, f.board.boardId, 0, "Planning", "Updated"),
+                EditBoardCommand(
+                    f.owner,
+                    f.workspace,
+                    f.project,
+                    f.board.boardId,
+                    0,
+                    "Planning",
+                    DescriptionPatch(DescriptionPatchAction.SET, "Updated"),
+                ),
             )
         assertEquals(1, editedBoard.version)
 
@@ -853,7 +863,7 @@ class ProjectWorkApplicationIntegrationTest {
                 0,
                 0,
                 "Updated",
-                "Authoritative",
+                DescriptionPatch(DescriptionPatchAction.SET, "Authoritative"),
             ),
         )
         assertEquals(
@@ -939,7 +949,7 @@ class ProjectWorkApplicationIntegrationTest {
                     null,
                     0,
                     "Updated",
-                    "Detail",
+                    DescriptionPatch(DescriptionPatchAction.SET, "Detail"),
                 ),
             )
 
@@ -1208,7 +1218,7 @@ class ProjectWorkApplicationIntegrationTest {
         }
         assertFailsWith<ProjectWorkValidationFailed> {
             work.createColumn(
-                CreateColumnCommand(f.owner, f.workspace, f.project, f.board.boardId, UUID.randomUUID(), 0, "x".repeat(81)),
+                CreateColumnCommand(f.owner, f.workspace, f.project, f.board.boardId, UUID.randomUUID(), 0, "x".repeat(51)),
             )
         }
     }

@@ -662,9 +662,12 @@
   text-align: left;
   cursor: pointer;
 }
-.assignee-picker__option:hover,
+.assignee-picker__option:hover {
+  background: color-mix(in srgb, var(--action) 5%, var(--paper));
+}
 .assignee-picker__option:focus-visible {
-  outline: none;
+  outline: 2px solid color-mix(in srgb, var(--action) 34%, transparent);
+  outline-offset: 1px;
   background: color-mix(in srgb, var(--action) 5%, var(--paper));
 }
 .assignee-picker__option[aria-selected="true"] {
@@ -778,4 +781,15 @@
   .assignee-picker__menu {
     animation: none;
   }
+}
+
+.work-item-detail__paused-status {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--warning, #8a5a00);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
