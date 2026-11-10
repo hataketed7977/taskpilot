@@ -82,6 +82,11 @@ class RedisSessionUseCases(
         redis.opsForValue().get(accessKey(digestAccess(accessToken)))?.let(::revoke)
     }
 
+    override fun logoutByRefreshToken(refreshToken: String) {
+        val digest = digestRefresh(refreshToken)
+        redis.execute(LOGOUT_REFRESH_SCRIPT, listOf(refreshKey(digest)), PREFIX, digest, now().toEpochMilli().toString())
+    }
+
     private fun createSession(
         user: SessionUser,
         now: Instant,
@@ -227,6 +232,36 @@ class RedisSessionUseCases(
                 return {'OK', sessionId, redis.call('HGET', sessionKey, 'familyId'), redis.call('HGET', sessionKey, 'userId'), redis.call('HGET', sessionKey, 'displayName'), redis.call('HGET', sessionKey, 'avatarUrl'), ARGV[2], tostring(accessExpiry), tostring(refreshExpiry), tostring(absolute)}
                 """.trimIndent(),
                 List::class.java as Class<List<String>>,
+            )
+
+        // Lookup and revocation must share the Redis linearization point with rotation.
+        // Used markers remain untouched until their original absolute expiry.
+        val LOGOUT_REFRESH_SCRIPT =
+            DefaultRedisScript(
+                """
+                local marker = redis.call('GET', KEYS[1])
+                if not marker then return 0 end
+                local prefix = ARGV[1]
+                local sessionId
+                local active = string.sub(marker, 1, 7) == 'active:'
+                if active then sessionId = string.sub(marker, 8)
+                elseif string.sub(marker, 1, 5) == 'used:' then sessionId = string.sub(marker, 6)
+                else return 0 end
+                if sessionId == '' then return 0 end
+                local key = prefix .. 'session:' .. sessionId
+                local refresh = redis.call('HGET', key, 'refreshDigest')
+                if active then
+                  local absolute = tonumber(redis.call('HGET', key, 'absoluteExpiresAt') or '0') or 0
+                  local expiry = tonumber(redis.call('HGET', key, 'refreshExpiresAt') or '0') or 0
+                  if refresh ~= ARGV[2] or math.min(absolute, expiry) <= tonumber(ARGV[3]) then return 0 end
+                end
+                local access = redis.call('HGET', key, 'accessDigest')
+                if access then redis.call('DEL', prefix .. 'access:' .. access) end
+                if refresh then redis.call('DEL', prefix .. 'refresh:' .. refresh) end
+                redis.call('DEL', key)
+                return 1
+                """.trimIndent(),
+                Long::class.java,
             )
 
         val REVOKE_SCRIPT =

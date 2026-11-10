@@ -24,6 +24,12 @@ Approved secret-bearing request/response properties may be declared. Tests
 reject examples/defaults on those fields, known sentinel or environment values,
 and secrets in path/query parameters or URL examples.
 
+Logout contract tests pin the unchanged operation/path/ingress, optional strict
+body, optional-but-non-null refresh field and 1–512 bounds, credential-mode
+security alternatives, and 204/400/401/503 surface. HTTP shape/Unicode/credential
+validation and Redis revocation are tested by Core, not duplicated in the
+projection module.
+
 ## Command
 
 Run Gradle commands serially:

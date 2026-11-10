@@ -10,6 +10,32 @@
 - **Mandatory before:** Initializing or changing Core API structure,
   persistence, APIs, workflow runtime, asynchronous execution, or providers
 
+## Current Session Revocation and Request Admission
+
+Access independently authenticates the existing POST `/v1/session:logout`:
+absent/empty-object body uses strict legacy bearer; a strict refresh body requires
+no Authorization header. Only this exact method/path bypasses generic bearer
+lookup; its adapter rechecks the cached body (including explicit null, trailing
+JSON and unknown properties) and rejects dual credentials. Valid unknown,
+expired or revoked credentials are idempotent; malformed requests are 400,
+missing bearer is 401, Redis failures use the existing 503 mapping. Legacy
+bearer-only logout remains idempotent after its access index expires but cannot
+locate a still-refreshable session; refresh-body logout removes that limitation.
+
+`RedisSessionUseCases` revokes by refresh in one Lua operation. An active marker
+must match the current digest and unexpired refresh/absolute deadlines. A retained
+used marker locates that session's newest credential pair after rotation. The
+script deletes only that session and current indexes, never another session,
+never clears or extends used tombstones; rotate/revoke execution orders fail
+closed. Access TTL, absolute expiry, replay policy and PostgreSQL schema do not
+change. Core rollout precedes Desktop; rollback reverses that order.
+
+`DesktopRequestGuardFilter` has a local 131072-byte UTF-8 request budget, retains
+Content-Length fast rejection plus limit+1 bounded read and cached downstream
+body, and rejects over-budget requests before business effects. Field trim/NFC/
+code-point limits, sparse edits and historical responses remain separate and
+unchanged. Gateway's default 1 MiB admission policy is unchanged.
+
 ## Current Foundation
 
 **Current:** The repository now contains a runnable `:services:core-api` Gradle
@@ -151,7 +177,8 @@ legal-locale allowlist. Only after PostgreSQL commits does Access issue an
 active opaque Redis session. A successful first registration also returns the
 non-secret `workspaceId`/`projectId` bootstrap, including from encrypted attempt
 completion replay; existing-identity login does not return that bootstrap. Refresh rotates both credentials; replay
-of an old refresh token revokes the session family, logout revokes immediately,
+of an old refresh token revokes the session family, refresh-body logout atomically
+revokes the current pair (including after access expiry),
 and corrupt or unavailable Redis state fails closed. Existing-identity login
 updates only `lastAuthenticatedAt`, never the TaskPilot-owned display name or
 avatar. Incomplete GitHub/HMAC/AEAD/legal configuration keeps the service healthy

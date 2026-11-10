@@ -238,12 +238,32 @@ paths:
     post:
       tags:
       - Session
-      description: Requires an access bearer credential from an active opaque session.
+      description: Requires exactly one credential, either an access bearer or a refreshToken body. The empty security
+        requirement represents refresh body authentication, not anonymous logout. Unknown credentials are idempotent;
+        Redis failure returns 503 TEMPORARILY_UNAVAILABLE.
       operationId: logout
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
       responses:
         '204':
           description: Success
+        '400':
+          description: Request failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/TaskPilotProblemDetails'
         '401':
+          description: Request failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/TaskPilotProblemDetails'
+        '503':
           description: Request failed
           content:
             application/problem+json:
@@ -251,7 +271,8 @@ paths:
                 $ref: '#/components/schemas/TaskPilotProblemDetails'
       security:
       - accessBearer: []
-      x-taskpilot-authentication: access-bearer
+      - {}
+      x-taskpilot-authentication: access-bearer-or-refresh-credential-body
       x-taskpilot-ingress: canonical
   /v1/projects/{projectId}:restore:
     post:
@@ -1896,6 +1917,15 @@ components:
       - version
       - createdAt
       - updatedAt
+    LogoutRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+          maxLength: 512
+          x-field-extra-annotation: '@param:com.fasterxml.jackson.annotation.JsonSetter(nulls = com.fasterxml.jackson.annotation.Nulls.FAIL)'
     RefreshRequest:
       type: object
       properties:

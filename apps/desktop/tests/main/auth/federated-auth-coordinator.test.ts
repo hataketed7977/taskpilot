@@ -158,7 +158,7 @@ describe('FederatedAuthCoordinator', () => {
     await expect(current.coordinator.continue(flowId(started)))
       .rejects.toMatchObject({ code: 'CREDENTIAL_STORAGE_UNAVAILABLE' });
 
-    expect(current.logout).toHaveBeenCalledWith(issued.accessToken);
+    expect(current.logout).toHaveBeenCalledWith(issued.refreshToken);
     expect(await current.recovery.load('local')).toBeDefined();
     expect(current.session.view()).toEqual({ status: 'signedOut' });
   });
@@ -269,7 +269,7 @@ describe('FederatedAuthCoordinator', () => {
     pending.resolve({ status: 'AUTHENTICATED', session: issued });
 
     await expect(continuing).rejects.toMatchObject({ code: 'FEDERATED_LOGIN_CONTEXT_INVALID' });
-    expect(current.logout).toHaveBeenCalledWith(issued.accessToken);
+    expect(current.logout).toHaveBeenCalledWith(issued.refreshToken);
     expect(current.session.view()).toEqual({ status: 'signedOut' });
   });
 

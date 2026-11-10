@@ -60,7 +60,7 @@ flowchart TD
 | --- | --- | --- |
 | [`../AGENTS.md`](../AGENTS.md) | Current | Mandatory repository-wide instructions and navigation rules |
 | [`../README.md`](../README.md) | Current | Human-facing project orientation |
-| [`business-model.md`](business-model.md) | Target | Product vocabulary, identity and relationships, Event Storming scenarios, state machines, and MVP rules |
+| [`business-model.md`](business-model.md) | Current + Target | Product vocabulary, identity and relationships, Event Storming scenarios, state machines, and MVP rules |
 | [`architecture.md`](architecture.md) | Current + Target | System topology, cross-project boundaries, shared technical contracts, and architecture-wide quality policy |
 
 ## Brand Documents

@@ -52,6 +52,7 @@ function authenticatedApi(overrides: Partial<TaskPilotDesktopApi['projects']> = 
     auth: {
       getCapabilities: vi.fn().mockResolvedValue({ github: { enabled: true } }), startGitHubSignIn: vi.fn(), continueGitHubSignIn: vi.fn(),
       completeGitHubRegistration: vi.fn(), cancelGitHubSignIn: vi.fn(),
+      retrySessionRestore: vi.fn().mockResolvedValue({ status: 'signedOut' }),
       getSessionView: vi.fn().mockResolvedValue({ status: 'authenticated', currentUser: user }),
       subscribeSessionView: vi.fn((next) => { listener = next; return () => { listener = undefined; }; }),
       logout: vi.fn().mockResolvedValue(undefined),

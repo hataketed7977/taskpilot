@@ -172,6 +172,7 @@ export interface AuthCapabilities {
   completeGitHubRegistration(input: { flowId: string; displayName: string; useSuggestedAvatar: boolean; legalBundleVersion: string; termsVersion: string; privacyVersion: string; locale: string }): Promise<FederatedAuthFlowView>;
   cancelGitHubSignIn(input: { flowId: string }): Promise<void>;
   getSessionView(): Promise<SessionView>;
+  retrySessionRestore(): Promise<SessionView>;
   subscribeSessionView(listener: (view: SessionView) => void): () => void;
   logout(): Promise<void>;
 }

@@ -2,6 +2,7 @@ package ai.taskpilot.coreapi.access.api
 
 import ai.taskpilot.contract.generated.api.SessionApi
 import ai.taskpilot.contract.generated.model.CurrentUserResponse
+import ai.taskpilot.contract.generated.model.LogoutRequest
 import ai.taskpilot.contract.generated.model.RefreshRequest
 import ai.taskpilot.contract.generated.model.SessionResponse
 import ai.taskpilot.coreapi.AuthenticationProblemException
@@ -14,11 +15,15 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.RestController
+import tools.jackson.databind.DeserializationFeature
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.json.JsonMapper
 
 @RestController
 @ConditionalOnProperty(prefix = "taskpilot.authentication", name = ["enabled"], havingValue = "true")
 class AuthenticationController(
     private val sessions: SessionUseCases,
+    private val objectMapper: ObjectMapper = JsonMapper.builder().build(),
 ) : SessionApi {
     override fun refresh(refreshRequest: RefreshRequest): ResponseEntity<SessionResponse> {
         AuthenticationWireInputPolicy.refreshToken(refreshRequest.refreshToken)
@@ -28,12 +33,32 @@ class AuthenticationController(
         }
     }
 
-    override fun logout(): ResponseEntity<Unit> {
-        val accessToken =
-            currentHttpRequest().strictBearerToken()
-                ?: fail(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED")
-        sessions.logout(accessToken)
+    override fun logout(logoutRequest: LogoutRequest?): ResponseEntity<Unit> {
+        val request = currentHttpRequest()
+        validateLogoutBody(request)
+        val refreshToken = logoutRequest?.refreshToken
+        if (refreshToken != null) {
+            val length = refreshToken.codePointCount(0, refreshToken.length)
+            if (request.getHeader("Authorization") != null || length !in 1..MAXIMUM_BEARER_TOKEN_LENGTH) {
+                fail<Unit>(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED")
+            }
+            sessions.logoutByRefreshToken(refreshToken)
+        } else {
+            val accessToken = request.strictBearerToken() ?: fail(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED")
+            sessions.logout(accessToken)
+        }
         return ResponseEntity.noContent().build()
+    }
+
+    private fun validateLogoutBody(request: HttpServletRequest) {
+        val body = request.inputStream.readAllBytes()
+        if (body.isEmpty()) return
+        val node =
+            objectMapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(body)
+        val valid =
+            node != null && node.isObject &&
+                (node.isEmpty || (node.size() == 1 && node.has("refreshToken") && node.get("refreshToken").isString))
+        if (!valid) fail<Unit>(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED")
     }
 
     override fun currentUser(): ResponseEntity<CurrentUserResponse> {

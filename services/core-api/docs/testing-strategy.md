@@ -8,6 +8,25 @@
   [`responsibilities.md`](responsibilities.md)
 - **Mandatory before:** Implementing or changing Core API behavior or tests
 
+## Current Session-Recovery and Byte-Budget Cases
+
+`SessionUseCasesIntegrationTest` uses real Redis access-index expiry (not only an
+advanced Clock), active and used-marker logout before/after successive rotations,
+current-pair rejection, other-session isolation and non-extended tombstones.
+`AuthenticationHttpIntegrationTest` exercises real optional-body shape and
+credential-mode negatives, 512-code-point boundary, idempotent responses and real
+Redis wrong-type failure mapping to 503. OpenAPI/branch/module tests keep
+projection and adapter ownership intact.
+
+Full Unicode create/SET edit payloads test 160-code-point titles and 5000 emoji
+or decomposed NFC-length-5000 descriptions, raw and Unicode-escaped JSON. Exact
+131072-byte requests are accepted, 131073 rejected without effects under both
+known length and real chunked transport. Existing whole-field rejection, trim/
+NFC, sparse mutation and historical-response tests remain required. Selected
+Desktop system journeys cross the real Gateway and use test-only session doubles
+for one temporary refresh failure and real Redis access-index expiry; production
+has no testing endpoint or alternate authentication path.
+
 ## Current Executable Foundation
 
 The Current Core API suite covers authentication and atomic first-registration

@@ -5,6 +5,7 @@ import ai.taskpilot.coreapi.access.application.FederatedIdentityProvider
 import ai.taskpilot.coreapi.access.application.IssuedSession
 import ai.taskpilot.coreapi.access.application.ProviderIdentity
 import ai.taskpilot.coreapi.access.application.RefreshSessionResult
+import ai.taskpilot.coreapi.access.application.SecretDigester
 import ai.taskpilot.coreapi.access.application.SessionUseCases
 import ai.taskpilot.coreapi.access.application.SessionUser
 import org.flywaydb.core.Flyway
@@ -21,6 +22,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.GenericContainer
@@ -81,7 +83,12 @@ class DesktopSystemJourneyTest(
     @Test
     fun `Desktop journeys cross Gateway and fail closed when either service is unavailable`() {
         assertTrue(gatewayPort != port, "Gateway and Core API must use distinct ports")
-        runDesktopJourney("tests/system/first-use-journey.test.ts")
+        runDesktopJourney("tests/system/first-use-journey.test.ts", testNamePattern = "crosses provider")
+        // Separate journeys share localhost; reset only the test container's rate counters,
+        // preserving all real sessions, identities, and the production limiter policy.
+        val redisTemplate = StringRedisTemplate(redisConnection)
+        redisTemplate.delete(redisTemplate.keys("taskpilot:auth:rate:*"))
+        runDesktopJourney("tests/system/first-use-journey.test.ts", testNamePattern = "explicitly retries")
 
         stopGateway(gateway)
         runDesktopJourney(
@@ -102,6 +109,7 @@ class DesktopSystemJourneyTest(
     private fun runDesktopJourney(
         testFile: String,
         additionalEnvironment: Map<String, String> = emptyMap(),
+        testNamePattern: String = ".*",
     ) {
         val desktopRoot = repositoryRoot.resolve("apps/desktop")
         val outputFile = Files.createTempFile("taskpilot-desktop-system-", ".log")
@@ -115,6 +123,8 @@ class DesktopSystemJourneyTest(
                     "--config",
                     "vitest.config.ts",
                     testFile,
+                    "--testNamePattern",
+                    testNamePattern,
                 ).directory(desktopRoot.toFile())
                     .redirectErrorStream(true)
                     .redirectOutput(outputFile.toFile())
@@ -300,12 +310,17 @@ class DesktopSystemJourneyConfiguration {
     @Primary
     fun desktopSystemSessions(
         @Qualifier("sessionUseCases") delegate: SessionUseCases,
-    ): SessionUseCases = FailFirstJourneySessionIssue(delegate)
+        redis: StringRedisTemplate,
+        @Qualifier("sessionSecretDigester") digester: SecretDigester,
+    ): SessionUseCases = FailFirstJourneySessionIssue(delegate, redis, digester)
 }
 
 private class FailFirstJourneySessionIssue(
     private val delegate: SessionUseCases,
+    private val redis: StringRedisTemplate,
+    private val digester: SecretDigester,
 ) : SessionUseCases {
+    private var failRecoveryRefresh: String? = null
     private var failed = false
 
     override fun issue(user: SessionUser): IssuedSession {
@@ -313,14 +328,36 @@ private class FailFirstJourneySessionIssue(
             failed = true
             error("system journey session issue failure")
         }
-        return delegate.issue(user)
+        val issued = delegate.issue(user)
+        if (user.displayName == "Recovery Journey") {
+            failRecoveryRefresh = issued.refreshToken
+            expireAccessIndex(issued)
+        }
+        return issued
     }
 
-    override fun refresh(refreshToken: String): RefreshSessionResult = delegate.refresh(refreshToken)
+    override fun refresh(refreshToken: String): RefreshSessionResult {
+        if (refreshToken == failRecoveryRefresh) {
+            failRecoveryRefresh = null
+            error("system journey temporary refresh failure")
+        }
+        val result = delegate.refresh(refreshToken)
+        if (result is RefreshSessionResult.Refreshed && result.session.currentUser.displayName == "Recovery Journey") {
+            expireAccessIndex(result.session)
+        }
+        return result
+    }
+
+    private fun expireAccessIndex(session: IssuedSession) {
+        val digest = digester.digest("session:access", session.accessToken).encoded
+        redis.expire("taskpilot:auth:access:$digest", Duration.ofMillis(200))
+    }
 
     override fun currentUser(accessToken: String): CurrentUserResult = delegate.currentUser(accessToken)
 
     override fun logout(accessToken: String) = delegate.logout(accessToken)
+
+    override fun logoutByRefreshToken(refreshToken: String) = delegate.logoutByRefreshToken(refreshToken)
 }
 
 private fun encodeQuery(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")

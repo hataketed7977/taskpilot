@@ -36,6 +36,10 @@ class DesktopBearerAuthenticationFilter(
         response: HttpServletResponse,
         filterChain: FilterChain,
     ) {
+        if (request.method == "POST" && request.requestURI == "${request.contextPath}/v1/session:logout") {
+            filterChain.doFilter(request, response)
+            return
+        }
         val bearer =
             request
                 .getHeader("Authorization")
@@ -135,5 +139,5 @@ private class CachedBodyRequest(
 }
 
 private const val BEARER_PREFIX = "Bearer "
-private const val DEFAULT_MAXIMUM_BODY_BYTES = 16_384L
+private const val DEFAULT_MAXIMUM_BODY_BYTES = 131_072L
 private const val MAXIMUM_CORRELATION_ID_LENGTH = 128

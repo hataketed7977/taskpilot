@@ -39,8 +39,9 @@ function renderApp(api: TaskPilotDesktopApi) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function signedOutApi(): TaskPilotDesktopApi {
@@ -58,6 +59,7 @@ function signedOutApi(): TaskPilotDesktopApi {
       continueGitHubSignIn: vi.fn().mockResolvedValue(waiting),
       completeGitHubRegistration: vi.fn(),
       cancelGitHubSignIn: vi.fn().mockResolvedValue(undefined),
+      retrySessionRestore: vi.fn().mockResolvedValue({ status: 'signedOut' }),
       getSessionView: vi.fn().mockResolvedValue(signedOut),
       subscribeSessionView: vi.fn().mockReturnValue(() => undefined),
       logout: vi.fn().mockResolvedValue(undefined),
@@ -480,4 +482,121 @@ describe('GitHub authentication UX', () => {
     expect(name).toHaveAttribute('aria-invalid', 'true');
     expect(name.getAttribute('aria-describedby')?.split(/\s+/)).toContain(error.id);
   });
+});
+
+describe('explicit session retry and durable logout feedback', () => {
+  it('joins duplicate Retry activation without reload and ignores a late return after signedOut', async () => {
+    const api = signedOutApi();
+    const retry = deferred<SessionView>();
+    let publish!: (view: SessionView) => void;
+    vi.mocked(api.auth.getSessionView).mockResolvedValue({ status: 'temporarilyUnavailable' });
+    vi.mocked(api.auth.subscribeSessionView).mockImplementation(listener => { publish = listener; return () => undefined; });
+    vi.mocked(api.auth.retrySessionRestore).mockReturnValue(retry.promise);
+    const operator = userEvent.setup();
+    renderApp(api);
+    const button = await screen.findByRole('button', { name: '重试' });
+    await operator.click(button);
+    expect(button).toBeDisabled();
+    await operator.click(button);
+    expect(api.auth.retrySessionRestore).toHaveBeenCalledOnce();
+    await act(async () => publish({ status: 'signedOut' }));
+    await act(async () => retry.resolve({ status: 'authenticated', currentUser }));
+    expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
+    expect(api.auth.getSessionView).toHaveBeenCalledOnce();
+  });
+
+  it('uses subscription for retry success and handles temporary rejection without an unhandled promise', async () => {
+    const api = signedOutApi();
+    let publish!: (view: SessionView) => void;
+    vi.mocked(api.auth.getSessionView).mockResolvedValue({ status: 'temporarilyUnavailable' });
+    vi.mocked(api.auth.subscribeSessionView).mockImplementation(listener => { publish = listener; return () => undefined; });
+    vi.mocked(api.auth.retrySessionRestore).mockRejectedValueOnce(new Error('offline')).mockImplementation(async () => {
+      publish({ status: 'authenticated', currentUser });
+      return { status: 'authenticated', currentUser };
+    });
+    const operator = userEvent.setup();
+    renderApp(api);
+    await operator.click(await screen.findByRole('button', { name: '重试' }));
+    expect(screen.getByRole('button', { name: '重试' })).toBeEnabled();
+    await operator.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByRole('heading', { name: '我的项目' })).toBeInTheDocument();
+  });
+
+  it.each(['account', 'load-error'])('keeps storage cleanup failure visible after %s logout unmounts ProjectHome', async entry => {
+    const api = signedOutApi();
+    const result = deferred<void>();
+    let publish!: (view: SessionView) => void;
+    vi.mocked(api.auth.getSessionView).mockResolvedValue({ status: 'authenticated', currentUser });
+    vi.mocked(api.auth.subscribeSessionView).mockImplementation(listener => { publish = listener; return () => undefined; });
+    vi.mocked(api.auth.logout).mockImplementation(() => { publish({ status: 'signedOut' }); return result.promise; });
+    if (entry === 'load-error') vi.mocked(api.projects.resolveHome).mockRejectedValue(new Error('offline'));
+    const operator = userEvent.setup();
+    renderApp(api);
+    if (entry === 'account') {
+      await screen.findByRole('heading', { name: '我的项目' });
+      await operator.click(screen.getByRole('button', { name: '打开账号菜单' }));
+      await operator.click(screen.getByRole('button', { name: '退出登录' }));
+      await operator.click(screen.getAllByRole('button', { name: '退出登录' }).at(-1)!);
+    } else {
+      await operator.click(await screen.findByRole('button', { name: '退出并返回登录' }));
+    }
+    expect(await screen.findByRole('heading', { name: '登录 TaskPilot' })).toBeInTheDocument();
+    await act(async () => result.reject(Object.assign(new Error('offline and locked'), { code: 'CREDENTIAL_STORAGE_UNAVAILABLE' })));
+    expect(await screen.findByRole('alert')).toHaveTextContent('重启应用可能恢复上一会话');
+    await operator.click(screen.getByRole('button', { name: '关闭退出提示' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each(['sign-in', 'authenticated', 'unmount', 'api-switch'])('fences late logout failure after %s', async change => {
+    const api = signedOutApi();
+    const result = deferred<void>();
+    let publish!: (view: SessionView) => void;
+    vi.mocked(api.auth.getSessionView).mockResolvedValue({ status: 'authenticated', currentUser });
+    vi.mocked(api.auth.subscribeSessionView).mockImplementation(listener => { publish = listener; return () => undefined; });
+    vi.mocked(api.projects.resolveHome).mockRejectedValue(new Error('offline'));
+    vi.mocked(api.auth.logout).mockImplementation(() => { publish({ status: 'signedOut' }); return result.promise; });
+    const operator = userEvent.setup();
+    const rendered = renderApp(api);
+    await operator.click(await screen.findByRole('button', { name: '退出并返回登录' }));
+    await screen.findByRole('heading', { name: '登录 TaskPilot' });
+    if (change === 'sign-in') await operator.click(screen.getByRole('button', { name: '使用 GitHub 登录' }));
+    else if (change === 'authenticated') await act(async () => publish({ status: 'authenticated', currentUser }));
+    else if (change === 'unmount') rendered.unmount();
+    else rendered.rerender(<LocaleProvider initialLanguages={['zh-CN']}><App api={signedOutApi()} /></LocaleProvider>);
+    await act(async () => result.reject(Object.assign(new Error('locked'), { code: 'CREDENTIAL_STORAGE_UNAVAILABLE' })));
+    expect(screen.queryByText(/重启应用可能恢复上一会话/)).not.toBeInTheDocument();
+  });
+
+  it.each(['zh-CN', 'en'])('shows cleanup warning in %s and clears existing warning on API replacement', async locale => {
+    const api = signedOutApi();
+    let publish!: (view: SessionView) => void;
+    vi.mocked(api.auth.getSessionView).mockResolvedValue({ status: 'authenticated', currentUser });
+    vi.mocked(api.auth.subscribeSessionView).mockImplementation(listener => { publish = listener; return () => undefined; });
+    vi.mocked(api.projects.resolveHome).mockRejectedValue(new Error('offline'));
+    vi.mocked(api.auth.logout).mockImplementation(async () => {
+      publish({ status: 'signedOut' });
+      throw Object.assign(new Error('locked'), { code: 'CREDENTIAL_STORAGE_UNAVAILABLE' });
+    });
+    const rendered = render(<LocaleProvider initialLanguages={[locale]}><App api={api} /></LocaleProvider>);
+    const operator = userEvent.setup();
+    await operator.click(await screen.findByRole('button', { name: locale === 'en' ? 'Sign out and return' : '退出并返回登录' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(locale === 'en' ? 'Restarting this app may restore' : '重启应用可能恢复');
+    rendered.rerender(<LocaleProvider initialLanguages={[locale]}><App api={signedOutApi()} /></LocaleProvider>);
+    await screen.findByRole('heading', { name: locale === 'en' ? 'Sign in to TaskPilot' : '登录 TaskPilot' });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not show cleanup warning after a successful offline logout', async () => {
+    const api = signedOutApi();
+    let publish!: (view: SessionView) => void;
+    vi.mocked(api.auth.getSessionView).mockResolvedValue({ status: 'authenticated', currentUser });
+    vi.mocked(api.auth.subscribeSessionView).mockImplementation(listener => { publish = listener; return () => undefined; });
+    vi.mocked(api.projects.resolveHome).mockRejectedValue(new Error('offline'));
+    vi.mocked(api.auth.logout).mockImplementation(async () => { publish({ status: 'signedOut' }); });
+    renderApp(api);
+    await userEvent.setup().click(await screen.findByRole('button', { name: '退出并返回登录' }));
+    await screen.findByRole('heading', { name: '登录 TaskPilot' });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
 });

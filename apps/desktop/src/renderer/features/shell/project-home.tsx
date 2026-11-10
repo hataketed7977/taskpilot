@@ -22,7 +22,7 @@ type LoadState = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; home
 type ArchivedState = { kind: 'idle' | 'loading' | 'error' } | { kind: 'ready'; items: ProjectView[] };
 type CodedError = { code?: string; recovery?: string; path?: string };
 
-export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; session: AuthenticatedSession }) {
+export function ProjectHome({ api, session, onLogout }: { api: TaskPilotDesktopApi; session: AuthenticatedSession; onLogout(): Promise<void> }) {
   const { t } = useTranslation();
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [surface, setSurface] = useState<Surface>('home');
@@ -31,6 +31,12 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
   const [deleteProject, setDeleteProject] = useState<ProjectView>();
   const [accountOpen, setAccountOpen] = useState(false);
   const accountDockRef = useRef<HTMLDivElement>(null);
+  const logoutLifetime = useRef({ active: true });
+  useEffect(() => {
+    const current = { active: true };
+    logoutLifetime.current = current;
+    return () => { current.active = false; };
+  }, [api, session]);
   const [errorSignOutPending, setErrorSignOutPending] = useState(false);
   const requestGeneration = useRef(0);
   const selectionGeneration = useRef(0);
@@ -127,7 +133,8 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
             <button type="button" className="project-button project-button--primary" onClick={() => void loadHome()}>{t('common.retry')}</button>
             <button type="button" className="project-button" disabled={errorSignOutPending} onClick={() => {
               setErrorSignOutPending(true);
-              void api.auth.logout().finally(() => setErrorSignOutPending(false));
+              const current = logoutLifetime.current;
+              void onLogout().catch(() => undefined).finally(() => { if (current.active) setErrorSignOutPending(false); });
             }}>{errorSignOutPending ? t('account.loggingOut') : t('project.loadErrorSignOut')}</button>
           </div>
         </section>
@@ -189,7 +196,7 @@ export function ProjectHome({ api, session }: { api: TaskPilotDesktopApi; sessio
             <Avatar user={session.currentUser} size="small" />
             <span className="account-trigger__name">{session.currentUser.displayName}</span><span aria-hidden="true">⌃</span>
           </button>
-          {accountOpen ? <AccountMenu api={api} user={session.currentUser} /> : null}
+          {accountOpen ? <AccountMenu onLogout={onLogout} user={session.currentUser} /> : null}
         </div>
       </aside>
       <section className="project-workspace">
@@ -501,16 +508,22 @@ function ProjectFields({
   );
 }
 
-function AccountMenu({ api, user }: { api: TaskPilotDesktopApi; user: AuthenticatedSession['currentUser'] }) {
+function AccountMenu({ user, onLogout }: { user: AuthenticatedSession['currentUser']; onLogout(): Promise<void> }) {
   const { t } = useTranslation();
   const [pending, setPending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const lifetime = useRef({ active: true });
+  useEffect(() => {
+    const current = { active: true };
+    lifetime.current = current;
+    return () => { current.active = false; };
+  }, [onLogout]);
   const signOut = () => {
     if (pending) return;
     setPending(true);
-    void api.auth.logout().finally(() => {
-      setPending(false);
-      setConfirmOpen(false);
+    const current = lifetime.current;
+    void onLogout().catch(() => undefined).finally(() => {
+      if (current.active) { setPending(false); setConfirmOpen(false); }
     });
   };
   return (

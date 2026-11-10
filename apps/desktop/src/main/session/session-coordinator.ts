@@ -6,7 +6,7 @@ export interface SessionContext { generation: number; user: CurrentUserView }
 
 interface SessionPort {
   refresh(refreshToken: string): Promise<IssuedSession>;
-  logout(accessToken: string): Promise<void>;
+  logout(refreshToken: string | undefined, legacyAccessToken?: string): Promise<void>;
 }
 
 export class CredentialStorageError extends Error {
@@ -20,7 +20,7 @@ export class SessionCoordinator {
   private accessToken?: string;
   private currentUser?: CurrentUserView;
   private generation = 0;
-  private refreshing?: Promise<void>;
+  private restoring?: { generation: number; promise: Promise<void> };
   private credentialMutation: Promise<void> = Promise.resolve();
   private state: SessionView = { status: 'signedOut' };
   private readonly listeners = new Set<(view: SessionView) => void>();
@@ -43,17 +43,23 @@ export class SessionCoordinator {
 
   async establish(session: IssuedSession): Promise<void> {
     const generation = ++this.generation;
+    let cleanupFailed = false;
     try {
       await this.mutateCredential(async () => {
         if (generation !== this.generation) throw contextSuperseded();
-        await this.credentials.saveCurrent(this.environment, this.toCredential(session));
+        try { await this.credentials.saveCurrent(this.environment, this.toCredential(session)); }
+        catch (error) {
+          try { await this.credentials.clearCurrent(this.environment); }
+          catch { cleanupFailed = true; }
+          throw error;
+        }
       });
     } catch (error) {
       await this.revokeIssued(session);
       if (generation !== this.generation || isSessionContextSuperseded(error)) throw contextSuperseded();
       this.accessToken = undefined;
       this.currentUser = undefined;
-      this.publish({ status: 'signedOut' });
+      this.publish({ status: cleanupFailed ? 'temporarilyUnavailable' : 'signedOut' });
       throw new CredentialStorageError({ cause: error });
     }
     if (generation !== this.generation) {
@@ -66,36 +72,56 @@ export class SessionCoordinator {
   }
 
   async revokeIssued(session: IssuedSession): Promise<void> {
-    await Promise.resolve(this.port.logout(session.accessToken)).catch(() => undefined);
+    await Promise.resolve().then(() => this.port.logout(session.refreshToken)).catch(() => undefined);
   }
 
-  async restore(): Promise<void> {
-    this.publish({ status: 'restoring' });
-    let stored: StoredCredential | undefined;
-    try {
-      stored = await this.credentials.loadCurrent(this.environment);
-    } catch (error) {
-      this.accessToken = undefined;
-      this.currentUser = undefined;
-      this.publish({ status: 'temporarilyUnavailable' });
-      throw new CredentialStorageError({ cause: error });
-    }
-    if (!stored) {
-      this.publish({ status: 'signedOut' });
-      return;
-    }
-    await this.rotate(stored);
+  /** Capture startup intent before waiting for federated recovery. */
+  recoveryGeneration(): number { return this.generation; }
+
+  restore(generation = this.generation): Promise<void> {
+    if (generation !== this.generation) return Promise.resolve();
+    return this.recover(generation, true);
   }
 
-  async refresh(): Promise<void> {
-    if (this.refreshing) return this.refreshing;
-    const generation = this.generation;
-    this.refreshing = (async () => {
-      const stored = await this.credentials.loadCurrent(this.environment);
-      if (!stored) throw new Error('AUTHENTICATION_REQUIRED');
+  refresh(): Promise<void> { return this.recover(this.generation, false); }
+
+  async retrySessionRestore(): Promise<SessionView> {
+    if (this.state.status === 'authenticated' || this.state.status === 'signedOut') return this.view();
+    await this.restore();
+    return this.view();
+  }
+
+  private recover(generation: number, showRestoring: boolean): Promise<void> {
+    if (this.restoring?.generation === generation) return this.restoring.promise;
+    // Register the complete flight before publication can synchronously trigger another caller.
+    const flight = { generation, promise: Promise.resolve() };
+    this.restoring = flight;
+    flight.promise = Promise.resolve().then(async () => {
+      if (generation !== this.generation) return;
+      if (showRestoring) this.publish({ status: 'restoring' });
+      let stored: StoredCredential | undefined;
+      try {
+        stored = await this.credentials.loadCurrent(this.environment);
+      } catch (error) {
+        if (generation !== this.generation) return;
+        this.accessToken = undefined;
+        this.currentUser = undefined;
+        this.publish({ status: 'temporarilyUnavailable' });
+        throw new CredentialStorageError({ cause: error });
+      }
+      if (generation !== this.generation) return;
+      if (!stored) {
+        this.accessToken = undefined;
+        this.currentUser = undefined;
+        this.publish({ status: 'signedOut' });
+        if (!showRestoring) throw authenticationRequired();
+        return;
+      }
       await this.rotate(stored, generation);
-    })().finally(() => { this.refreshing = undefined; });
-    return this.refreshing;
+    }).finally(() => {
+      if (this.restoring === flight) this.restoring = undefined;
+    });
+    return flight.promise;
   }
 
   async protected<T>(operation: (accessToken: string) => Promise<T>): Promise<T> {
@@ -128,35 +154,49 @@ export class SessionCoordinator {
     this.generation += 1;
     this.accessToken = undefined;
     this.currentUser = undefined;
+    let refreshToken: string | undefined;
     let credentialError: unknown;
-    try {
-      await this.mutateCredential(() => this.credentials.clearCurrent(this.environment));
-    } catch (error) {
-      credentialError = error;
-    }
+    // Register read + cleanup synchronously, before an observer may establish a new account.
+    // Never generation-skip this old-slot cleanup; the queue keeps it before every newer save.
+    const cleanup = this.mutateCredential(async () => {
+      try {
+        refreshToken = (await this.credentials.loadCurrent(this.environment))?.refreshToken;
+      } catch (error) {
+        credentialError = error;
+      }
+      try {
+        await this.credentials.clearCurrent(this.environment);
+      } catch (error) {
+        credentialError ??= error;
+      }
+    });
     this.publish({ status: 'signedOut' });
-    if (oldToken) await Promise.resolve(this.port.logout(oldToken)).catch(() => undefined);
+    await cleanup;
+    if (refreshToken || oldToken) {
+      await Promise.resolve().then(() => refreshToken ? this.port.logout(refreshToken) : this.port.logout(undefined, oldToken))
+        .catch(() => undefined);
+    }
     if (credentialError) throw new CredentialStorageError({ cause: credentialError });
   }
 
-  private async rotate(stored: StoredCredential, generation = this.generation): Promise<void> {
-    if (generation !== this.generation) return;
+  private async rotate(stored: StoredCredential, generation: number): Promise<void> {
+    let issued: IssuedSession | undefined;
+    let cleanupFailed = false;
     try {
-      const session = await this.port.refresh(stored.refreshToken);
+      issued = await this.port.refresh(stored.refreshToken);
+      const session = issued;
       if (generation !== this.generation) {
         await this.revokeIssued(session);
         return;
-      }
-      if (!this.currentUser) {
-        this.generation += 1;
-        generation = this.generation;
       }
       const saved = await this.mutateCredential(async () => {
         if (generation !== this.generation) return false;
         try {
           await this.credentials.saveCurrent(this.environment, this.toCredential(session));
         } catch (error) {
-          await this.revokeIssued(session);
+          // Cleanup belongs to this queue slot, not behind a newer account's save.
+          try { await this.credentials.clearCurrent(this.environment); }
+          catch { cleanupFailed = true; }
           throw new CredentialStorageError({ cause: error });
         }
         return true;
@@ -169,30 +209,24 @@ export class SessionCoordinator {
       this.currentUser = session.currentUser;
       this.publish({ status: 'authenticated', currentUser: session.currentUser });
     } catch (error) {
-      if (generation === this.generation) {
-        this.accessToken = undefined;
-        this.currentUser = undefined;
-        if (error instanceof CredentialStorageError) {
-          this.generation += 1;
-          try {
-            await this.mutateCredential(() => this.credentials.clearCurrent(this.environment));
-          } catch {
-            this.publish({ status: 'temporarilyUnavailable' });
-            throw error;
-          }
-          this.publish({ status: 'signedOut' });
-        } else if ((error as { status?: number }).status === 401) {
-          this.generation += 1;
-          try {
-            await this.mutateCredential(() => this.credentials.clearCurrent(this.environment));
-          } catch (failure) {
-            this.publish({ status: 'temporarilyUnavailable' });
-            throw new CredentialStorageError({ cause: failure });
-          }
-          this.publish({ status: 'signedOut' });
-        } else {
+      if (issued) await this.revokeIssued(issued);
+      if (generation !== this.generation) return;
+      this.accessToken = undefined;
+      this.currentUser = undefined;
+      if (error instanceof CredentialStorageError) {
+        this.publish({ status: cleanupFailed ? 'temporarilyUnavailable' : 'signedOut' });
+      } else if ((error as { status?: number }).status === 401) {
+        const cleanup = this.mutateCredential(() => this.credentials.clearCurrent(this.environment));
+        try { await cleanup; }
+        catch (failure) {
+          if (generation !== this.generation) return;
           this.publish({ status: 'temporarilyUnavailable' });
+          throw new CredentialStorageError({ cause: failure });
         }
+        if (generation !== this.generation) return;
+        this.publish({ status: 'signedOut' });
+      } else {
+        this.publish({ status: 'temporarilyUnavailable' });
       }
       throw error;
     }

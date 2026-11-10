@@ -35,6 +35,7 @@ function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilotDeskto
     continueGitHubSignIn: vi.fn().mockResolvedValue(waiting),
     completeGitHubRegistration: vi.fn(),
     cancelGitHubSignIn: vi.fn().mockResolvedValue(undefined),
+    retrySessionRestore: vi.fn().mockResolvedValue({ status: 'signedOut' }),
     getSessionView: vi.fn().mockResolvedValue(session),
     subscribeSessionView: vi.fn().mockReturnValue(() => undefined),
     logout: vi.fn().mockResolvedValue(undefined),

@@ -1,13 +1,18 @@
 package ai.taskpilot.coreapi
 
 import ai.taskpilot.coreapi.access.application.FederatedIdentityProvider
+import ai.taskpilot.coreapi.access.application.HmacSha256SecretDigester
 import ai.taskpilot.coreapi.access.application.ProviderIdentity
+import ai.taskpilot.coreapi.access.application.SessionUseCases
+import ai.taskpilot.coreapi.access.application.SessionUser
+import ai.taskpilot.coreapi.access.model.UserId
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.web.server.LocalServerPort
@@ -15,6 +20,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.GenericContainer
@@ -44,6 +50,8 @@ import kotlin.test.assertTrue
 class AuthenticationHttpIntegrationTest(
     @param:LocalServerPort private val port: Int,
 ) {
+    @Autowired
+    private lateinit var sessions: SessionUseCases
     private val objectMapper = ObjectMapper()
     private lateinit var redisConnection: LettuceConnectionFactory
 
@@ -76,6 +84,60 @@ class AuthenticationHttpIntegrationTest(
         redisConnection.destroy()
         redis.stop()
         postgres.stop()
+    }
+
+    @Test
+    fun `logout strictly selects a credential and rejects malformed bodies before Redis lookup`() {
+        val issued = sessions.issue(SessionUser(UserId(UUID.randomUUID()), "Ada", null))
+        val invalid =
+            listOf(
+                "null",
+                "[]",
+                "true",
+                "1",
+                "\"token\"",
+                "{\"extra\":1}",
+                "{} {}",
+                "{\"refreshToken\":\"${issued.refreshToken}\"} null",
+                "{\"refreshToken\":null}",
+                "{\"refreshToken\":1}",
+                "{\"refreshToken\":\"\"}",
+                "{\"refreshToken\":\"${"😀".repeat(513)}\"}",
+                "{\"refreshToken\":\"${issued.refreshToken}\",\"extra\":1}",
+            )
+        invalid.forEach { body ->
+            val response = request("POST", "/v1/session:logout", body, issued.accessToken)
+            assertEquals(400, response.status, body)
+            assertEquals("VALIDATION_FAILED", response.json().requiredText("code"))
+            assertEquals(200, request("GET", "/v1/me", bearer = issued.accessToken).status)
+        }
+        assertEquals(400, request("POST", "/v1/session:logout", """{"refreshToken":"${issued.refreshToken}"}""", "invalid").status)
+        listOf(null, "{}").forEach { body ->
+            assertEquals(401, request("POST", "/v1/session:logout", body).status)
+            assertEquals(401, request("POST", "/v1/session:logout", body, "bad token").status)
+        }
+        assertEquals(204, request("POST", "/v1/session:logout", """{"refreshToken":"${"😀".repeat(512)}"}""").status)
+        assertEquals(204, request("POST", "/v1/session:logout", """{"refreshToken":"${issued.refreshToken}"}""").status)
+        assertEquals(401, request("GET", "/v1/me", bearer = issued.accessToken).status)
+        assertEquals(204, request("POST", "/v1/session:logout", """{"refreshToken":"${issued.refreshToken}"}""").status)
+        listOf(null, "{}").forEach { body ->
+            val legacy = sessions.issue(SessionUser(UserId(UUID.randomUUID()), "Ada", null))
+            assertEquals(204, request("POST", "/v1/session:logout", body, legacy.accessToken).status)
+            assertEquals(401, request("POST", "/v1/session:refresh", """{"refreshToken":"${legacy.refreshToken}"}""").status)
+        }
+    }
+
+    @Test
+    fun `logout Redis failure uses generic 503 while malformed payload remains 400`() {
+        val template = StringRedisTemplate(redisConnection).also { it.afterPropertiesSet() }
+        val digester = HmacSha256SecretDigester(ByteArray(32) { 7 })
+        // A wrong Redis type gives a real DataAccessException without stopping the shared server.
+        val digest = digester.digest("session:refresh", "broken").encoded
+        template.opsForHash<String, String>().put("taskpilot:auth:refresh:$digest", "bad", "type")
+        val result = request("POST", "/v1/session:logout", """{"refreshToken":"broken"}""")
+        assertEquals(503, result.status)
+        assertEquals("TEMPORARILY_UNAVAILABLE", result.json().requiredText("code"))
+        assertEquals(400, request("POST", "/v1/session:logout", "null", "broken").status)
     }
 
     @Test
@@ -256,7 +318,7 @@ class AuthenticationHttpIntegrationTest(
                 """{"expectedVersion":0,"name":"Renamed"}""",
                 registered.accessToken,
             )
-        assertEquals(200, edited.status)
+        assertEquals(200, edited.status, edited.body)
         assertEquals("Renamed", edited.json().requiredText("name"))
         assertEquals("1", edited.json().requiredText("version"))
 
@@ -763,6 +825,70 @@ class AuthenticationHttpIntegrationTest(
         assertEquals(405, request("DELETE", "/v1/boards/$boardId", bearer = registered.accessToken).status)
         assertEquals(405, request("DELETE", "/v1/work-items/$workItemId", bearer = registered.accessToken).status)
     }
+
+    @Test
+    @Suppress("ktlint:standard:max-line-length") // Full wire payloads remain literal boundary fixtures.
+    fun `complete maximum Unicode create and SET edit fit raw and escaped HTTP budgets`() {
+        val account = registerAccount("unicode-owner")
+        val board = firstBoard(account).json()
+        val boardId = board.requiredText("boardId")
+        val columnId = board.listOfObjects("columns").single().requiredText("columnId")
+        val title = "😀".repeat(160)
+        listOf(
+            "😀".repeat(5000),
+            java.text.Normalizer
+                .normalize("ᾂ", java.text.Normalizer.Form.NFD)
+                .repeat(5000),
+        ).forEach { description ->
+            listOf(false, true).forEach { escaped ->
+                val version = request("GET", "/v1/boards/$boardId", bearer = account.accessToken).json().requiredText("version")
+                val raw = """{"requestId":"${UUID.randomUUID()}","expectedBoardVersion":$version,"columnId":"$columnId","title":"$title","description":"$description"}"""
+                val body = if (escaped) unicodeEscaped(raw) else raw
+                assertTrue(body.toByteArray(StandardCharsets.UTF_8).size < 131072)
+                val created = request("POST", "/v1/boards/$boardId/work-items", body, account.accessToken)
+                assertEquals(201, created.status)
+                val item = created.json().nested("workItem")
+                val itemId = item.requiredText("workItemId")
+                assertEquals(java.text.Normalizer.normalize(description, java.text.Normalizer.Form.NFC), item.requiredText("description"))
+                val editDescription =
+                    if (description.startsWith(
+                            "😀",
+                        )
+                    ) {
+                        "😁".repeat(5000)
+                    } else {
+                        java.text.Normalizer
+                            .normalize("ᾃ", java.text.Normalizer.Form.NFD)
+                            .repeat(5000)
+                    }
+                val patch = """{"boardId":"$boardId","currentColumnId":"$columnId","targetColumnId":"$columnId","expectedVersion":0,"title":"$title","descriptionPatch":{"action":"SET","value":"$editDescription"}}"""
+                val edited = request("PATCH", "/v1/work-items/$itemId", if (escaped) unicodeEscaped(patch) else patch, account.accessToken)
+                assertEquals(200, edited.status, edited.body)
+            }
+        }
+    }
+
+    @Test
+    fun `real known length and chunked requests accept exact budget and reject budget plus one without effects`() {
+        val account = registerAccount("byte-owner")
+        val path = "/v1/projects/${account.projectId}"
+        listOf(false, true).forEachIndexed { index, chunked ->
+            val base = """{"expectedVersion":$index,"name":""}"""
+            val body = base.replace("\"name\":\"\"", "\"name\":\"${" ".repeat(131072 - base.length - 1)}${if (index == 0) "X" else "Y"}\"")
+            assertEquals(131072, body.toByteArray(StandardCharsets.UTF_8).size)
+            val accepted = request("PATCH", path, body, account.accessToken, chunked)
+            assertEquals(200, accepted.status, accepted.body)
+            val over = body.replace("\"name\":\"", "\"name\":\" ")
+            assertEquals(413, request("PATCH", path, over, account.accessToken, chunked).status)
+            assertEquals((index + 1).toString(), request("GET", path, bearer = account.accessToken).json().requiredText("version"))
+        }
+    }
+
+    private fun unicodeEscaped(value: String) =
+        value
+            .map { character ->
+                if (character.code > 127) "\\u%04x".format(character.code) else character.toString()
+            }.joinToString("")
 
     @Test
     fun `real HTTP text boundaries and sparse edits preserve historical values`() {
@@ -1606,6 +1732,7 @@ class AuthenticationHttpIntegrationTest(
         path: String,
         body: String? = null,
         bearer: String? = null,
+        chunked: Boolean = false,
     ): HttpResult {
         val request =
             HttpRequest
@@ -1614,7 +1741,23 @@ class AuthenticationHttpIntegrationTest(
                 .apply { bearer?.let { header("Authorization", "Bearer $it") } }
                 .method(
                     method,
-                    body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody(),
+                    when {
+                        body == null -> {
+                            HttpRequest.BodyPublishers.noBody()
+                        }
+
+                        chunked -> {
+                            HttpRequest.BodyPublishers.ofInputStream {
+                                java.io.ByteArrayInputStream(
+                                    body.toByteArray(StandardCharsets.UTF_8),
+                                )
+                            }
+                        }
+
+                        else -> {
+                            HttpRequest.BodyPublishers.ofString(body)
+                        }
+                    },
                 ).build()
         val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
         return HttpResult(response.statusCode(), response.body())

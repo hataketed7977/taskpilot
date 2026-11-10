@@ -9,6 +9,7 @@ export const CHANNELS = {
   completeGitHubRegistration: 'auth:complete-github-registration',
   cancelGitHubSignIn: 'auth:cancel-github-sign-in',
   getSessionView: 'auth:get-session-view',
+  retrySessionRestore: 'auth:retry-session-restore',
   logout: 'auth:logout',
   sessionChanged: 'auth:session-changed',
   listWorkspaces: 'workspaces:list',
@@ -72,6 +73,7 @@ const schemas = {
   }).strict(),
   cancelGitHubSignIn: z.object({ flowId: uuid }).strict(),
   getSessionView: z.undefined(),
+  retrySessionRestore: z.undefined(),
   logout: z.undefined(),
   listWorkspaces: z.undefined(),
   resolveProjectHome: z.undefined(),
@@ -144,6 +146,7 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
     [CHANNELS.completeGitHubRegistration, 'auth', 'completeGitHubRegistration'],
     [CHANNELS.cancelGitHubSignIn, 'auth', 'cancelGitHubSignIn'],
     [CHANNELS.getSessionView, 'auth', 'getSessionView'],
+    [CHANNELS.retrySessionRestore, 'auth', 'retrySessionRestore'],
     [CHANNELS.logout, 'auth', 'logout'],
     [CHANNELS.listWorkspaces, 'workspaces', 'listWorkspaces'],
     [CHANNELS.resolveProjectHome, 'projects', 'resolveProjectHome'],
@@ -174,7 +177,7 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
     auth: {
       getCapabilities: capabilities.auth.getCapabilities, startGitHubSignIn: capabilities.auth.startGitHubSignIn,
       continueGitHubSignIn: capabilities.auth.continueGitHubSignIn, completeGitHubRegistration: capabilities.auth.completeGitHubRegistration,
-      cancelGitHubSignIn: capabilities.auth.cancelGitHubSignIn, getSessionView: capabilities.auth.getSessionView, logout: capabilities.auth.logout,
+      cancelGitHubSignIn: capabilities.auth.cancelGitHubSignIn, getSessionView: capabilities.auth.getSessionView, retrySessionRestore: capabilities.auth.retrySessionRestore, logout: capabilities.auth.logout,
     } as never,
     workspaces: { listWorkspaces: capabilities.workspaces.list } as never,
     projects: {
@@ -196,7 +199,7 @@ export function registerDesktopHandlers(ipc: IpcRegistrar, capabilities: TaskPil
     ipc.handle(channel, async (event, input) => {
       try {
         validateIpcEvent(event, scope, scope.generation);
-        if (serializedSize(input) > 16_384) throw Object.assign(new Error('IPC input too large'), { code: 'VALIDATION_FAILED' });
+        if (serializedSize(input) > 131_072) throw Object.assign(new Error('IPC input too large'), { code: 'VALIDATION_FAILED' });
         const parsed = schemas[method].parse(input as never);
         const owner = owners[capability][method];
         if (!owner) throw new Error('Missing IPC capability owner');

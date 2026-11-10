@@ -21,6 +21,7 @@ describe('createTaskPilotDesktopApi', () => {
       [() => api.auth.completeGitHubRegistration(registration), CHANNELS.completeGitHubRegistration, registration],
       [() => api.auth.cancelGitHubSignIn({ flowId }), CHANNELS.cancelGitHubSignIn, { flowId }],
       [() => api.auth.getSessionView(), CHANNELS.getSessionView],
+      [() => api.auth.retrySessionRestore(), CHANNELS.retrySessionRestore],
       [() => api.auth.logout(), CHANNELS.logout],
       [() => api.workspaces.list(), CHANNELS.listWorkspaces],
       [() => api.projects.resolveHome(), CHANNELS.resolveProjectHome],

@@ -8,6 +8,15 @@
 - **Mandatory before:** Adding a backend use case, capability area, API adapter,
   durable job, provider integration, or ownership boundary
 
+## Current Logout Credential Boundary
+
+The Access HTTP adapter owns strict optional logout-body and mutually exclusive
+refresh/bearer authentication; generated wire models remain API-local. The Access
+application exposes a narrow `logoutByRefreshToken` operation. Persistence owns
+atomic active/used marker resolution and current-pair revocation without changing
+used-marker TTL. The request guard owns a local 128 KiB raw-body budget, not
+product text policy. Gateway does not authenticate the body or select a session.
+
 ## Current Implemented Responsibility
 
 **Current:** `core-api` owns its runnable application shell and engineering

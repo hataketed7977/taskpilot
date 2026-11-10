@@ -7,6 +7,27 @@
 - **Mandatory before:** Creating a subproject or changing a cross-project
   boundary
 
+## Current Session Recovery and Cross-Layer Request Budget
+
+Core's existing canonical logout operation accepts either strict legacy bearer
+(with absent/empty body) or a strict refresh body without Authorization. Access
+independently authenticates and atomically revokes the current pair via active or
+used Redis markers; Gateway only preserves transport. Desktop Main prefers
+refresh-based logout, immediately fences/publishes signedOut, and queues old-slot
+cleanup before new saves. Startup restore, explicit Retry and refresh share a
+whole-flight generation fence. Renderer receives only the narrow Retry capability
+and safe subscription state; App owns persistent-in-this-login-page cleanup-error
+feedback, never a token or durable revocation queue. See the owning
+[Core architecture](../services/core-api/docs/architecture.md) and
+[Desktop architecture](../apps/desktop/docs/architecture.md) for local rules.
+
+Main IPC and Core's bounded request guard independently allow 131072 raw UTF-8
+bytes; Gateway's production default remains 1048576 bytes. Product text limits,
+normalization, sparse edits and historical responses are unchanged. Deploy Core
+logout support before Desktop; roll back Desktop before Core. Actual edge budgets
+and the other-OS packaged acceptance remain release-owner evidence, not established
+by portable tests.
+
 ## Scope
 
 This document is the authoritative home for overall system architecture,

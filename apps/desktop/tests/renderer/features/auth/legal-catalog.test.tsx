@@ -42,6 +42,7 @@ function signedOutApi(): TaskPilotDesktopApi {
         currentUser: { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' },
       }),
       cancelGitHubSignIn: vi.fn().mockResolvedValue(undefined),
+      retrySessionRestore: vi.fn().mockResolvedValue({ status: 'signedOut' }),
       getSessionView: vi.fn().mockResolvedValue(signedOut),
       subscribeSessionView: vi.fn().mockReturnValue(() => undefined),
       logout: vi.fn().mockResolvedValue(undefined),

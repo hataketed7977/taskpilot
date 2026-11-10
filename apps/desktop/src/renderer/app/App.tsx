@@ -22,24 +22,82 @@ type CapabilityState = 'loading' | 'ready' | 'unavailable';
 type AuthIssue = 'offline' | 'expired' | 'unable';
 
 
-
 export function App({ api }: { api: TaskPilotDesktopApi }) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionView>({ status: 'restoring' });
+  const [retryPending, setRetryPending] = useState(false);
+  const [logoutWarning, setLogoutWarning] = useState(false);
+  const lifetime = useRef({ api, active: true, operation: 0 });
+  const pendingLogout = useRef<object | undefined>(undefined);
+  const pendingRetry = useRef<object | undefined>(undefined);
+
+  const invalidate = useCallback(() => {
+    lifetime.current.operation += 1;
+    pendingLogout.current = undefined;
+    pendingRetry.current = undefined;
+    setLogoutWarning(false);
+    setRetryPending(false);
+  }, []);
 
   useEffect(() => {
-    let active = true;
+    const current = { api, active: true, operation: 0 };
+    lifetime.current = current;
+    queueMicrotask(() => { if (current.active) invalidate(); });
+    let observed = false;
     void api.auth.getSessionView().then((view) => {
-      if (active) setSession(view);
+      if (current.active && !observed) setSession(view);
+    }).catch(() => {
+      if (current.active && !observed) setSession({ status: 'temporarilyUnavailable' });
     });
     const unsubscribe = api.auth.subscribeSessionView((view) => {
-      if (active) setSession(view);
+      if (!current.active) return;
+      observed = true;
+      // signedOut from this logout must not suppress its later cleanup error.
+      if (view.status === 'authenticated') invalidate();
+      setSession(view);
     });
     return () => {
-      active = false;
+      current.active = false;
+      current.operation += 1;
+      pendingLogout.current = undefined;
+      pendingRetry.current = undefined;
       unsubscribe();
     };
+  }, [api, invalidate]);
+
+  const logout = useCallback(async () => {
+    if (pendingLogout.current) return;
+    const current = lifetime.current;
+    const identity = {};
+    const operation = ++current.operation;
+    pendingLogout.current = identity;
+    setLogoutWarning(false);
+    try { await api.auth.logout(); }
+    catch (error) {
+      if (current.active && current === lifetime.current && current.api === api && current.operation === operation &&
+          pendingLogout.current === identity && (error as CodedError)?.code === 'CREDENTIAL_STORAGE_UNAVAILABLE') {
+        setLogoutWarning(true);
+      }
+    } finally {
+      if (pendingLogout.current === identity) pendingLogout.current = undefined;
+    }
   }, [api]);
+
+  const retry = async () => {
+    if (pendingRetry.current) return;
+    const current = lifetime.current;
+    const identity = {};
+    pendingRetry.current = identity;
+    setRetryPending(true);
+    try { await api.auth.retrySessionRestore(); }
+    catch { /* Main subscription remains authoritative for temporary and terminal states. */ }
+    finally {
+      if (current.active && current === lifetime.current && pendingRetry.current === identity) {
+        pendingRetry.current = undefined;
+        setRetryPending(false);
+      }
+    }
+  };
 
   if (session.status === 'restoring') {
     return <main id="main-content" className="center"><LanguageSelector /><p role="status">{t('session.restoring')}</p></main>;
@@ -51,18 +109,22 @@ export function App({ api }: { api: TaskPilotDesktopApi }) {
           <LanguageSelector variant="inline" />
           <h1 id="connection-title">{t('session.unavailableTitle')}</h1>
           <p>{t('session.unavailableDetail')}</p>
-          <button type="button" onClick={() => window.location.reload()}>{t('common.retry')}</button>
+          <button type="button" disabled={retryPending} aria-busy={retryPending} onClick={() => void retry()}>{t('common.retry')}</button>
         </section>
       </main>
     );
   }
   if (session.status === 'signedOut') {
-    return <AuthExperience auth={api.auth} onAuthenticated={(currentUser) => setSession({ status: 'authenticated', currentUser })} />;
+    return <AuthExperience auth={api.auth} onSignInIntent={invalidate} logoutWarning={logoutWarning}
+      onDismissLogoutWarning={() => setLogoutWarning(false)} onAuthenticated={(currentUser) => { invalidate(); setSession({ status: 'authenticated', currentUser }); }} />;
   }
-  return <ProjectHome api={api} session={session} />;
+  return <ProjectHome api={api} session={session} onLogout={logout} />;
 }
 
-function AuthExperience({ auth, onAuthenticated }: {
+function AuthExperience({ auth, onAuthenticated, onSignInIntent, logoutWarning, onDismissLogoutWarning }: {
+  onSignInIntent(): void;
+  logoutWarning: boolean;
+  onDismissLogoutWarning(): void;
   auth: AuthCapabilities;
   onAuthenticated(currentUser: Extract<SessionView, { status: 'authenticated' }>['currentUser']): void;
 }) {
@@ -113,6 +175,7 @@ function AuthExperience({ auth, onAuthenticated }: {
     if (operation.current) return;
     operation.current = true;
     const currentGeneration = ++generation.current;
+    onSignInIntent();
     setPending('start');
     setIssue(undefined);
     setFlow(undefined);
@@ -125,7 +188,7 @@ function AuthExperience({ auth, onAuthenticated }: {
       if (currentGeneration === generation.current) setPending(undefined);
       operation.current = false;
     }
-  }, [acceptView, auth, classifyIssue]);
+  }, [acceptView, auth, classifyIssue, onSignInIntent]);
 
   const continueFlow = useCallback(async () => {
     if (operation.current) return;
@@ -221,6 +284,10 @@ function AuthExperience({ auth, onAuthenticated }: {
         <section className="auth-panel" aria-label={t('auth.region')}>
           <LanguageSelector />
           <div className="auth-card">
+            {logoutWarning ? <div role="alert" className="error">
+              <p>{t('session.logoutCleanupWarning')}</p>
+              <button type="button" onClick={onDismissLogoutWarning}>{t('session.dismissLogoutWarning')}</button>
+            </div> : null}
             <AuthContent
               auth={auth}
               capability={capability}

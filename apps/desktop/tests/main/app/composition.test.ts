@@ -83,6 +83,9 @@ describe('createDesktopComposition', () => {
       method: 'POST', path: '/v1/session:refresh', body: { refreshToken: 'refresh-token' },
     });
     await auth.logout();
+    expect(current.request).toHaveBeenCalledWith({
+      method: 'POST', path: '/v1/session:logout', body: { refreshToken: 'refresh-rotated' },
+    });
     await expect(auth.getSessionView()).resolves.toEqual({ status: 'signedOut' });
   });
 });

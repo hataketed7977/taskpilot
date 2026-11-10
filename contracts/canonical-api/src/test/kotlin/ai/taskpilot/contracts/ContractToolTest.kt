@@ -17,6 +17,28 @@ import kotlin.test.assertTrue
 
 class ContractToolTest {
     @Test
+    fun `logout supports exclusive bearer or bounded refresh body without anonymous revocation`() {
+        val api = parse(java.nio.file.Path.of("openapi.yaml"))
+        val operation = api.paths.getValue("/v1/session:logout").post
+        assertEquals("logout", operation.operationId)
+        assertEquals("access-bearer-or-refresh-credential-body", operation.extensions["x-taskpilot-authentication"])
+        assertEquals(listOf(setOf("accessBearer"), emptySet()), operation.security.map { it.keys.toSet() })
+        assertEquals(false, operation.requestBody.required)
+        assertTrue(operation.description.contains("not anonymous"))
+        assertEquals(setOf("204", "400", "401", "503"), operation.responses.keys)
+        val schema = api.components.schemas.getValue("LogoutRequest")
+        assertEquals(false, schema.additionalProperties)
+        assertEquals(setOf("refreshToken"), schema.properties.keys)
+        val token = schema.properties.getValue("refreshToken")
+        assertEquals(1, token.minLength)
+        assertEquals(512, token.maxLength)
+        assertEquals(null, token.example)
+        assertEquals(null, token.default)
+        assertEquals("refresh-credential-body", api.paths.getValue("/v1/session:refresh").post.extensions["x-taskpilot-authentication"])
+        assertEquals("access-bearer", api.paths.getValue("/v1/me").get.extensions["x-taskpilot-authentication"])
+    }
+
+    @Test
     fun `checked-in contract validates and projects all ingress operations`() {
         val api = parse(java.nio.file.Path.of("openapi.yaml"))
         validate(api)

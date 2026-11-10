@@ -7,6 +7,15 @@
   [`responsibilities.md`](responsibilities.md)
 - **Mandatory before:** Implementing or changing Gateway behavior or tests
 
+## Current Logout and Desktop Budget Transport Cases
+
+`RouteIntegrationTest` forwards the canonical refresh logout body unchanged and
+without injecting a bearer. Its test-local request limit is 131072 bytes to prove
+Desktop-budget-sized known, unknown and real chunked bodies at limit−1/limit/
+limit+1. Production Gateway's default remains 1048576 bytes. Core alone owns
+credential-mode selection, shape validation, revocation and product text policy;
+Gateway introduces no session/business fixture.
+
 ## Development Loop
 
 Use focused Red-Green-Refactor for observable route/filter behavior:

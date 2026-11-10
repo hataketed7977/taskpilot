@@ -13,6 +13,7 @@ export function createTaskPilotDesktopApi(invoke: DesktopInvoke, subscribe: Sess
       completeGitHubRegistration: input => call(CHANNELS.completeGitHubRegistration, input),
       cancelGitHubSignIn: input => call(CHANNELS.cancelGitHubSignIn, input),
       getSessionView: () => call(CHANNELS.getSessionView),
+      retrySessionRestore: () => call(CHANNELS.retrySessionRestore),
       subscribeSessionView: subscribe,
       logout: () => call(CHANNELS.logout),
     },

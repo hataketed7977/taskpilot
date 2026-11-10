@@ -65,7 +65,9 @@ architecture and testing strategy, not frontend design Skills.
 - Keep Agent execution, workspace file access, PTY/process supervision, Diff
   production, and execution journaling in the Agent Runtime, not Main or
   Renderer.
-- Keep TaskPilot business truth and final authorization in Gateway/Core API.
+- Keep TaskPilot business truth and final business authorization in Core API.
+  Desktop reaches Core API through Gateway, which owns technical transport
+  policy rather than business authorization.
 - Treat macOS and Windows behavior as separate release evidence even when they
   share TypeScript and React code.
 - Never describe Target behavior as implemented until executable code and tests

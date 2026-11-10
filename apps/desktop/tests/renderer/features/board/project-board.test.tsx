@@ -219,6 +219,7 @@ function apiFor(board = initialBoard): TaskPilotDesktopApi {
       continueGitHubSignIn: vi.fn(),
       completeGitHubRegistration: vi.fn(),
       cancelGitHubSignIn: vi.fn(),
+      retrySessionRestore: vi.fn().mockResolvedValue({ status: 'signedOut' }),
       getSessionView: vi.fn(),
       subscribeSessionView: vi.fn(),
       logout: vi.fn(),

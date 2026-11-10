@@ -1,3 +1,4 @@
+import type { SessionView } from '../../src/shared/contracts';
 import { apiFor, mountApp } from './app-harness';
 
 describe('Desktop auth experience', () => {
@@ -174,4 +175,42 @@ describe('Desktop auth experience', () => {
       expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth);
     });
   });
+
+  it('retries Main recovery without reload and honors subscription state', () => {
+    const api = apiFor({ status: 'temporarilyUnavailable' });
+    let publish!: (view: SessionView) => void;
+    let finish!: (view: SessionView) => void;
+    (api.auth.subscribeSessionView as Cypress.Agent<sinon.SinonStub>).callsFake(listener => { publish = listener; return () => undefined; });
+    (api.auth.retrySessionRestore as Cypress.Agent<sinon.SinonStub>).callsFake(() => new Promise(resolve => { finish = resolve; }));
+    mountApp(api);
+    cy.findByRole('button', { name: '重试' }).focus().should('be.focused').click().should('be.disabled').and('have.attr', 'aria-busy', 'true');
+    cy.then(() => {
+      publish({ status: 'signedOut' });
+      finish({ status: 'signedOut' });
+    });
+    cy.findByRole('heading', { name: '登录 TaskPilot' }).should('be.visible');
+    cy.wrap(api.auth.retrySessionRestore).should('have.been.calledOnceWithExactly');
+    cy.wrap(api.auth.getSessionView).should('have.been.calledOnce');
+  });
+
+  for (const locale of ['zh-CN', 'en'] as const) {
+    it(`keeps accessible cleanup feedback after logout in ${locale}`, () => {
+      const api = apiFor({ status: 'authenticated', currentUser: { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Ada' } });
+      let publish!: (view: SessionView) => void;
+      (api.auth.subscribeSessionView as Cypress.Agent<sinon.SinonStub>).callsFake(listener => { publish = listener; return () => undefined; });
+      (api.projects.resolveHome as Cypress.Agent<sinon.SinonStub>).rejects(new Error('offline'));
+      (api.auth.logout as Cypress.Agent<sinon.SinonStub>).callsFake(async () => {
+        publish({ status: 'signedOut' });
+        throw Object.assign(new Error('locked'), { code: 'CREDENTIAL_STORAGE_UNAVAILABLE' });
+      });
+      cy.viewport(960, 640);
+      mountApp(api, locale);
+      cy.findByRole('button', { name: locale === 'en' ? 'Sign out and return' : '退出并返回登录' }).click();
+      cy.findByRole('alert').should('be.visible').and('contain.text', locale === 'en' ? 'Restarting this app may restore' : '重启应用可能恢复');
+      cy.screenshot(`logout-cleanup-${locale}`, { capture: 'viewport' });
+      cy.findByRole('button', { name: locale === 'en' ? 'Dismiss sign-out warning' : '关闭退出提示' }).focus().should('be.focused').click();
+      cy.findByRole('alert').should('not.exist');
+    });
+  }
+
 });

@@ -32,13 +32,14 @@ export class LoopbackReceiver {
         void closeServer(server);
       }).catch(() => undefined);
     });
+    // Binding errors belong to listen's retry/startup result, not the completion proof.
+    const port = await listen(server, preferred?.port);
     server.on('error', error => {
       if (!settled) {
         settled = true;
         rejectProof(error);
       }
     });
-    const port = await listen(server, preferred?.port);
     return {
       completionUri: `http://127.0.0.1:${port}${path}`,
       nonce,

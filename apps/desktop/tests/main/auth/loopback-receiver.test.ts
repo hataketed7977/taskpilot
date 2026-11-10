@@ -1,6 +1,14 @@
 import { request } from 'node:http';
-import { describe, expect, it } from 'vitest';
+import { randomInt } from 'node:crypto';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LoopbackReceiver } from '../../../src/main/auth/loopback-receiver.js';
+
+vi.mock('node:crypto', async importOriginal => {
+  const crypto = await importOriginal<typeof import('node:crypto')>();
+  return { ...crypto, randomInt: vi.fn(crypto.randomInt) };
+});
+
+afterEach(() => { vi.mocked(randomInt).mockReset(); });
 
 const nonce = 'abcdefghijklmnopqrstuvwxyzABCDEF';
 const proof = 'completion-proof-value';
@@ -46,6 +54,58 @@ describe('LoopbackReceiver', () => {
     expect((await send(handle.completionUri, 'POST', JSON.stringify({ completionProof: 'a'.repeat(5_000) }))).status).toBe(413);
     expect((await send(handle.completionUri, 'POST', JSON.stringify({ completionProof: proof }))).status).toBe(204);
     await expect(handle.proof).resolves.toBe(proof);
+  });
+
+  it('retries an occupied random port without rejecting the completion proof', async () => {
+    const occupied = await new LoopbackReceiver(() => nonce).start();
+    const spare = await new LoopbackReceiver(() => nonce).start();
+    void occupied.proof.catch(() => undefined);
+    void spare.proof.catch(() => undefined);
+    try {
+      const occupiedPort = Number(new URL(occupied.completionUri).port);
+      const sparePort = Number(new URL(spare.completionUri).port);
+      await spare.close();
+      vi.mocked(randomInt).mockClear().mockReturnValueOnce(occupiedPort).mockReturnValueOnce(sparePort);
+
+      const handle = await new LoopbackReceiver(() => nonce).start();
+      const received = handle.proof.then(value => ({ proof: value }), error => ({ error }));
+      try {
+        expect(new URL(handle.completionUri).port).toBe(String(sparePort));
+        expect(randomInt).toHaveBeenCalledTimes(2);
+        expect((await send(handle.completionUri, 'POST', JSON.stringify({ completionProof: proof }))).status).toBe(204);
+        await expect(received).resolves.toEqual({ proof });
+      } finally {
+        await handle.close();
+      }
+    } finally {
+      await spare.close();
+      await occupied.close();
+    }
+  });
+
+  it('rejects startup when all random port attempts are occupied', async () => {
+    const occupied = await new LoopbackReceiver(() => nonce).start();
+    void occupied.proof.catch(() => undefined);
+    try {
+      vi.mocked(randomInt).mockClear().mockReturnValue(Number(new URL(occupied.completionUri).port));
+      await expect(new LoopbackReceiver(() => nonce).start()).rejects.toMatchObject({ code: 'EADDRINUSE' });
+      expect(randomInt).toHaveBeenCalledTimes(32);
+    } finally {
+      await occupied.close();
+    }
+  });
+
+  it('does not fall back to another port when the exact recovery port is occupied', async () => {
+    const occupied = await new LoopbackReceiver(() => nonce).start();
+    void occupied.proof.catch(() => undefined);
+    try {
+      vi.mocked(randomInt).mockClear();
+      const port = Number(new URL(occupied.completionUri).port);
+      await expect(new LoopbackReceiver().start({ port, nonce })).rejects.toMatchObject({ code: 'EADDRINUSE' });
+      expect(randomInt).not.toHaveBeenCalled();
+    } finally {
+      await occupied.close();
+    }
   });
 
   it('rebinds an exact safe port and nonce for crash recovery', async () => {

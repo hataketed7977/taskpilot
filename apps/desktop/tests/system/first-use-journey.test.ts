@@ -373,4 +373,54 @@ describe('Desktop first-use system journey', () => {
       await current.api.auth.logout().catch(() => undefined);
     }
   }, 60_000);
+
+  it('explicitly retries recovery then revokes an expired-access session through Gateway', async () => {
+    if (!baseUrl) throw new Error('TASKPILOT_SYSTEM_BASE_URL is required');
+    const credentials = new MemoryCredentialStore();
+    const recentProjects = new MemoryRecentProjectStore();
+    const recentBoards = new MemoryRecentBoardStore();
+    let current = createHarness('3003', recentProjects, recentBoards, credentials);
+    try {
+      await register(current, await beginAndCompleteProvider(current), 'Recovery Journey');
+      current.dispose();
+      current = createHarness('3003', recentProjects, recentBoards, credentials);
+      await expect(current.composition.session.restore()).rejects.toBeDefined();
+      expect(await current.api.auth.getSessionView()).toEqual({ status: 'temporarilyUnavailable' });
+      expect(await credentials.loadCurrent('local')).toBeDefined();
+      expect(await current.api.auth.retrySessionRestore()).toMatchObject({ status: 'authenticated' });
+      const home = await current.api.projects.resolveHome();
+      const project = home.value.currentProject!;
+      const board = (await current.api.boards.resolveHome({ workspaceId: home.value.workspace.workspaceId, projectId: project.projectId })).value.currentBoard!;
+      const scope = { workspaceId: home.value.workspace.workspaceId, projectId: project.projectId, boardId: board.boardId };
+      const description = 'ᾂ'.normalize('NFD').repeat(5000);
+      const created = await current.api.boards.createWorkItem({
+        ...scope, columnId: board.columns[0].columnId, requestId: randomUUID(),
+        expectedBoardVersion: board.version, title: '😀'.repeat(160), description,
+      });
+      expect(created.value.workItem.description).toBe(description.normalize('NFC'));
+      const edited = await current.api.boards.editWorkItem({
+        ...scope, workItemId: created.value.workItem.workItemId,
+        currentColumnId: board.columns[0].columnId, targetColumnId: board.columns[0].columnId,
+        expectedVersion: created.value.workItem.version,
+        title: '😀'.repeat(160), descriptionPatch: { action: 'SET', value: '😀'.repeat(5000) },
+      });
+      expect(edited.value.workItem.description).toBe('😀'.repeat(5000));
+      const stored = await credentials.loadCurrent('local');
+      // Test-only Core session double expires the real Redis access index after issuance.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await expect(current.composition.session.protected(async accessToken => {
+        const response = await fetch(`${baseUrl}/v1/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        expect(response.status).toBe(401);
+      })).resolves.toBeUndefined();
+      await current.api.auth.logout();
+      expect(await credentials.loadCurrent('local')).toBeUndefined();
+      const revoked = await fetch(`${baseUrl}/v1/session:refresh`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: stored!.refreshToken }),
+      });
+      expect(revoked.status).toBe(401);
+    } finally {
+      current.dispose();
+      await current.api.auth.logout().catch(() => undefined);
+    }
+  }, 30_000);
 });

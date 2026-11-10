@@ -9,6 +9,28 @@
 - **Mandatory before:** Adding or changing Desktop behavior, IPC, native
   integration, packaging, updates, or tests
 
+## Current Session and Request-Budget Regression Evidence
+
+Focused Main tests exercise whole-flight startup/refresh/Retry joining,
+generation fencing and identity-safe finalizers; logout read/clear/new-save order,
+offline revocation, and storage failures. Bootstrap captures startup generation
+before Renderer load and federated recovery. IPC/Preload tests pin argument-free
+Retry, sender validation and UTF-8 body size. Renderer tests cover subscription-
+authoritative Retry, pending/double clicks/late return, both logout entries after
+ProjectHome unmounts, bilingual accessible cleanup warning, dismissal and new
+login/API/unmount fencing. Changed UI still requires packaged Chromium manual
+acceptance; jsdom is not native UI evidence.
+
+IPC and Core accept exactly 131072 bytes and reject 131073. Complete create/SET
+edit fixtures contain 160-code-point titles, 5000 emoji or NFD text whose NFC
+length is 5000, and full scope/version/patch metadata. Core additionally tests
+Unicode-escaped JSON, known length and real chunked bodies. Existing field-limit,
+sparse edit and historical-response cases remain required. The system journey
+uses compiled Main/IPC/Preload → real Gateway/Core/PostgreSQL/Redis for temporary
+recovery → explicit Retry, expired-access refresh-based logout, and large Unicode
+create/SET edit. Test-only session doubles expire the real Redis access index and
+fail one refresh; there is no production test endpoint or Core fallback.
+
 ## Principles
 
 Use the lowest reliable layer for each risk and add packaged/native tests only

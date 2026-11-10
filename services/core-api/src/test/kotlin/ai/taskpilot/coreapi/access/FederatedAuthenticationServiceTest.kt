@@ -616,6 +616,8 @@ class FederatedAuthenticationServiceTest {
 
         override fun currentUser(accessToken: String) = CurrentUserResult.AuthenticationRequired
 
+        override fun logoutByRefreshToken(refreshToken: String) = Unit
+
         override fun logout(accessToken: String) {
             logoutCount += 1
         }

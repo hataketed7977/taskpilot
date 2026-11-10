@@ -66,8 +66,9 @@ export async function bootstrapDesktopApp(): Promise<void> {
     unsubscribe();
   });
 
+  const recoveryGeneration = session.recoveryGeneration();
   await load();
   void federatedAuth.restore()
-    .then(() => session.restore())
+    .then(() => session.restore(recoveryGeneration))
     .catch(() => undefined);
 }

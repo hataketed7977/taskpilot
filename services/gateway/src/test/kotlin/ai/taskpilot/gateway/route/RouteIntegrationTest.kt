@@ -56,6 +56,24 @@ class RouteIntegrationTest(
     fun stopStub() = stub.disposeNow()
 
     @Test
+    fun `refresh logout reaches Core unchanged without injecting bearer identity`() {
+        val body = """{"refreshToken":"opaque-refresh"}"""
+        client
+            .post()
+            .uri("/v1/session:logout")
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(body)
+            .exchange()
+            .expectStatus()
+            .isOk
+        val observed = records.last()
+        assertEquals("POST", observed.method)
+        assertEquals("/v1/session:logout", observed.uri)
+        assertEquals(body, observed.body)
+        assertTrue(observed.headers.keys.none { it.equals("authorization", ignoreCase = true) })
+    }
+
+    @Test
     fun `every canonical route preserves method path query and body exactly once`() {
         routeCatalog.routes.forEachIndexed { index, route ->
             val path = concretePath(route.path, index)
@@ -423,7 +441,7 @@ class RouteIntegrationTest(
             .replace("{attemptId}", "attempt-$index")
 
     companion object {
-        private const val REQUEST_LIMIT = 128
+        private const val REQUEST_LIMIT = 131_072
         private const val RESPONSE_LIMIT = 256
         private val records = LinkedBlockingQueue<ObservedRequest>()
         private val stub: DisposableServer =

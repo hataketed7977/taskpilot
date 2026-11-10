@@ -43,6 +43,7 @@ const mock = vi.hoisted(() => {
       return state.unsubscribe;
     }),
     restore: vi.fn().mockResolvedValue(undefined),
+    recoveryGeneration: vi.fn(() => 0),
   };
   const federatedAuth = {
     restore: vi.fn().mockResolvedValue(undefined),
@@ -203,4 +204,17 @@ describe('bootstrapDesktopApp', () => {
       rendererOrigin: undefined,
     });
   });
+
+  it('captures startup generation before Renderer and federated recovery waits', async () => {
+    const recovery = Promise.withResolvers<void>();
+    mock.session.recoveryGeneration.mockReturnValueOnce(7);
+    mock.federatedAuth.restore.mockReturnValueOnce(recovery.promise);
+    await bootstrapDesktopApp();
+    expect(mock.session.restore).not.toHaveBeenCalled();
+    expect(mock.session.recoveryGeneration.mock.invocationCallOrder[0]).toBeLessThan(mock.state.load.mock.invocationCallOrder[0]);
+    mock.session.recoveryGeneration.mockReturnValue(9);
+    recovery.resolve();
+    await vi.waitFor(() => expect(mock.session.restore).toHaveBeenCalledWith(7));
+  });
+
 });

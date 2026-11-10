@@ -33,7 +33,7 @@ describe('validated Desktop IPC inputs', () => {
     const methods = {
       getCapabilities: vi.fn().mockResolvedValue({ github: { enabled: true } }),
       startGitHubSignIn: vi.fn(), continueGitHubSignIn: vi.fn(), completeGitHubRegistration: vi.fn(),
-      cancelGitHubSignIn: vi.fn(), getSessionView: vi.fn(), logout: vi.fn(),
+      cancelGitHubSignIn: vi.fn(), retrySessionRestore: vi.fn().mockResolvedValue({ status: 'signedOut' }), getSessionView: vi.fn(), logout: vi.fn(),
     };
     const handlers = setup(methods);
     expect([...handlers.keys()].sort()).toEqual(Object.values(CHANNELS).filter(channel => channel !== CHANNELS.sessionChanged).sort());
@@ -186,5 +186,46 @@ describe('validated Desktop IPC inputs', () => {
       flowId: '11111111-1111-4111-8111-111111111111', extra: true,
     })).resolves.toMatchObject({ ok: false, error: { category: 'validation' } });
     expect(continueGitHubSignIn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('bounded UTF-8 IPC request budget', () => {
+  const location = { workspaceId: uuid, projectId: uuid, boardId: uuid };
+  it.each(['😀'.repeat(5000), 'ᾂ'.normalize('NFD').repeat(5000)])('accepts complete maximum Unicode create and edit bodies', async (description) => {
+    const createWorkItem = vi.fn().mockResolvedValue({});
+    const editWorkItem = vi.fn().mockResolvedValue({});
+    const handlers = setup({}, { createWorkItem, editWorkItem });
+    const create = { ...location, columnId: uuid, requestId: uuid, expectedBoardVersion: 1, title: '😀'.repeat(160), description };
+    const edit = { ...location, workItemId: uuid, currentColumnId: uuid, targetColumnId: uuid, expectedVersion: 0,
+      expectedBoardVersion: 1, expectedPlacementVersion: 0, title: create.title, descriptionPatch: { action: 'SET', value: description } };
+    for (const [channel, input] of [[CHANNELS.createWorkItem, create], [CHANNELS.editWorkItem, edit]] as const) {
+      expect(new TextEncoder().encode(JSON.stringify(input)).length).toBeLessThan(131072);
+      await expect(handlers.get(channel)!(trusted, input)).resolves.toMatchObject({ ok: true });
+    }
+    expect(createWorkItem).toHaveBeenCalledOnce();
+    expect(editWorkItem).toHaveBeenCalledOnce();
+  });
+
+  it('accepts exactly 128 KiB and rejects one byte more before the owner', async () => {
+    const createWorkItem = vi.fn().mockResolvedValue({});
+    const handlers = setup({}, { createWorkItem });
+    const base = { ...location, columnId: uuid, requestId: uuid, expectedBoardVersion: 1, title: 'Task', description: '' };
+    const overhead = new TextEncoder().encode(JSON.stringify(base)).length;
+    const input = { ...base, description: ' '.repeat(131072 - overhead) };
+    expect(new TextEncoder().encode(JSON.stringify(input)).length).toBe(131072);
+    await expect(handlers.get(CHANNELS.createWorkItem)!(trusted, input)).resolves.toMatchObject({ ok: true });
+    await expect(handlers.get(CHANNELS.createWorkItem)!(trusted, { ...input, description: input.description + ' ' }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_FAILED' } });
+    expect(createWorkItem).toHaveBeenCalledOnce();
+  });
+
+  it('keeps retry parameterless and rejects wrong senders before calling the owner', async () => {
+    const retrySessionRestore = vi.fn().mockResolvedValue({ status: 'temporarilyUnavailable' });
+    const handlers = setup({ retrySessionRestore });
+    const handler = handlers.get(CHANNELS.retrySessionRestore)!;
+    await expect(handler(trusted, {})).resolves.toMatchObject({ ok: false });
+    await expect(handler({ ...trusted, sender: { id: 9 } })).resolves.toMatchObject({ ok: false });
+    expect(retrySessionRestore).not.toHaveBeenCalled();
+    await expect(handler(trusted)).resolves.toEqual({ ok: true, value: { status: 'temporarilyUnavailable' } });
   });
 });

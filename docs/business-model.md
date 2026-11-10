@@ -1,6 +1,6 @@
 # TaskPilot Business Model
 
-- **Status:** Target
+- **Status:** Current + Target
 - **Owns:** Product vocabulary, logical business objects, relationships,
   lifecycles, workflow semantics, Event Storming scenarios, and MVP business
   rules

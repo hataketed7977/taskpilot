@@ -39,8 +39,9 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
     refresh: refreshToken => options.transport.request({
       method: 'POST', path: '/v1/session:refresh', body: { refreshToken },
     }),
-    logout: accessToken => options.transport.request({
-      method: 'POST', path: '/v1/session:logout', accessToken,
+    logout: (refreshToken, legacyAccessToken) => options.transport.request({
+      method: 'POST', path: '/v1/session:logout',
+      ...(refreshToken ? { body: { refreshToken } } : { accessToken: legacyAccessToken }),
     }),
   });
   const projectHome = new ProjectHomeCoordinator(
@@ -75,6 +76,7 @@ export function createDesktopComposition(options: DesktopCompositionOptions): De
     completeGitHubRegistration: input => federatedAuth.register(input),
     cancelGitHubSignIn: input => federatedAuth.cancel(input.flowId),
     getSessionView: async () => session.view(),
+    retrySessionRestore: () => session.retrySessionRestore(),
     subscribeSessionView: listener => session.subscribe(listener),
     logout: () => session.logout(),
   };

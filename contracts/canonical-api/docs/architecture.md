@@ -37,6 +37,20 @@ TaskPilot's trimmed NFC Unicode-code-point policy. Core application validation o
 persisted product text, while Core HTTP adapters explicitly retain transport-only
 credential and legal-metadata bounds declared by the contract.
 
+## Current Session Logout Representation
+
+The existing `POST /v1/session:logout` operation accepts an optional strict
+`LogoutRequest`. With absent body or `{}`, Core authenticates the legacy strict
+bearer credential. A non-null `refreshToken` (1–512 Unicode code points) instead
+requires no Authorization header. The empty security alternative permits this
+body-credential mode; it does not make logout anonymous. Null/invalid shapes,
+unknown properties and dual credentials are rejected with 400; missing legacy
+credentials return 401. Valid unknown, expired or revoked credentials return
+idempotent 204; Redis unavailability returns 503. Core owns credential validation
+and atomic revocation, not the generated DTO or Gateway. Secrets have no examples
+or defaults. Legacy bearer-only logout cannot locate a still-refreshable session
+after its access index expires. Deploy Core support before Desktop; roll back Desktop before Core.
+
 ## Dependency Direction
 
 ```mermaid

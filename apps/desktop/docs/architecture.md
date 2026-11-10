@@ -172,7 +172,7 @@ link, embed a WebView, or hold the GitHub client secret.
 
 - Renderer owns interaction only. Preload exposes fixed methods for capability
   discovery, start/continue/cancel, first registration, session
-  view/subscription, and logout; it exposes no arbitrary URL, HTTP, or token
+  read-only view/subscription, argument-free explicit recovery Retry, and logout; it exposes no arbitrary URL, HTTP, or token
   getter.
 - Main alone holds the poll secret, completion proof, loopback URI/nonce,
   registration continuation, TaskPilot access/refresh tokens, and OS credential
@@ -188,10 +188,21 @@ link, embed a WebView, or hold the GitHub client secret.
   abandon, or refresh-recovery protocol.
 - Main writes refresh material to the OS credential facility before publishing
   authenticated state. If that write fails, it best-effort logs out the newly
-  issued session and does not expose authenticated UI. Refresh is single-flight
-  per generation; logout, cancellation, and window close fence late responses.
+  issued session and does not expose authenticated UI. Startup restore, explicit Retry, and protected-request refresh share one
+  load → rotate → save → publish flight per generation; logout, cancellation, and window close fence late responses.
 - Account and cloud environment form distinct credential namespaces. A terminal
-  `401` and logout use generation-first cleanup. Gateway/network/Core temporary
+  `401` uses fenced terminal cleanup. Logout advances the generation and
+  publishes signedOut immediately, synchronously queues old-slot read/clear ahead
+  of newer saves, then best-effort revokes with refresh (legacy access only if no
+  refresh was captured), without rotating or awaiting an older network flight.
+  Storage read failure still attempts clear; clear failure still attempts remote
+  revocation and reports `CREDENTIAL_STORAGE_UNAVAILABLE`. There is no persistent
+  offline revocation queue. App owns both logout entries and keeps a dismissible,
+  bilingual alert on the signed-out page if local cleanup was not confirmed;
+  signedOut from that logout does not fence its error, but new sign-in intent,
+  authenticated state (including the same User), API replacement and unmount do.
+  Retry never reloads Renderer or writes session from its return value; the Main
+  subscription remains authoritative. Gateway/network/Core temporary
   failures invalidate in-memory protected state, retain a potentially valid
   refresh credential, expose `temporarilyUnavailable`, and never fall back to a
   Core origin.
@@ -203,6 +214,11 @@ link, embed a WebView, or hold the GitHub client secret.
 - Core API remains authoritative for GitHub identity proof, internal `UserId`,
   and session lifecycle. Agent Runtime does not participate in login or receive
   Desktop credentials.
+
+**Current transport budget:** Main IPC serializes to UTF-8 and admits up to
+131072 bytes independently of Core's matching local HTTP budget. Neither owns
+product field length: trim/NFC/code-point validation and sparse/history behavior
+remain unchanged. Gateway's default 1048576-byte transport budget is unchanged.
 
 ## Legal Documents and Localization
 

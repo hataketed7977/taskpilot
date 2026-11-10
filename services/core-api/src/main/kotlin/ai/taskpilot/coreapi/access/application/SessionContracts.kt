@@ -33,4 +33,6 @@ interface SessionUseCases {
     fun currentUser(accessToken: String): CurrentUserResult
 
     fun logout(accessToken: String)
+
+    fun logoutByRefreshToken(refreshToken: String)
 }

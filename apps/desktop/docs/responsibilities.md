@@ -8,6 +8,20 @@
 - **Mandatory before:** Adding a window, page, component, Hook, IPC capability,
   native adapter, or Runtime-facing interaction
 
+## Current Session Recovery Ownership
+
+`SessionCoordinator` owns credential queue ordering, generation captured before
+startup recovery waits, whole-flight singleflight for restore/refresh/explicit
+Retry, secure-save-before-authenticated publication, and refresh-based logout.
+Late reads, saves, errors and flight finalizers cannot overwrite a newer account.
+Save failures clear in the same queue slot before newer saves and best-effort
+revoke newly issued credentials; failed clear leaves temporary/storage-error
+state. IPC validates the no-input `auth.retrySessionRestore` capability and its
+131072-byte serialized budget; `getSessionView` remains read-only. Preload never
+exposes credentials. App owns subscription routing, Retry pending state, and both
+logout callbacks; ProjectHome does not own cleanup error display. App retains the
+signed-out cleanup warning until dismissal or a new login/API/lifetime context.
+
 ## Owns
 
 - Window lifecycle, navigation, application shell, and first-party workflows.

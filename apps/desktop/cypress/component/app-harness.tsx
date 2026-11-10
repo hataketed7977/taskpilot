@@ -49,6 +49,7 @@ export function apiFor(session: SessionView = { status: 'signedOut' }): TaskPilo
       completeGitHubRegistration: cy.stub().resolves({ status: 'authenticated', currentUser: user }),
       cancelGitHubSignIn: cy.stub().resolves(),
       getSessionView: cy.stub().resolves(session),
+      retrySessionRestore: cy.stub().resolves(session),
       subscribeSessionView: cy.stub().returns(() => undefined),
       logout: cy.stub().resolves(),
     },

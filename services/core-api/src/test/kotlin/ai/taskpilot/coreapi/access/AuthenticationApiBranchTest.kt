@@ -87,11 +87,11 @@ class AuthenticationApiBranchTest {
             val request = MockHttpServletRequest()
             authorization?.let { request.addHeader("Authorization", it) }
             assertProblem("AUTHENTICATION_REQUIRED") {
-                withRequestContext(request) { controller.logout() }
+                withRequestContext(request) { controller.logout(null) }
             }
         }
         val valid = MockHttpServletRequest().apply { addHeader("Authorization", "Bearer access-token") }
-        assertEquals(HttpStatus.NO_CONTENT, withRequestContext(valid) { controller.logout() }.statusCode)
+        assertEquals(HttpStatus.NO_CONTENT, withRequestContext(valid) { controller.logout(null) }.statusCode)
         assertEquals("access-token", sessions.loggedOut)
     }
 
@@ -244,6 +244,8 @@ class AuthenticationApiBranchTest {
         override fun refresh(refreshToken: String) = refreshResult
 
         override fun currentUser(accessToken: String) = currentUserResult
+
+        override fun logoutByRefreshToken(refreshToken: String) = Unit
 
         override fun logout(accessToken: String) {
             loggedOut = accessToken

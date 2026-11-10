@@ -36,10 +36,10 @@ describe('Desktop Gateway failure system journey', () => {
         path: '/v1/session:refresh',
         body: { refreshToken },
       }),
-      logout: accessToken => transport.request<void>({
+      logout: (refreshToken, accessToken) => transport.request<void>({
         method: 'POST',
         path: '/v1/session:logout',
-        accessToken,
+        ...(refreshToken ? { body: { refreshToken } } : { accessToken }),
       }),
     });
 
