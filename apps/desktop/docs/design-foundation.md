@@ -307,6 +307,62 @@ Board deterministically. Board tabs/selectors sit inside the Project pane, and
 Columns form one bounded horizontal scrolling region so `960 × 640` never gains
 page-level horizontal overflow.
 
+#### Board layout and Card recipe
+
+**Current production (`refine-board-visual-layout`):** the following recipe is
+implemented in the Renderer and backed by six same-fixture Chrome geometry
+captures, passing focused/full browser regressions, and current-host macOS
+arm64 packaged Renderer presentation/menu/focus inspection. Human visual
+acceptance, independent code review, Windows release validation, and signed
+platform release certification remain pending. Evidence and
+remaining checks belong to the
+[`testing strategy`](testing-strategy.md#approved-board-visual-layout-verification).
+
+The Project context uses a `20 / 28px` heading and an approximately `48px`
+minimum header for ordinary content. The Project description has a single-line
+preview with its full value accessible through a tooltip or accessible name and
+the existing settings surface. Long Project names may wrap to preserve identity.
+The Board tabs/action row is approximately `44px` tall and shares a `20px`
+horizontal gutter with the canvas. Long tabs scroll within their own region,
+while the existing actions remain reachable.
+
+Columns use a common neutral light surface over the full available canvas
+height, `288px` readable widths, and `12px` gaps, with quiet outer boundaries
+and no persistent shadow. Names or positions never select business-status
+colors. Column headers align names, counts, and actions; Cards scroll vertically
+inside each Column, and its existing bottom create action stays reachable.
+The canvas scrolls horizontally rather than squeezing Columns at `960 × 640`.
+Icon actions retain at least `32 × 32px` targets and visible keyboard focus,
+including `focus-within` access to visually quiet Column actions.
+
+Each Card remains one activatable button with this bounded content recipe:
+
+| Region | Layout |
+| --- | --- |
+| Title | `14 / 20px`, weight 600; occupies one or two lines, with a maximum of two |
+| Summary | `12 / 18px`; at most one visible line, with an `18px` slot retained when empty; preview-only internal whitespace folding preserves the authoritative description |
+| Responsibility footer | Fixed `24px` slot; only the authoritative assigned member has a `24px` avatar, aligned left at the bottom; unassigned retains the empty slot without a fabricated person |
+
+Card padding is `12px`, region and Card gaps are `8px`, and the radius is `8px`
+with a light border. The current Chrome fixtures measure one-/two-line-title
+Cards at `104 / 124px` including borders; those fixture measurements are not
+cross-platform pixel contracts. Only the bounded title line count changes height. Empty/nonempty
+descriptions and assignee set/replace/clear keep the same title width, summary
+position, and outer height for the same title. Long text remains available in
+authoritative detail; truncation never changes Work Item content. The avatar is
+display-only, with its name in the tooltip and Card accessible name. Static
+Cards have no floating shadow, and ordinary hover uses surface/border feedback
+without translation.
+
+The production Board uses the existing values in
+[`tokens.css`](../src/renderer/styles/tokens.css), not the Target palette values
+elsewhere in this foundation. New geometry tokens stay scoped to
+`.board-surface`; global tokens, Inter/platform Chinese fallback, sidebar,
+native title bar, creation/editing surfaces, and detail-sheet geometry keep
+their existing owners. This presentation change has no business-model impact:
+Card identity, authoritative assignee, Board-local Placement, scope/version,
+and failure recovery follow the existing approved rules.
+
 Cards are compact Work Item projections, not decorative metric tiles. User
 names, Board/Column names, titles, and descriptions are never translated.
 Creating a Board selects it; deleting the selected empty Board adopts the
@@ -426,10 +482,15 @@ field's draft. Exact-name destructive confirmation remains a separate read-and-
 compare control and must accept the complete historical name.
 
 Card move supports pointer drag;
-the pointer's closest Card edge selects an exact insertion position, while one
-Card-height slot replaces the source Card in layout while one lifted drag preview
-follows the pointer. Surrounding Cards yield through a short, interruptible FLIP
-translation and the target Column combines outline, elevation, and a structural
+the target Card's actual midpoint selects an exact insertion position. In the
+Current production Board recipe, the source Card is measured before it is
+hidden. The lifted preview uses its measured width/height; the single insertion
+slot uses its measured height via `--board-drag-height` and fills the target
+Column's Card width, including both before-Card and end-of-Column outlets.
+Transient geometry is cleared on drop, cancel/dragend, and Board unmount;
+they never enter Placement or move payloads. Surrounding Cards yield through a
+short, interruptible FLIP translation only when the target changes, and the
+target Column combines a quiet outline and a structural
 signal rather than color alone. Editing a Work Item and selecting its
 Column is the non-drag equivalent. Moves preview
 locally, adopt the successful server snapshot, and roll back with one associated

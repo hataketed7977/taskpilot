@@ -268,24 +268,24 @@ Project OWNER SHALL 能以当前 Work Item version 设置、替换或清空 Work
 - **THEN** 系统回滚整个请求，不保存任何部分字段，也不移动 Card
 
 ### Requirement: Desktop 以低噪声方式展示和编辑责任信息
-Desktop SHALL 在 Work Item 详情中以稳定属性区展示可编辑责任人，并在底部 audit footer 同行展示不可编辑创建人、创建时间和更新时间；责任人字段 SHALL 提供可聚焦、可搜索、键盘可操作的选择器，候选项展示头像、姓名和成员角色，并提供“未分配”清空选项。Card 正面 SHALL 使用固定高度，以有界两行区域展示标题和描述，并只以固定在右上角且不参与内容流的轻量头像展示当前责任人；未分配 Card 不得显示责任人占位，且已分配/未分配、短/长内容 Card 的外部高度 SHALL 保持一致。责任人选择、保存、成功、validation 错误、暂时失败、版本冲突和迟到响应 SHALL 保持详情和 Card 布局稳定，不得造成标题/描述编辑体验回归或用责任人控件替代 Work Item heading。
+
+Desktop SHALL 在 Work Item 详情中以稳定属性区展示可编辑责任人，并在底部 audit footer 同行展示不可编辑创建人、创建时间和更新时间；责任人字段 SHALL 提供可聚焦、可搜索、键盘可操作的选择器，候选项展示头像、姓名和成员角色，并提供“未分配”清空选项。Card 正面 SHALL 按标题、可选描述摘要、底部责任信息的顺序呈现：标题最多两行且具有主要阅读权重，描述摘要最多一行；当前责任人 SHALL 仅以底部轻量头像呈现，不占据标题区域。Card SHALL 使用有界的内容布局，允许仅由标题一行／两行造成的有限外部高度差，MUST NOT 因全文描述、历史超长文本或责任人名称无限增高；同一标题在分配／清空责任人或描述变为空时，外部高度 SHALL 保持稳定。未分配 Card MUST NOT 显示责任人头像或伪造占位人员。预览截断 MUST NOT 改写权威标题和描述，Card 的完整标题与责任人含义 SHALL 保持可访问。责任人选择、保存、成功、validation 错误、暂时失败、版本冲突和迟到响应 SHALL 保持详情布局稳定，Card 只采用权威内容与责任人结果，不得造成标题/描述编辑体验回归或用责任人控件替代 Work Item heading。
 
 #### Scenario: 详情展示责任人与创建人
 - **WHEN** 用户打开 Work Item 详情
 - **THEN** Desktop 以实际 Work Item 标题作为唯一 heading，在属性区展示可编辑责任人，并在底部 audit footer 同行展示不可编辑创建人、创建时间和更新时间
 
 #### Scenario: 编辑内容时打开责任人选择器
-
 - **WHEN** 用户在标题或描述存在未保存草稿时请求打开责任人选择器
 - **THEN** Desktop 保持责任人控件可操作，先且只提交一次当前草稿，保存成功后再展开选择器并把焦点移入搜索框；validation、暂时失败或版本冲突时选择器保持关闭，草稿和恢复路径继续可用
 
 #### Scenario: 搜索并选择责任人
 - **WHEN** 用户打开责任人选择器、搜索当前 Project 成员并选择一名候选人
-- **THEN** Desktop 以当前 Work Item version 提交责任人修改，成功后以权威响应更新详情元数据和 Board Card 头像
+- **THEN** Desktop 以当前 Work Item version 提交责任人修改，成功后以权威响应更新详情元数据和 Board Card 底部头像
 
 #### Scenario: 清空责任人
 - **WHEN** 用户在责任人选择器中选择“未分配”
-- **THEN** Desktop 提交清空责任人的修改，成功后详情显示未分配状态，Card 正面移除责任人头像或显示约定的低噪声空态
+- **THEN** Desktop 提交清空责任人的修改，成功后详情显示未分配状态，Card 正面移除底部责任人头像且同一标题的 Card 高度保持稳定
 
 #### Scenario: 责任人保存失败
 - **WHEN** 责任人修改因 validation、暂时错误或版本冲突失败
@@ -294,6 +294,14 @@ Desktop SHALL 在 Work Item 详情中以稳定属性区展示可编辑责任人�
 #### Scenario: 选择器可访问
 - **WHEN** 用户仅使用键盘或辅助技术打开、搜索、选择或关闭责任人选择器
 - **THEN** 焦点顺序、候选名称、当前选中状态、未分配选项、加载状态和错误状态均可感知，且 reduced-motion 偏好下移除非必要动效
+
+#### Scenario: Card 内容层级和受控高度
+- **WHEN** 同一列同时显示短标题、长标题、空描述和多行描述的 Card
+- **THEN** 标题最多两行、非空摘要最多一行、头像位于底部责任区，Card 高度仅随有界标题行数变化，长描述不会推高卡片且用户仍可打开权威详情读取完整内容
+
+#### Scenario: 分配变化不挤压标题
+- **WHEN** 同一 Work Item 的责任人被权威设置、替换或清空
+- **THEN** Card 的标题宽度、摘要位置和外部高度保持稳定，只有底部头像按权威结果改变，且未分配时不显示伪造责任人
 
 ### Requirement: 本 Change 不提供历史版本能力
 当前 Work Item mutation SHALL 继续只维护当前状态、version、`createdAt` 和 `updatedAt`；系统 MUST NOT 暴露或伪造 durable revision history、Activity timeline、字段级 diff、按时间点回溯、版本对比、历史恢复或整板时间旅行能力。未来历史版本能力 SHALL 通过独立 Change 定义 append-only revision、字段扩展策略、查询 API、Card move activity 和 UI 展示，不得由本 Change 的 UI-only 日志替代。

@@ -402,10 +402,6 @@
   .board-toolbar {
     padding: 0 20px;
   }
-  .board-column {
-    width: 252px;
-    flex-basis: 252px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .board-column,

@@ -321,7 +321,7 @@ the fixed personal Workspace context, ACTIVE Project navigation, truthful
 loading/error/empty states, create/edit/archive/restore/permanent-delete
 interactions, multiple Board navigation and Board/Column/Work Item operations,
 including empty-Board permanent deletion, authoritative Work Item
-detail with an editable current-assignee property and immutable creator in the audit footer, plus fixed-height Board Cards whose bounded title/description slots reserve the top-right corner for an assigned-member avatar without changing Card geometry, field-local editing, pointer and keyboard Card movement,
+detail with an editable current-assignee property and immutable creator in the audit footer, Board Card projections, field-local editing, pointer and keyboard Card movement,
 account/language controls, and logout. Activating a Card first requests
 `openWorkItem`; the Card projection supplies only location/loading context and
 never substitutes for the returned Work Item. Renderer owns the detail's
@@ -342,6 +342,29 @@ Project or an empty state, and treats corrupt or unavailable preference storage
 as non-blocking. The preference is JSON stored under Desktop user data and keyed
 by cloud environment plus `UserId`; it is not business truth. Agent Runtime is
 not started.
+
+**Current production (`refine-board-visual-layout`):**
+the Renderer-local Board layout and bounded content Cards follow the
+[`Board recipe`](design-foundation.md#board-layout-and-card-recipe): compact
+Project context and tabs, full-height neutral Columns, one-/two-line titles,
+one-line summaries, and stable bottom-left assignee footers. The Board surface
+and Columns use flex layout to occupy the available canvas height. Renderer
+`BoardCanvas` measures the source before hiding it: the preview uses measured
+width/height, while either insertion-slot outlet shares the measured height
+through `--board-drag-height` and fills the target Column's Card width. Target midpoints
+continue to determine `beforeWorkItemId`. Geometry is transient and cleaned on
+drop, cancel/dragend, and unmount; it is not persisted or added to IPC/API
+payloads. The existing move owner, response fencing, authoritative success,
+rollback/reload, and Core authorization remain unchanged. Six Chrome layout
+captures, focused/full browser regressions, and macOS arm64 packaged Renderer
+presentation/menu/focus inspection support the production recipe. The native
+presentation probe uses a test-only Preload and refuses mutations; it does not
+exercise production Main/Preload/API end-to-end. Human acceptance, independent
+code review, Windows release validation, and signed platform release
+certification remain pending; detailed evidence belongs to the
+[`testing strategy`](testing-strategy.md#approved-board-visual-layout-verification).
+This slice changes no business model, Main/Preload,
+backend, persistence, dependency, or cross-project contract.
 
 Current shared Work Item/Card contracts and strict Main Zod parsers contain `createdBy` and nullable `assignee`, accept the current `PROJECT_MEMBER` assignee target, expose Project Member candidate listing, and contain no
 `lifecycle`, `status`, history, or activity fields; legacy or future unsupported fields fail closed rather than being optional or

@@ -1,59 +1,76 @@
 /* Project board — horizontal work surface */
 .board-surface {
-  --board-inline-gutter: 28px;
+  --board-inline-gutter: 20px;
+  --board-column-width: 288px;
   min-width: 0;
   min-height: 0;
   height: 100%;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  background: color-mix(in srgb, var(--canvas) 34%, var(--paper));
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
 }
 .board-context {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  min-height: 48px;
+  flex: none;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 23px 28px 17px;
+  gap: 16px;
+  padding: 10px var(--board-inline-gutter);
 }
 .board-context__project {
   min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 4px;
 }
 .board-context__project > span {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 680;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
 }
 .board-context__project h1 {
-  margin: 3px 0 0;
+  margin: 0;
   overflow-wrap: anywhere;
-  font-size: 25px;
-  line-height: 1.1;
-  letter-spacing: -0.035em;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  letter-spacing: -0.02em;
 }
 .board-context__project p {
-  max-width: 620px;
-  margin: 7px 0 0;
+  min-width: 0;
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .board-project-settings {
   flex: none;
 }
 .board-toolbar {
   min-width: 0;
+  min-height: 44px;
+  flex: none;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  padding: 0 28px;
+  gap: 16px;
+  padding: 0 var(--board-inline-gutter);
   border-bottom: 1px solid var(--line);
 }
 .board-switcher {
   min-width: 0;
+  flex: 1;
   display: flex;
-  gap: 22px;
+  gap: 20px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -63,27 +80,31 @@
 .board-switcher button {
   position: relative;
   flex: none;
-  min-height: 42px;
+  max-width: 240px;
+  min-height: 44px;
   border: 0;
   border-radius: 0;
-  padding: 0 1px;
+  padding: 0 2px;
+  overflow: hidden;
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
-  font-weight: 620;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .board-switcher button:hover {
   color: var(--ink);
 }
 .board-switcher button.is-current {
   color: var(--ink);
-  font-weight: 730;
+  font-weight: 600;
 }
 .board-switcher button.is-current::after {
   content: "";
   position: absolute;
   right: 0;
-  bottom: -1px;
+  bottom: 0;
   left: 0;
   height: 2px;
   background: var(--action);
@@ -93,7 +114,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-bottom: 8px;
+  padding: 6px 0;
+}
+.board-context .project-button,
+.board-toolbar .project-button {
+  min-height: 32px;
+  font-size: 13px;
+}
+.board-toolbar .icon-action {
+  width: 32px;
+  min-height: 32px;
+}
+.board-surface button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.board-switcher button:focus-visible,
+.board-card__body:focus-visible {
+  outline-offset: -3px;
 }
 .board-actions {
   position: relative;
@@ -136,38 +174,40 @@
   position: relative;
   min-width: 0;
   min-height: 0;
+  flex: 1;
   overflow: hidden;
 }
 .board-columns {
   height: 100%;
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 12px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 18px var(--board-inline-gutter) 28px;
+  padding: 16px var(--board-inline-gutter) 20px;
   overscroll-behavior-inline: contain;
   scroll-padding-inline: var(--board-inline-gutter);
   scroll-snap-type: x proximity;
 }
 .board-column {
   position: relative;
-  width: 272px;
+  width: var(--board-column-width);
+  height: 100%;
+  min-height: 0;
   max-height: 100%;
-  flex: 0 0 272px;
+  flex: 0 0 var(--board-column-width);
   display: flex;
   flex-direction: column;
   scroll-snap-align: start;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
-  border-radius: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--canvas) 80%, var(--paper));
   transform-origin: top center;
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
+    box-shadow 180ms ease;
 }
 .board-column::before {
   position: absolute;
@@ -187,11 +227,12 @@
   content: "";
 }
 .board-column__header {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 10px 9px 8px 12px;
+  padding: 8px;
 }
 .board-column__header > div:first-child {
   min-width: 0;
@@ -203,18 +244,20 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 12px;
-  font-weight: 720;
+  font-size: 13px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .board-column__header span {
   min-width: 20px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 .board-column__actions {
+  flex: none;
   display: flex;
   align-items: center;
   opacity: 0;
@@ -225,8 +268,8 @@
   opacity: 1;
 }
 .board-column__actions .icon-action {
-  width: 24px;
-  min-height: 24px;
+  width: 32px;
+  min-height: 32px;
   font-size: 13px;
 }
 .board-column__actions svg,
@@ -240,36 +283,34 @@
   stroke-width: 1.35;
 }
 .board-card-list {
-  min-height: 42px;
+  min-height: 0;
+  flex: 1;
   overflow-y: auto;
   display: grid;
   align-content: start;
-  gap: 7px;
-  padding: 2px 8px;
+  gap: 8px;
+  padding: 4px 8px;
 }
 .board-card {
-  --board-card-inset: 14px;
+  --board-card-inset: 12px;
 
   position: relative;
   width: 100%;
   min-width: 0;
-  height: 110px;
   display: flex;
   align-items: stretch;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
-  box-shadow: 0 1px 1px color-mix(in srgb, var(--ink) 5%, transparent);
   transform-origin: center;
   transition:
     border-color 180ms ease,
-    transform 200ms ease,
-    box-shadow 200ms ease,
+    background-color 180ms ease,
     opacity 180ms ease;
 }
 .board-card:hover {
   border-color: color-mix(in srgb, var(--action) 38%, var(--line));
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--action) 2%, var(--paper));
 }
 .board-card.is-moving {
   opacity: 0.58;
@@ -285,12 +326,11 @@
   z-index: 1000;
   top: -10000px;
   left: -10000px;
-  height: 110px;
   margin: 0;
   overflow: hidden;
   border-color: color-mix(in srgb, var(--action) 54%, var(--line));
   opacity: 0.96;
-  transform: rotate(0.35deg) scale(1.012);
+  transform: none;
   box-shadow: 0 18px 42px color-mix(in srgb, var(--ink) 20%, transparent);
   pointer-events: none;
 }
@@ -300,13 +340,13 @@
 .board-card__body {
   position: relative;
   min-width: 0;
-  height: 100%;
+  height: auto;
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-rows: 35px 33px;
+  grid-template-rows: auto 18px 24px;
   align-content: start;
-  gap: 7px;
+  gap: 8px;
   overflow: hidden;
   border: 0;
   padding: var(--board-card-inset);
@@ -323,24 +363,30 @@
   -webkit-line-clamp: 2;
 }
 .board-card__title {
-  padding-right: 34px;
+  min-height: 20px;
+  max-height: 40px;
   color: var(--ink);
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
 }
 .board-card__description {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 18px;
+  -webkit-line-clamp: 1;
+  white-space: normal;
+}
+.board-card__meta {
+  min-width: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
 }
 .board-column.is-drop-target {
   border-color: color-mix(in srgb, var(--action) 62%, var(--line));
   background: color-mix(in srgb, var(--action) 7%, var(--canvas));
-  box-shadow:
-    0 18px 38px color-mix(in srgb, var(--ink) 13%, transparent),
-    0 0 0 3px color-mix(in srgb, var(--action) 12%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--action) 13%, transparent);
-  transform: translateY(-3px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--action) 35%, transparent);
 }
 .board-column.is-drop-target::before {
   opacity: 1;
@@ -348,18 +394,11 @@
 }
 .board-drop-slot {
   position: relative;
-  height: 110px;
+  height: var(--board-drag-height);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--action) 18%, var(--line));
   border-radius: 8px;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--action) 7%, var(--paper)),
-    color-mix(in srgb, var(--action) 2%, var(--canvas))
-  );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--paper) 76%, transparent),
-    inset 0 0 20px color-mix(in srgb, var(--action) 4%, transparent);
+  background: color-mix(in srgb, var(--action) 6%, var(--paper));
   opacity: 0.82;
   transform-origin: top center;
   animation: board-drop-slot-reveal 140ms ease-out;
@@ -371,15 +410,7 @@
   left: 18px;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--action) 72%, white) 22%,
-    var(--action) 50%,
-    color-mix(in srgb, var(--action) 72%, white) 78%,
-    transparent
-  );
-  box-shadow: 0 2px 12px color-mix(in srgb, var(--action) 35%, transparent);
+  background: var(--action);
   content: "";
 }
 @keyframes board-drop-slot-reveal {
@@ -394,21 +425,20 @@
 }
 @keyframes board-card-settle {
   0% {
-    transform: translateY(-3px) scale(1.012);
-    box-shadow: 0 10px 24px color-mix(in srgb, var(--ink) 13%, transparent);
+    transform: translateY(-2px);
   }
   100% {
-    transform: translateY(0) scale(1);
-    box-shadow: 0 1px 1px color-mix(in srgb, var(--ink) 5%, transparent);
+    transform: translateY(0);
   }
 }
 .board-column__empty {
   margin: 8px 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
 }
 .board-add-card {
+  flex: none;
   min-height: 36px;
   margin: 5px 8px 8px;
   border-color: transparent;
@@ -416,7 +446,7 @@
   color: var(--muted);
   background: transparent;
   text-align: left;
-  font-size: 11px;
+  font-size: 13px;
 }
 .board-add-card:hover {
   color: var(--ink);
@@ -426,16 +456,17 @@
   width: 172px;
   min-height: 42px;
   flex: 0 0 172px;
+  align-self: flex-start;
   border: 1px dashed var(--line-strong);
   color: var(--muted);
   background: color-mix(in srgb, var(--paper) 72%, transparent);
-  font-size: 11px;
+  font-size: 13px;
 }
 .board-inline-error {
   position: absolute;
-  right: 28px;
+  right: var(--board-inline-gutter);
   bottom: 16px;
-  left: 28px;
+  left: var(--board-inline-gutter);
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--line));
   border-radius: 8px;
@@ -449,7 +480,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 28px 10px;
+  flex: none;
+  margin: 10px var(--board-inline-gutter) 0;
   border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--line));
   border-radius: 8px;
   padding: 8px 10px 8px 12px;
@@ -474,6 +506,10 @@
 .board-state h2 {
   margin: 14px 0 5px;
   font-size: 20px;
+}
+.board-surface > .board-state {
+  height: auto;
+  flex: 1;
 }
 .board-state p {
   max-width: 380px;
@@ -505,6 +541,7 @@
   background: var(--line);
 }
 .board-notice {
+  flex: none;
   margin: 12px var(--board-inline-gutter) 0;
   border-left: 3px solid var(--warning, #8a5a00);
   padding: 9px 11px;
@@ -551,18 +588,12 @@
 }
 
 .board-card__assignee {
-  position: absolute;
-  z-index: 1;
-  top: var(--board-card-inset);
-  right: var(--board-card-inset);
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
-  border: 2px solid var(--paper);
   border-radius: 50%;
   background: var(--paper);
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 14%, transparent);
 }
 .board-card__assignee .assignee-avatar {
   width: 24px;

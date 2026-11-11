@@ -238,7 +238,7 @@ unknown server paths. Renderer integration tests verify that a dirty field saves
 before the picker opens, that save failure keeps the picker closed with the draft
 recoverable, and that `paused-invalid` drafts survive unrelated assignee saves or
 enter conflict when their authoritative baseline changes.
-Cypress covers equal fixed Card height for assigned/unassigned and short/long content, real Chromium top-right avatar geometry and two-line title/description clamping, keyboard set/clear, picker geometry,
+Cypress retains keyboard set/clear, picker geometry,
 picker error state, dirty-description save-first sequencing and search-focus transfer,
 creator/timestamp footer alignment, and the 560px sheet. Real Chromium also
 covers hard-limit keys, atomic paste and IME commit, selection replacement,
@@ -251,6 +251,175 @@ behavior, and the horizontally scrollable Column region remain covered. The
 system journey uses a provider/browser double plus packaged Gateway, real Core
 API, PostgreSQL, and Redis; it does not prove real GitHub OAuth, production Core
 network isolation, or Windows-native drag/focus behavior.
+
+### Approved Board visual-layout verification
+
+**Current production and layout-capture evidence for
+`refine-board-visual-layout`:** the Renderer implements the Board recipe.
+Six candidate Chrome captures have been reported passing, and the saved
+geometry records and PNG dimensions have been inspected. Chinese and English
+captures use the same five-Column fixture, Chrome version, device-pixel ratio
+(`1`), data order, and starting scroll position as their baselines. All Columns
+measure `288px` wide and occupy the full available Column height; Cards measure
+`104 / 124px` with title heights of `20 / 40px`. The PNGs are exactly
+`960 × 640`, `1280 × 800`, and `1600 × 900` for each language.
+
+| Viewport, both languages | Baseline top usage | Candidate top usage | Fully visible Cards, baseline → candidate |
+| --- | --- | --- | --- |
+| `960 × 640` | `156.89px` | `114px` | `6 → 8` |
+| `1280 × 800` | `156.89px` | `114px` | `9 → 9` |
+| `1600 × 900` | `156.89px` | `114px` | `12 → 12` |
+
+The paired Chrome evidence uses baseline JSONs under
+`/tmp/taskpilot-board-layout/baseline/*.json`, preserved candidate JSONs under
+`/tmp/taskpilot-board-layout/candidate-chrome/*.json`, and preserved candidate
+screenshots under `/tmp/taskpilot-board-layout/candidate-chrome/screenshots/`.
+These are local `/tmp` artifacts retained for this handoff. Subsequent Cypress
+runs may overwrite the original `candidate/*.json` and repository Cypress
+screenshot paths, so use the preserved Chrome copies for comparison.
+[`cypress.config.ts`](../cypress.config.ts) launches headless Chromium at
+`1920 × 1080` so wide screenshots retain their actual pixel dimensions; AUT
+viewport sizes remain the three fixture sizes above. The capture suite uses
+Cypress 16 `Cypress.expose` parameters. A candidate-only capture command is:
+
+```bash
+env -u ELECTRON_RUN_AS_NODE pnpm --filter @taskpilot/desktop exec cypress run --component --browser chrome --spec cypress/component/board.cy.tsx --expose captureOnly=true,BOARD_LAYOUT_CAPTURE=candidate --config video=true
+```
+
+Use `BOARD_LAYOUT_CAPTURE=baseline` only with the baseline production layout.
+Capture-only execution selects the six fixture cases; the ordinary command
+without `captureOnly` registers the regression suite as well.
+
+**Current automated verification:** the final execution logs and coverage
+summary support the following results. The P2 keyboard-coverage repair reran
+Chrome, the complete Electron component suite, ESLint, and Renderer TypeScript.
+Focused Vitest, production quality/coverage/build, and packaged evidence below
+come from the original Apply; this test-only repair leaves that production
+code unchanged. The implementation owner reports changed-executable coverage.
+
+| Check | Final result | Evidence |
+| --- | --- | --- |
+| Focused Renderer/Detail Vitest | `89 / 89` passing | `/tmp/taskpilot-board-focused-vitest.log` |
+| Focused Board Cypress, Chrome 147 | After the P2 repair, `59 / 59` passing, no failures/pending/skips; screenshots and video retained | `/tmp/taskpilot-board-focused-cypress.log` |
+| Full Desktop `test:e2e`, default headless Electron (log browser label `Electron 146`) | After the P2 repair, `80 / 80`: Auth 11, Board 59, Select 4, Shell 6; no failures/pending/skips | `/tmp/taskpilot-board-all-cypress.log` |
+| Desktop quality gate | Typecheck/lint, Main 168, Renderer 184, architecture 10, coverage suite 362, and production build passed | `/tmp/taskpilot-board-quality.log` |
+| Final test-helper and cleanup edits | ESLint and Renderer TypeScript passed after the P2 keyboard-helper repair; final Cypress runs above include the changes | `/tmp/taskpilot-board-lint.log`, `/tmp/taskpilot-board-typecheck.log`, and final Cypress logs |
+| Current-host packaging and credential lifecycle | macOS arm64 package built with Electron `44.4.5`; native write, fresh-process restore, rotate, delete passed | `/tmp/taskpilot-board-packaged-native.log` |
+
+Whole-Desktop coverage is **90.74% lines / 78.89% branches**, compared with the
+pre-change baseline **90.23% / 78.73%**. The totals are available in
+[`coverage-summary.json`](../coverage/coverage-summary.json); the baseline log
+is `/tmp/taskpilot-board-baseline-coverage.log`. The implementation owner reports
+**11 / 11 instrumented changed executable lines covered**. Changed-branch
+coverage is **N/A: no changed branch records**. JSX/CSS is not fully instrumented,
+so that narrow changed-line result does not establish complete visual or branch
+coverage; the real browser/native presentation checks cover those distinct risks.
+
+**Current-host native presentation inspection fulfilled:**
+`/tmp/taskpilot-board-native-visual.log` reports `ok: true`; the matching
+`/tmp/taskpilot-board-layout/native/report.json` records macOS arm64,
+Electron `44.4.5`, and the current packaged `app.asar` Renderer. The test-only
+Preload supplies the fixture, refuses mutations, and uses an isolated `/tmp`
+profile. Full-app `960 × 640`, `1280 × 800`, and `1600 × 900` checks include the
+`216px` sidebar, five Columns, and 15 Cards, with no page overflow and a
+scrollable Board region.
+
+At `960 × 640`, a visible/focused native window receives trusted CDP keyboard
+events. Enter opens the creation Dialog and Board menu with focus inside and
+bounds inside the viewport; Escape restores the add-Card button and menu trigger
+respectively. Screenshots are
+`/tmp/taskpilot-board-layout/native/packaged-renderer-create-960x640.png` and
+`packaged-renderer-menu-960x640.png` in the same directory, alongside all three
+full-app captures. This visible-window result supersedes the older hidden-window
+probe and fulfills the current-host presentation/menu/focus inspection.
+It is separate from the credential lifecycle result and does not exercise
+production Main/Preload/API end-to-end or establish human visual approval.
+
+**Pending human/release handoffs:** independent code review, human visual/manual
+acceptance, Windows-native release validation, and signed/notarized platform
+release certification have not been supplied. After the P2 repair, the user
+explicitly authorized archive and commit on 2026-11-11; the delta specs were
+synced and the Change archived. That authorization does not establish unexecuted
+human/platform evidence. See the
+[`archive audit`](../../../openspec/changes/archive/2026-11-11-refine-board-visual-layout/test-plan.md#archive-and-documentation-audit).
+The layout recipe belongs to
+[`design foundation`](design-foundation.md#board-layout-and-card-recipe).
+
+Renderer integration in
+[`project-board.test.tsx`](../tests/renderer/features/board/project-board.test.tsx)
+owns authoritative title/description and assignee semantics, accessible names,
+unchanged scoped/versioned move payloads, deterministic DOMRect anchor seams,
+and drop/cancel/unmount cleanup. Retain detail/creation/save/picker/failure
+regressions; this slice changes no business model or detail-sheet behavior.
+
+Passing real Chromium component checks in
+[`board.cy.tsx`](../cypress/component/board.cy.tsx) cover:
+
+- One-/two-line `14 / 20px` titles and a single `12 / 18px` summary; empty
+  summaries retain their slot. Same-title descriptions and authoritative
+  assignee set/replace/clear keep outer height, title width, and summary position
+  stable within `1px` in the same environment. The fixed `24px` footer shows
+  only an assigned avatar at bottom left; long and multiline previews leave
+  authoritative detail text intact.
+- Compact Project context, aligned `20px` gutters and approximately `44px`
+  tabs/actions, readable `288px` full-height neutral Columns, canvas-only
+  horizontal scrolling, Column vertical scrolling, and reachable create/action
+  targets. Long names, focus visibility/restoration, and truthful
+  loading/error/empty states remain usable at all fixture sizes.
+- At `960 × 640` in both languages, real ProjectHome with its sidebar and five
+  long-named Boards overflows the local tab track. Trusted Tab enters the
+  current tab; ArrowRight/End/ArrowLeft/Home switch Boards with authoritative
+  requests, one selected tab, roving tabindex, visible focus, unclipped bounds,
+  and local scrolling clear of toolbar actions. Native Tab traversal reaches
+  the last Card of a long Column and scrolls it into view; trusted Enter opens
+  authoritative detail and Escape restores the same visible Card, without
+  edit/move mutations or page overflow. Keyboard helpers keep CDP's portable
+  `key`/`code`/`windowsVirtualKeyCode` and omit OS-specific `nativeVirtualKeyCode`;
+  Windows key values must not be reused as macOS native codes. The regression
+  retains exact trusted-key and browser-generated-click assertions.
+- Different-height sources and target halves resolve the correct anchor;
+  preview and unique before-Card/end/empty-Column slots match the measured
+  source height within `1px`. Include a real mouse drag, authoritative success,
+  failure/reload, cancellation without mutation, and transient geometry cleanup.
+
+Reduced-motion evidence must use real browser media emulation. Before mounting,
+call `Cypress.automation('remote:debugger:protocol', ...)` with
+`Emulation.setEmulatedMedia` and a `prefers-reduced-motion: reduce` feature, as in
+[`select.cy.tsx`](../cypress/component/select.cy.tsx). Assert real `matchMedia`
+matches, computed Column/Card transition durations are zero, and any retained
+Column pseudo-element/action-area transitions are also zero. Assert insertion
+slot reveal and settling animation names are `none`, FLIP's `Element.animate()`
+is not called, and the measured slot, structural target feedback, move payload,
+and authoritative result remain correct. An `afterEach` hook must reset media
+`features` to `[]`, including after assertion failure; a stubbed `matchMedia`
+does not prove CSS media-rule behavior. The implemented hook also removes the
+capture-only height from `[data-cy-root]`, since mounting reuses that root;
+viewport fixtures must not leak their height into subsequent regression cases.
+These CSS/JS reduced-motion and cleanup checks passed in the final focused
+Chrome and full Electron component runs above.
+
+Capture baseline screenshots before production layout edits and candidate
+screenshots afterward using the same five-Column fixture, Chinese and English,
+at `960 × 640`, `1280 × 800`, and `1600 × 900`. Hold browser, viewport, zoom,
+data order, and starting scroll positions constant. Record top-region usage,
+actual Column widths, visible Card counts, and title readability/whitespace;
+Card count alone is not a visual acceptance criterion.
+
+Focused commands from the approved test plan are:
+
+```bash
+pnpm --filter @taskpilot/desktop exec vitest run --config vitest.config.ts tests/renderer/features/board/project-board.test.tsx tests/renderer/features/detail/work-item-detail-state.test.ts
+pnpm --filter @taskpilot/desktop exec cypress run --component --browser chrome --spec cypress/component/board.cy.tsx --config video=true
+```
+
+If Chrome is unavailable, record the command using another installed Chromium
+browser and retain the actual drag, screenshots, and video evidence.
+
+The implementation owner completed the affected `pnpm desktop:quality`, full
+Desktop `test:e2e`, and `test:packaged-native` gates recorded above. This
+documentation update checks only relative links and the assigned diff; it
+records existing test/native evidence and supplies no new test execution,
+human acceptance, independent review, or release approval.
 
 ## Packaged and Native Matrix
 

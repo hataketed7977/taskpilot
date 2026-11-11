@@ -463,8 +463,8 @@ export function BoardWorkspace({
       <header className="board-context">
         <div className="board-context__project">
           <span>{t("project.personalSpace")}</span>
-          <h1>{project.name}</h1>
-          {project.description ? <p>{project.description}</p> : null}
+          <h1 title={project.name}>{project.name}</h1>
+          {project.description ? <p title={project.description}>{project.description}</p> : null}
         </div>
         <button
           type="button"
@@ -489,6 +489,7 @@ export function BoardWorkspace({
               aria-selected={item.boardId === board?.boardId}
               tabIndex={item.boardId === board?.boardId ? 0 : -1}
               className={item.boardId === board?.boardId ? "is-current" : ""}
+              title={item.name}
               onKeyDown={(event) => activateAdjacentTab(event, index)}
               onClick={() => void openBoard(item)}
             >
@@ -751,17 +752,19 @@ function BoardCanvas({
   const layoutAnimations = useRef(new Map<string, Animation>());
   const activeDropTarget = useRef<typeof dropTarget>(undefined);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const element = canvas.current;
+    const animations = layoutAnimations.current;
+    return () => {
       if (dragStartFrame.current !== undefined)
         cancelAnimationFrame(dragStartFrame.current);
       if (settleTimer.current) clearTimeout(settleTimer.current);
-      for (const animation of layoutAnimations.current.values())
+      for (const animation of animations.values())
         animation.cancel();
-      layoutAnimations.current.clear();
-    },
-    [],
-  );
+      animations.clear();
+      element?.style.removeProperty("--board-drag-height");
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const positions = previousCardPositions.current;
@@ -840,6 +843,7 @@ function BoardCanvas({
     }
     setDraggedWorkItemId(undefined);
     changeDropTarget(undefined);
+    canvas.current?.style.removeProperty("--board-drag-height");
   };
   const showSettled = (workItemId: string) => {
     if (settleTimer.current) clearTimeout(settleTimer.current);
@@ -958,7 +962,7 @@ function BoardCanvas({
             >
               <header className="board-column__header">
                 <div>
-                  <h2>{column.name}</h2>
+                  <h2 title={column.name}>{column.name}</h2>
                   <span
                     aria-label={t("board.cardCount", {
                       count: column.cards.length,
@@ -975,6 +979,7 @@ function BoardCanvas({
                     aria-label={t("board.moveColumnLeft", {
                       name: column.name,
                     })}
+                    title={t("board.moveColumnLeft", { name: column.name })}
                     onClick={() => reorder(column.columnId, -1)}
                   >
                     ←
@@ -988,6 +993,7 @@ function BoardCanvas({
                     aria-label={t("board.moveColumnRight", {
                       name: column.name,
                     })}
+                    title={t("board.moveColumnRight", { name: column.name })}
                     onClick={() => reorder(column.columnId, 1)}
                   >
                     →
@@ -997,6 +1003,7 @@ function BoardCanvas({
                     className="icon-action"
                     disabled={busy !== undefined}
                     aria-label={t("board.editColumn", { name: column.name })}
+                    title={t("board.editColumn", { name: column.name })}
                     onClick={() =>
                       onDialog({ kind: "edit-column", board, column })
                     }
@@ -1012,6 +1019,7 @@ function BoardCanvas({
                       column.cards.length > 0
                     }
                     aria-label={t("board.deleteColumn", { name: column.name })}
+                    title={t("board.deleteColumn", { name: column.name })}
                     onClick={() => remove(column)}
                   >
                     ×
@@ -1041,7 +1049,9 @@ function BoardCanvas({
                         className={classes}
                         draggable={pendingMove === undefined}
                         onDragStart={(event) => {
-                          writeDrag(event, card, column.columnId);
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          canvas.current?.style.setProperty("--board-drag-height", `${bounds.height}px`);
+                          writeDrag(event, card, column.columnId, bounds);
                           captureCardPositions();
                           const sourceIndex = column.cards.findIndex(
                             (item) => item.workItemId === card.workItemId,
@@ -1085,17 +1095,19 @@ function BoardCanvas({
                           <strong className="board-card__title">
                             {card.title}
                           </strong>
-                          {card.assignee ? (
-                            <span
-                              className="board-card__assignee"
-                              aria-hidden="true"
-                              title={card.assignee.user.displayName}
-                            >
-                              <PersonAvatar person={card.assignee.user} />
-                            </span>
-                          ) : null}
                           <span className="board-card__description">
                             {card.description}
+                          </span>
+                          <span className="board-card__meta">
+                            {card.assignee ? (
+                              <span
+                                className="board-card__assignee"
+                                aria-hidden="true"
+                                title={card.assignee.user.displayName}
+                              >
+                                <PersonAvatar person={card.assignee.user} />
+                              </span>
+                            ) : null}
                           </span>
                         </button>
                       </div>
@@ -1696,7 +1708,7 @@ function prefersReducedMotion() {
 
 type DragPayload = { card: CardView; sourceColumnId: string };
 const dragPayloads = new Map<string, DragPayload>();
-function writeDrag(event: DragEvent, card: CardView, sourceColumnId: string) {
+function writeDrag(event: DragEvent, card: CardView, sourceColumnId: string, bounds: DOMRect) {
   const key = `${card.workItemId}:${Date.now()}`;
   dragPayloads.set(key, { card, sourceColumnId });
   event.dataTransfer.effectAllowed = "move";
@@ -1708,7 +1720,6 @@ function writeDrag(event: DragEvent, card: CardView, sourceColumnId: string) {
     typeof event.dataTransfer.setDragImage !== "function"
   )
     return;
-  const bounds = source.getBoundingClientRect();
   const preview = source.cloneNode(true) as HTMLElement;
   preview.classList.remove("is-dragging", "is-moving", "is-settling");
   preview.classList.add("board-drag-preview");

@@ -347,6 +347,7 @@ function dragTransfer() {
     getData(type: string) {
       return values.get(type) ?? "";
     },
+    setDragImage: vi.fn(),
   };
 }
 function fireDragOverAt(
@@ -790,6 +791,10 @@ describe("Work Item read-only detail", () => {
     );
     expect(assignedCard.querySelector(".assignee-avatar")).toHaveTextContent("周");
     expect(assignedCard.querySelector(".board-card__assignee-name")).toBeNull();
+    const meta = assignedCard.querySelector(".board-card__meta");
+    expect(meta).toContainElement(assignedCard.querySelector(".board-card__assignee"));
+    expect(assignedCard.querySelector(".board-card__description")!
+      .compareDocumentPosition(meta!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     cleanup();
     const unassignedApi = apiFor(initialBoard);
@@ -798,7 +803,26 @@ describe("Work Item read-only detail", () => {
     const unassignedCard = screen.getByRole("button", { name: "准备发布" });
     expect(unassignedCard.querySelector(".board-card__assignee")).toBeNull();
     expect(unassignedCard.querySelector(".board-card__description")).toBeInTheDocument();
+    expect(unassignedCard.querySelector(".board-card__meta")).toBeEmptyDOMElement();
     expect(screen.queryByText("未分配")).not.toBeInTheDocument();
+  });
+
+  it("keeps historical bilingual title and multiline description intact when opening bounded Card previews", async () => {
+    const title = "核对企业工作区权限 EnterpriseWorkspaceInvitationPermissions".repeat(6);
+    const description = "核对失效邀请、权限与回滚。\nPreserve customer-authored text.\n".repeat(150);
+    const historical = editedBoard(initialBoard, title);
+    historical.columns[0].cards[0].description = description;
+    const api = apiFor(historical);
+    const operator = userEvent.setup();
+    renderBoard(api);
+    const card = await screen.findByRole("button", { name: title });
+    expect(card.querySelector(".board-card__title")?.textContent).toBe(title);
+    await operator.click(card);
+    const dialog = await screen.findByRole("dialog", { name: title });
+    expect(await within(dialog).findByRole("heading", { name: title })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "编辑描述" }).textContent).toContain(description);
+    expect(api.boards.openWorkItem).toHaveBeenCalledWith({ workspaceId, projectId, boardId, workItemId });
+    expect(api.boards.editWorkItem).not.toHaveBeenCalled();
   });
 
   it("sets and clears the assignee from Project members while preserving creator metadata", async () => {
@@ -2008,14 +2032,14 @@ describe("Project board workspace", () => {
     },
     {
       name: "两张 Card 之间",
-      pointerY: 170,
+      pointerY: 153,
       beforeWorkItemId: lastTargetWorkItemId,
       slotAfterWorkItemId: targetWorkItemId,
       slotBeforeWorkItemId: lastTargetWorkItemId,
     },
     {
       name: "最后一张 Card 后",
-      pointerY: 270,
+      pointerY: 285,
       beforeWorkItemId: undefined,
       slotAfterWorkItemId: lastTargetWorkItemId,
       slotBeforeWorkItemId: undefined,
@@ -2044,11 +2068,12 @@ describe("Project board workspace", () => {
         `[data-work-item-id="${lastTargetWorkItemId}"]`,
       )!;
       vi.spyOn(firstTarget, "getBoundingClientRect").mockReturnValue(
-        rectAt(100, 84),
+        rectAt(100, 104),
       );
       vi.spyOn(lastTarget, "getBoundingClientRect").mockReturnValue(
-        rectAt(184, 84),
+        rectAt(212, 124),
       );
+      vi.spyOn(sourceCard, "getBoundingClientRect").mockReturnValue(rectAt(40, 124));
       const dataTransfer = dragTransfer();
 
       fireEvent.dragStart(sourceCard, { dataTransfer });
@@ -2059,6 +2084,10 @@ describe("Project board workspace", () => {
         targetColumn.querySelectorAll<HTMLElement>(".board-drop-slot");
       expect(slots).toHaveLength(1);
       const slot = slots[0];
+      expect(slot.closest<HTMLElement>(".board-canvas")!.style.getPropertyValue("--board-drag-height")).toBe("124px");
+      expect(document.querySelectorAll(".board-drop-slot")).toHaveLength(1);
+      const preview = dataTransfer.setDragImage.mock.calls[0][0] as HTMLElement;
+      expect(preview).toHaveStyle({ width: "260px", height: "124px" });
       if (slotAfterWorkItemId) {
         expect(
           targetColumn.querySelector(
@@ -2090,8 +2119,79 @@ describe("Project board workspace", () => {
         targetColumnId: doingId,
         ...(beforeWorkItemId ? { beforeWorkItemId } : {}),
       });
+      expect(document.querySelector(".board-drop-slot")).toBeNull();
+      expect(document.querySelector(".is-dragging")).toBeNull();
     },
   );
+
+  it.each([104, 124])("reorders a %ipx Card within its Column using the actual target midpoint", async (height) => {
+    const localBoard: BoardView = {
+      ...initialBoard,
+      columns: [
+        { ...initialBoard.columns[0], cards: [initialBoard.columns[0].cards[0], ...boardWithTargetCards.columns[1].cards] },
+        initialBoard.columns[1],
+      ],
+    };
+    const authoritative: BoardView = {
+      ...localBoard, version: 4,
+      columns: [
+        { ...localBoard.columns[0], cards: [localBoard.columns[0].cards[1], { ...localBoard.columns[0].cards[0], placementVersion: 1 }, localBoard.columns[0].cards[2]].map((card, position) => ({ ...card, position })) },
+        localBoard.columns[1],
+      ],
+    };
+    const api = apiFor(localBoard);
+    vi.mocked(api.boards.moveCard).mockResolvedValue({ key: key(boardId, 1), value: authoritative });
+    renderBoard(api);
+    const source = (await screen.findByRole("button", { name: "准备发布" })).closest<HTMLElement>(".board-card")!;
+    const column = source.closest<HTMLElement>(".board-column")!;
+    const first = column.querySelector<HTMLElement>(`[data-work-item-id="${targetWorkItemId}"]`)!;
+    const last = column.querySelector<HTMLElement>(`[data-work-item-id="${lastTargetWorkItemId}"]`)!;
+    vi.spyOn(source, "getBoundingClientRect").mockReturnValue(rectAt(0, height));
+    vi.spyOn(first, "getBoundingClientRect").mockReturnValue(rectAt(150, 124));
+    vi.spyOn(last, "getBoundingClientRect").mockReturnValue(rectAt(282, 104));
+    const dataTransfer = dragTransfer();
+    fireEvent.dragStart(source, { dataTransfer });
+    await waitFor(() => expect(source).toHaveClass("is-dragging"));
+    fireDragOverAt(column, dataTransfer, 213);
+    const slots = document.querySelectorAll(".board-drop-slot");
+    expect(slots).toHaveLength(1);
+    expect(column.closest<HTMLElement>(".board-canvas")!.style.getPropertyValue("--board-drag-height")).toBe(`${height}px`);
+    expect(slots[0].nextElementSibling).toBe(last);
+    fireDropAt(column, dataTransfer, 213);
+    await waitFor(() => expect(api.boards.moveCard).toHaveBeenCalledOnce());
+    expect(api.boards.moveCard).toHaveBeenCalledWith({ workspaceId, projectId, boardId, workItemId, expectedBoardVersion: 3, expectedPlacementVersion: 0, targetColumnId: todoId, beforeWorkItemId: lastTargetWorkItemId });
+    await waitFor(() => expect([...column.querySelectorAll<HTMLElement>(".board-card")].map((card) => card.dataset.workItemId)).toEqual([targetWorkItemId, workItemId, lastTargetWorkItemId]));
+    expect(document.querySelector(".board-drop-slot")).toBeNull();
+  });
+
+  it("cancels without mutation, rejects its discarded transfer and measures the next drag afresh", async () => {
+    const api = apiFor(boardWithTargetCards);
+    const view = renderBoard(api);
+    const source = (await screen.findByRole("button", { name: "准备发布" })).closest<HTMLElement>(".board-card")!;
+    const column = screen.getByRole("heading", { name: "处理中" }).closest<HTMLElement>(".board-column")!;
+    const measure = vi.spyOn(source, "getBoundingClientRect").mockReturnValue(rectAt(0, 124));
+    const dataTransfer = dragTransfer();
+    fireEvent.dragStart(source, { dataTransfer });
+    await waitFor(() => expect(source).toHaveClass("is-dragging"));
+    fireDragOverAt(column, dataTransfer, 500);
+    expect(document.querySelector(".board-drop-slot")).toBeInTheDocument();
+    expect(column.closest<HTMLElement>(".board-canvas")!.style.getPropertyValue("--board-drag-height")).toBe("124px");
+    fireEvent.dragEnd(source, { dataTransfer });
+    await waitFor(() => expect(document.querySelector(".board-drag-preview")).toBeNull());
+    expect(document.querySelector(".board-drop-slot, .is-dragging, .is-drop-target")).toBeNull();
+    expect(column.closest<HTMLElement>(".board-canvas")!.style.getPropertyValue("--board-drag-height")).toBe("");
+    fireDropAt(column, dataTransfer, 500);
+    expect(api.boards.moveCard).not.toHaveBeenCalled();
+
+    measure.mockReturnValue(rectAt(0, 104));
+    fireEvent.dragStart(source, { dataTransfer: dragTransfer() });
+    await waitFor(() => expect(source).toHaveClass("is-dragging"));
+    expect(document.querySelector(".board-drop-slot")).toBeInTheDocument();
+    expect(column.closest<HTMLElement>(".board-canvas")!.style.getPropertyValue("--board-drag-height")).toBe("104px");
+    view.unmount();
+    await waitFor(() => expect(document.querySelector(".board-drag-preview, .board-drop-slot")).toBeNull());
+    expect(api.boards.moveCard).not.toHaveBeenCalled();
+  });
 
   it("keeps a same-column drop near the source Card at its original position", async () => {
     const api = apiFor();
@@ -2142,6 +2242,7 @@ describe("Project board workspace", () => {
     expect(
       screen.getByRole("heading", { name: "待处理" }).closest(".board-column"),
     ).toHaveTextContent("准备发布");
+    expect(document.querySelector(".board-drop-slot, .is-dragging, .is-drop-target")).toBeNull();
   });
 
   it("restores focus to the invoking control when a dialog is cancelled", async () => {

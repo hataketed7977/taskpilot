@@ -1,4 +1,5 @@
 import { BoardWorkspace } from '../../src/renderer/features/board/board-workspace';
+import { ProjectHome } from '../../src/renderer/features/shell/project-home';
 import { LocaleProvider } from '../../src/renderer/i18n/locale-context';
 import { PRODUCT_TEXT_LIMITS } from '../../src/renderer/shared/lib/text-constraints';
 import type {
@@ -358,7 +359,6 @@ async function dispatchChromiumTab() {
     key: 'Tab',
     code: 'Tab',
     windowsVirtualKeyCode: 9,
-    nativeVirtualKeyCode: 9,
   };
   await Cypress.automation('remote:debugger:protocol', {
     command: 'Input.dispatchKeyEvent',
@@ -367,6 +367,70 @@ async function dispatchChromiumTab() {
   await Cypress.automation('remote:debugger:protocol', {
     command: 'Input.dispatchKeyEvent',
     params: { type: 'keyUp', ...key },
+  });
+}
+
+function activateButtonWithChromiumEnter(button: HTMLButtonElement) {
+  const keyboardEvents: Array<{ key: string; trusted: boolean; targetIsButton: boolean }> = [];
+  const clicks: Array<{ trusted: boolean; detail: number }> = [];
+  button.addEventListener('keydown', (event) => {
+    keyboardEvents.push({ key: event.key, trusted: event.isTrusted, targetIsButton: event.target === button });
+  }, { once: true });
+  button.addEventListener('click', (event) => {
+    clicks.push({ trusted: event.isTrusted, detail: event.detail });
+  }, { once: true });
+
+  return cy.then(() => Cypress.automation('remote:debugger:protocol', {
+    command: 'Page.bringToFront', params: {},
+  })).then(async () => {
+    // Cypress .focus() can update activeElement while the runner browsing
+    // context retains native keyboard focus. Focus the AUT frame explicitly.
+    const document = button.ownerDocument;
+    document.defaultView!.focus();
+    button.focus();
+    expect(document.activeElement, 'Enter target in the AUT').to.equal(button);
+    expect(document.hasFocus(), 'AUT owns native browser focus').to.equal(true);
+    const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+    await Cypress.automation('remote:debugger:protocol', {
+      command: 'Input.dispatchKeyEvent',
+      params: { type: 'keyDown', text: '\r', unmodifiedText: '\r', ...key },
+    });
+    await Cypress.automation('remote:debugger:protocol', {
+      command: 'Input.dispatchKeyEvent', params: { type: 'keyUp', ...key },
+    });
+  }).then(() => {
+    expect(keyboardEvents, 'native Enter reaches the focused AUT button').to.deep.equal([
+      { key: 'Enter', trusted: true, targetIsButton: true },
+    ]);
+    expect(clicks, 'the browser activates the button from the keyboard').to.deep.equal([
+      { trusted: true, detail: 0 },
+    ]);
+  });
+}
+
+function pressFocusedChromiumKey(key: 'Tab' | 'ArrowLeft' | 'ArrowRight' | 'Home' | 'End' | 'Escape') {
+  const keyCodes = { Tab: 9, ArrowLeft: 37, ArrowRight: 39, Home: 36, End: 35, Escape: 27 };
+  return cy.document().then(async (document) => {
+    const target = document.activeElement;
+    expect(document.hasFocus(), 'AUT retains native keyboard focus').to.equal(true);
+    expect(target, 'keyboard target exists').not.to.equal(null);
+    const events: Array<{ key: string; trusted: boolean; targetMatches: boolean }> = [];
+    target!.addEventListener('keydown', (event) => {
+      const keyboard = event as KeyboardEvent;
+      events.push({ key: keyboard.key, trusted: keyboard.isTrusted, targetMatches: keyboard.target === target });
+    }, { once: true });
+    // CDP's Windows key code is portable; native key codes are OS-specific
+    // (macOS Tab is 48, not 9). Let Chromium derive the native representation.
+    const params = { key, code: key, windowsVirtualKeyCode: keyCodes[key] };
+    await Cypress.automation('remote:debugger:protocol', {
+      command: 'Input.dispatchKeyEvent', params: { type: 'rawKeyDown', ...params },
+    });
+    await Cypress.automation('remote:debugger:protocol', {
+      command: 'Input.dispatchKeyEvent', params: { type: 'keyUp', ...params },
+    });
+    expect(events, 'trusted key reaches the current focus without refocusing').to.deep.equal([
+      { key, trusted: true, targetMatches: true },
+    ]);
   });
 }
 
@@ -396,23 +460,383 @@ async function dragWithRealChromiumMouse(
 function mountBoard(
   api: TaskPilotDesktopApi,
   locale: 'zh-CN' | 'en' = 'en',
+  currentProject: ProjectView = project,
 ) {
   cy.mount(
     <LocaleProvider initialLanguages={[locale]}>
-      <BoardWorkspace
-        api={api}
-        userId={userId}
-        workspaceId={workspaceId}
-        project={project}
-        onSettings={cy.stub()}
-        onLeaveProject={cy.stub().as('leaveProject')}
-      />
+      <div style={{ height: '100vh' }}>
+        <BoardWorkspace
+          api={api}
+          userId={userId}
+          workspaceId={workspaceId}
+          project={currentProject}
+          onSettings={cy.stub()}
+          onLeaveProject={cy.stub().as('leaveProject')}
+        />
+      </div>
     </LocaleProvider>,
   );
 }
 
-describe('Project Board experience', () => {
+// Capture-only runs register this suite exclusively; the ordinary run registers
+// every candidate and existing regression test without skipped tests.
+const captureOnly = Boolean(Cypress.expose('captureOnly'));
+const captureMode = String(Cypress.expose('BOARD_LAYOUT_CAPTURE') ?? 'candidate');
+const captureRoot = '/tmp/taskpilot-board-layout';
+const layoutProject: ProjectView = {
+  ...project,
+  name: '客户协作平台 Customer collaboration',
+  description: '统一客户反馈、交付验证与发布准备。 Coordinate customer feedback, delivery checks and release readiness.',
+};
+const layoutColumns = [
+  ['需求池 Backlog', [
+    ['修复登录 Fix login', ''],
+    ['为企业客户补齐工作区权限与邀请流程 Workspace invitations and permissions', '核对所有者权限、失效邀请和重复提交。\nVerify owner access, expired invitations and duplicate submission.'],
+    ['审核反馈 Review feedback', '整理本周客户访谈，确认共同问题和跟进责任人。'],
+    ['审核反馈 Review feedback', ''],
+    ['检查导出 Export check', 'Verify CSV encoding and preserve customer-authored content.'],
+    ['建立试点客户回访清单并确认升级计划 Pilot customer follow-up', '记录升级步骤、回滚窗口与验收联系人。'],
+    ['同步文档 Sync docs', 'Update the support playbook after release acceptance.'],
+    ['修复通知 Notifications', '确认失败重试不会重复通知。'],
+  ]],
+  ['进行中 In progress', [
+    ['ValidateEnterpriseWorkspaceInvitationPermissionsAndExpiredLinks', 'An unbroken historical title remains accessible without widening the Card.'],
+    ['完善交付验收用例 Delivery acceptance', '覆盖中文与英文内容，保留原始描述。'],
+    ['验证升级 Upgrade test', 'Check upgrade and rollback with the pilot workspace.'],
+  ]],
+  ['评审 Review', [
+    ['确认发布说明 Release notes', 'Check wording with support and customer success.'],
+    ['核对审计历史和责任人变更 Audit and assignment review', '保证未分配工作项不会显示创建人作为责任人。'],
+  ]],
+  ['等待客户确认 Waiting for customer confirmation', []],
+  ['已交付 Delivered', [
+    ['试点验收 Pilot sign-off', 'The pilot team completed its acceptance checklist.'],
+    ['更新帮助中心 Help center', '同步常见问题与回滚操作说明。'],
+  ]],
+] as const;
+const layoutBoard: BoardView = {
+  ...initialBoard,
+  name: '秋季交付 Autumn delivery · 客户验收与发布协作',
+  columns: layoutColumns.map(([name, cards], columnIndex) => ({
+    ...initialBoard.columns[0],
+    columnId: `55555555-5555-4555-8555-${String(columnIndex + 10).padStart(12, '0')}`,
+    name,
+    position: columnIndex,
+    cards: cards.map(([title, description], cardIndex) => ({
+      ...initialBoard.columns[0].cards[0],
+      workItemId: `77777777-7777-4777-8777-${String(columnIndex * 100 + cardIndex + 10).padStart(12, '0')}`,
+      title,
+      description,
+      position: cardIndex,
+      assignee: cardIndex % 3 === 0 ? null : assigneeTarget,
+    })),
+  })),
+};
+
+describe('Board layout evidence capture', () => {
+  for (const locale of ['zh-CN', 'en'] as const) {
+    for (const [width, height] of [[960, 640], [1280, 800], [1600, 900]]) {
+      it(`captures ${locale} ${width}x${height} with the same five-column fixture`, () => {
+        cy.viewport(width, height);
+        mountBoard(apiFor('success', layoutBoard), locale, layoutProject);
+        cy.get('[data-cy-root]').invoke('css', 'height', `${height}px`);
+        cy.get('.board-column').should('have.length', 5);
+        cy.get('.board-card').should('have.length', 15);
+        cy.document().then((document) => document.fonts.ready);
+        cy.get('.board-columns').scrollTo('left', { duration: 0 });
+        cy.get('.board-card-list').each(($list) => { $list[0].scrollTop = 0; });
+        cy.get('.board-surface').then(($surface) => {
+          const surface = $surface[0];
+          const rect = (element: Element) => {
+            const { left, top, right, bottom, width, height } = element.getBoundingClientRect();
+            return { left, top, right, bottom, width, height };
+          };
+          const columns = surface.querySelector('.board-columns')!;
+          const viewport = rect(columns);
+          const geometry = {
+            mode: captureMode, locale, viewport: { width, height },
+            browser: Cypress.browser, devicePixelRatio: surface.ownerDocument.defaultView!.devicePixelRatio,
+            topOccupied: viewport.top, surface: rect(surface), canvas: viewport,
+            horizontalScroll: columns.scrollLeft,
+            columns: [...surface.querySelectorAll('.board-column')].map((column) => {
+              const list = column.querySelector('.board-card-list')!;
+              const listBounds = rect(list);
+              const cards = [...column.querySelectorAll<HTMLElement>('.board-card')].map((card) => {
+                const bounds = rect(card);
+                const title = card.querySelector('.board-card__title')!;
+                const titleStyle = getComputedStyle(title);
+                return {
+                  id: card.dataset.workItemId, title: title.textContent, bounds,
+                  titleBounds: rect(title), titleLineHeight: titleStyle.lineHeight,
+                  titleClamp: titleStyle.webkitLineClamp,
+                  fullyVisible: bounds.left >= viewport.left && bounds.right <= viewport.right &&
+                    bounds.top >= listBounds.top && bounds.bottom <= Math.min(listBounds.bottom, height),
+                };
+              });
+              return {
+                name: column.querySelector('h2')!.textContent, bounds: rect(column),
+                scrollTop: list.scrollTop, scrollHeight: list.scrollHeight, clientHeight: list.clientHeight,
+                visibleCardCount: cards.filter((card) => card.fullyVisible).length, cards,
+              };
+            }),
+          };
+          cy.writeFile(`${captureRoot}/${captureMode}/${locale}-${width}x${height}.json`, geometry);
+        });
+        cy.screenshot(`board-layout-${captureMode}-${locale}-${width}x${height}`, { capture: 'fullPage', scale: false, overwrite: true });
+      });
+    }
+  }
+});
+
+let reducedMediaActive = false;
+afterEach(() => {
+  // cy.mount unmounts React children but reuses the component-index root.
+  // Capture-specific pixel heights must not leak into a later viewport.
+  cy.document().then((document) => {
+    document.querySelector<HTMLElement>('[data-cy-root]')?.style.removeProperty('height');
+  });
+  if (!reducedMediaActive) return;
+  reducedMediaActive = false;
+  cy.then(() => Cypress.automation('remote:debugger:protocol', {
+    command: 'Emulation.setEmulatedMedia', params: { features: [] },
+  }));
+});
+
+function dragGeometryBoard(tallSource: boolean): BoardView {
+  return {
+    ...boardWithTargetCards,
+    columns: boardWithTargetCards.columns.map((column) => ({
+      ...column,
+      cards: column.cards.map((card) => ({
+        ...card,
+        title: card.workItemId === workItemId
+          ? tallSource ? 'Prepare enterprise workspace invitations and validate customer acceptance before release' : 'Fix login'
+          : card.workItemId === targetWorkItemId ? 'Check notes'
+            : 'Confirm pilot customer acceptance and prepare the final upgrade and rollback checklist',
+      })),
+    })),
+  };
+}
+
+function dragAuthority(board: BoardView, targetOrder: string[], destination = doingId): BoardView {
+  const cards = board.columns.flatMap((column) => column.cards);
+  return {
+    ...board, version: 4,
+    columns: board.columns.map((column) => column.columnId === destination
+      ? { ...column, cards: targetOrder.map((id, position) => ({
+        ...cards.find((card) => card.workItemId === id)!, position,
+        placementVersion: id === workItemId ? 1 : 0,
+      })) }
+      : column.columnId === todoId ? { ...column, cards: [] } : column),
+  };
+}
+
+function cardLayoutMetrics(card: HTMLElement) {
+  const bounds = card.getBoundingClientRect();
+  return {
+    height: bounds.height,
+    titleWidth: card.querySelector('.board-card__title')!.getBoundingClientRect().width,
+    summaryTop: card.querySelector('.board-card__description')!.getBoundingClientRect().top - bounds.top,
+  };
+}
+
+if (!captureOnly) describe('Project Board experience', () => {
   beforeEach(() => cy.viewport(960, 640));
+
+  it('keeps the five-column Board usable beside the real ProjectHome sidebar at 960x640', () => {
+    const api = apiFor('success', layoutBoard);
+    api.projects.resolveHome = cy.stub().resolves({
+      key: { sessionGeneration: 2, userId, workspaceId, projectId, status: 'ACTIVE' },
+      value: {
+        workspace: { workspaceId, type: 'PERSONAL', role: 'OWNER', createdAt: now, updatedAt: now },
+        projects: [layoutProject], currentProject: layoutProject,
+      },
+    });
+    cy.mount(
+      <LocaleProvider initialLanguages={['en']}>
+        <ProjectHome api={api}
+          session={{ status: 'authenticated', currentUser: { userId, displayName: 'Avery Owner' } }}
+          onLogout={cy.stub().resolves()} />
+      </LocaleProvider>,
+    );
+    cy.findByRole('complementary', { name: 'Project navigation' }).should('be.visible');
+    cy.findByRole('heading', { name: layoutProject.name }).should('be.visible');
+    cy.get('.board-column').should('have.length', 5);
+    cy.get('.project-workspace').should(($workspace) => {
+      const bounds = $workspace[0].getBoundingClientRect();
+      const sidebar = $workspace[0].ownerDocument.querySelector('.project-sidebar')!.getBoundingClientRect();
+      expect(sidebar.width, 'real sidebar consumes width').to.be.at.least(190);
+      expect(bounds.left).to.be.closeTo(sidebar.right, 1);
+      expect(bounds.width, 'Board receives the content width, not the whole viewport').to.be.at.most(770);
+      expect(bounds.right).to.be.at.most(960);
+      expect(bounds.bottom).to.be.at.most(640);
+      expect($workspace[0].scrollWidth, 'workspace does not widen to fit Columns').to.be.at.most($workspace[0].clientWidth);
+      for (const button of $workspace[0].querySelectorAll('.board-toolbar__actions button, .board-project-settings')) {
+        const action = button.getBoundingClientRect();
+        expect(action.left, 'toolbar action stays inside content').to.be.at.least(bounds.left);
+        expect(action.right).to.be.at.most(bounds.right);
+      }
+      const tabs = $workspace[0].querySelector('.board-switcher')!.getBoundingClientRect();
+      const actions = $workspace[0].querySelector('.board-toolbar__actions')!.getBoundingClientRect();
+      expect(tabs.right, 'long Board name does not overlap actions').to.be.at.most(actions.left);
+    });
+    cy.get('.board-columns').should(($columns) => {
+      expect($columns[0].scrollWidth).to.be.greaterThan($columns[0].clientWidth);
+      expect(getComputedStyle($columns[0]).overflowX).to.equal('auto');
+    });
+    cy.get('.board-column').first().find('.board-card-list').should(($list) => {
+      expect($list[0].scrollHeight).to.be.greaterThan($list[0].clientHeight);
+    }).scrollTo('bottom', { duration: 0 }).then(($list) => {
+      expect($list[0].scrollTop).to.be.greaterThan(0);
+    });
+    cy.get('.board-column').first().find('.board-card').last().find('button').focus()
+      .should('be.visible').and('be.focused');
+    cy.get('.board-columns').scrollTo('right', { duration: 0 });
+    cy.get('.board-column').last().find('.board-add-card').focus()
+      .should('be.visible').and('be.focused').and(($button) => {
+        const bounds = $button[0].getBoundingClientRect();
+        const workspaceBounds = $button[0].closest('.project-workspace')!.getBoundingClientRect();
+        expect(bounds.left).to.be.at.least(workspaceBounds.left);
+        expect(bounds.right).to.be.at.most(workspaceBounds.right);
+        expect(bounds.bottom).to.be.at.most(640);
+      });
+    cy.get('.board-column').last().find<HTMLButtonElement>('.board-add-card')
+      .then(($button) => activateButtonWithChromiumEnter($button[0]));
+    cy.findByRole('dialog', { name: 'Add work item' }).should('be.visible');
+    cy.findByRole('button', { name: 'Close' }).click();
+    cy.get('.board-column').last().find('.board-add-card').should('be.focused');
+    cy.document().then((document) => {
+      expect(document.documentElement.scrollWidth).to.be.at.most(960);
+      expect(document.documentElement.scrollHeight).to.be.at.most(640);
+    });
+  });
+
+  for (const locale of ['zh-CN', 'en'] as const) {
+    it(`keeps overflowing Board tabs and a scrolled Card reachable with real keyboard input at ${locale} 960x640`, () => {
+      const boards: BoardView[] = Array.from({ length: 5 }, (_, index) => ({
+        ...layoutBoard,
+        boardId: index === 0 ? boardId : `44444444-4444-4444-8444-${String(index).padStart(12, '0')}`,
+        name: [...`Delivery ${index + 1} · 客户验收与发布协作 Enterprise customer acceptance and release readiness`]
+          .slice(0, PRODUCT_TEXT_LIMITS.boardName).join(''),
+      }));
+      const api = apiFor('success', boards[0]);
+      api.projects.resolveHome = cy.stub().resolves({
+        key: { sessionGeneration: 2, userId, workspaceId, projectId, status: 'ACTIVE' },
+        value: {
+          workspace: { workspaceId, type: 'PERSONAL', role: 'OWNER', createdAt: now, updatedAt: now },
+          projects: [layoutProject], currentProject: layoutProject,
+        },
+      });
+      api.boards.resolveHome = cy.stub().resolves({
+        key: key(), value: { boards: boards.map(summary), currentBoard: boards[0] },
+      });
+      let generation = 0;
+      api.boards.open = cy.stub().callsFake((request: { boardId: string }) => {
+        const board = boards.find((candidate) => candidate.boardId === request.boardId)!;
+        return Promise.resolve({ key: { ...key(++generation), boardId: board.boardId }, value: board });
+      });
+      const card = boards[0].columns[0].cards.at(-1)!;
+      const cardSelector = `[data-work-item-id="${card.workItemId}"] .board-card__body`;
+      api.boards.openWorkItem = cy.stub().callsFake(() => Promise.resolve({
+        key: key(generation), value: {
+          ...item(boards[0]), workItemId: card.workItemId, title: card.title,
+          description: card.description, assignee: card.assignee ?? null,
+        },
+      }));
+      cy.mount(
+        <LocaleProvider initialLanguages={[locale]}>
+          <ProjectHome api={api}
+            session={{ status: 'authenticated', currentUser: { userId, displayName: 'Avery Owner' } }}
+            onLogout={cy.stub().resolves()} />
+        </LocaleProvider>,
+      );
+      cy.findAllByRole('tab').should('have.length', 5);
+      cy.document().then((document) => document.fonts.ready);
+      cy.get('.project-sidebar').should('be.visible');
+      cy.get('.board-switcher').should(($tabs) => {
+        expect($tabs[0].scrollWidth, 'long Board tabs overflow their local track').to.be.greaterThan($tabs[0].clientWidth);
+        expect($tabs[0].scrollLeft, 'initial local scroll').to.equal(0);
+      });
+
+      const assertSelectedTab = (index: number) => {
+        cy.findByRole('tab', { name: boards[index].name }).should('be.focused')
+          .and('have.attr', 'aria-selected', 'true').and('have.attr', 'tabindex', '0')
+          .and(($tab) => {
+            const tab = $tab[0];
+            const bounds = tab.getBoundingClientRect();
+            const track = tab.closest('.board-switcher')!.getBoundingClientRect();
+            const actions = tab.closest('.board-toolbar')!.querySelector('.board-toolbar__actions')!.getBoundingClientRect();
+            expect(bounds.left, 'focused tab is not clipped on the left').to.be.at.least(track.left - 1);
+            expect(bounds.right, 'focused tab is not clipped on the right').to.be.at.most(track.right + 1);
+            expect(track.right, 'tab scrolling stays clear of Board actions').to.be.at.most(actions.left);
+            expect(tab.matches(':focus-visible'), 'native keyboard focus remains visible').to.equal(true);
+            expect(getComputedStyle(tab).outlineStyle).not.to.equal('none');
+            expect(parseFloat(getComputedStyle(tab).outlineWidth)).to.be.at.least(2);
+          });
+        cy.findAllByRole('tab').should(($tabs) => {
+          expect([...$tabs].filter((tab) => tab.getAttribute('aria-selected') === 'true')).to.have.length(1);
+          for (const tab of $tabs) {
+            if (tab.textContent !== boards[index].name) expect(tab.getAttribute('tabindex')).to.equal('-1');
+          }
+        });
+      };
+      cy.then(() => Cypress.automation('remote:debugger:protocol', { command: 'Page.bringToFront', params: {} }));
+      cy.get<HTMLButtonElement>('.board-project-settings').then(($button) => {
+        $button[0].ownerDocument.defaultView!.focus();
+        $button[0].focus();
+      });
+      pressFocusedChromiumKey('Tab');
+      assertSelectedTab(0);
+      pressFocusedChromiumKey('ArrowRight');
+      assertSelectedTab(1);
+      pressFocusedChromiumKey('End');
+      assertSelectedTab(4);
+      cy.get('.board-switcher').should(($tabs) => expect($tabs[0].scrollLeft).to.be.greaterThan(0));
+      pressFocusedChromiumKey('ArrowLeft');
+      assertSelectedTab(3);
+      pressFocusedChromiumKey('Home');
+      assertSelectedTab(0);
+      cy.get('.board-switcher').should(($tabs) => expect($tabs[0].scrollLeft).to.be.closeTo(0, 1));
+      cy.wrap(api.boards.open).should('have.callCount', 4).and((stub) => {
+        const calls = (stub as unknown as { getCalls(): Array<{ args: Array<{ boardId: string }> }> }).getCalls();
+        expect(calls.map((call) => call.args[0].boardId)).to.deep.equal([1, 4, 3, 0].map((index) => boards[index].boardId));
+      });
+
+      const tabToCard = (remaining: number): Cypress.Chainable<unknown> => cy.document().then((document) => {
+        if (document.activeElement?.matches(cardSelector)) return;
+        expect(remaining, 'Card is reachable in a bounded native Tab traversal').to.be.greaterThan(0);
+        return pressFocusedChromiumKey('Tab').then(() => tabToCard(remaining - 1));
+      });
+      tabToCard(24);
+      const assertCardFocus = () => cy.get<HTMLButtonElement>(cardSelector).should('be.focused').and('be.visible')
+        .and(($button) => {
+          const bounds = $button[0].getBoundingClientRect();
+          const list = $button[0].closest('.board-card-list')!;
+          const visible = list.getBoundingClientRect();
+          expect(list.scrollTop, 'native Tab scrolls the long Column to the Card').to.be.greaterThan(0);
+          expect(bounds.left).to.be.at.least(visible.left - 1);
+          expect(bounds.right).to.be.at.most(visible.right + 1);
+          expect(bounds.top).to.be.at.least(visible.top - 1);
+          expect(bounds.bottom).to.be.at.most(visible.bottom + 1);
+          expect($button[0].matches(':focus-visible')).to.equal(true);
+        });
+      assertCardFocus().then(($button) => activateButtonWithChromiumEnter($button[0]));
+      cy.findByRole('dialog', { name: card.title }).should('be.visible');
+      cy.findByRole('heading', { name: card.title }).should('be.focused');
+      cy.wrap(api.boards.openWorkItem).should('have.been.calledOnceWith', {
+        workspaceId, projectId, boardId: boards[0].boardId, workItemId: card.workItemId,
+      });
+      pressFocusedChromiumKey('Escape');
+      cy.findByRole('dialog', { name: card.title }).should('not.exist');
+      assertCardFocus();
+      cy.wrap(api.boards.editWorkItem).should('not.have.been.called');
+      cy.wrap(api.boards.moveCard).should('not.have.been.called');
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(960);
+        expect(document.documentElement.scrollHeight).to.be.at.most(640);
+      });
+    });
+  }
 
   it('orders Work Item creation as title, assignee, then description without redundant default help', () => {
     const api = apiFor();
@@ -599,104 +1023,203 @@ describe('Project Board experience', () => {
     });
   });
 
-  it('keeps assigned and unassigned Cards equal-height with the assignee fixed at top right', () => {
-    const compactWorkItemId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-    const stableCardBoard: BoardView = {
+  for (const locale of ['zh-CN', 'en'] as const) {
+    for (const [width, height] of [[960, 640], [1280, 800], [1600, 900]]) {
+      it(`keeps five readable Columns and existing actions reachable at ${locale} ${width}x${height}`, () => {
+        cy.viewport(width, height);
+        const api = apiFor('success', layoutBoard);
+        mountBoard(api, locale, layoutProject);
+        cy.get('.board-column').should('have.length', 5);
+        cy.get('.board-columns').should(($canvas) => {
+          if (width < 1528) expect($canvas[0].scrollWidth).to.be.greaterThan($canvas[0].clientWidth);
+          expect(getComputedStyle($canvas[0]).overflowX).to.equal('auto');
+        });
+        cy.get('.board-column').should(($columns) => {
+          const backgrounds = [...$columns].map((column) => getComputedStyle(column).backgroundColor);
+          expect(new Set(backgrounds).size, 'neutral grouping is independent of column names').to.equal(1);
+          for (const column of $columns) {
+            expect(column.getBoundingClientRect().width, 'readable Column width').to.be.closeTo(288, 1);
+            expect(column.getBoundingClientRect().bottom).to.be.at.most(height);
+          }
+        });
+        cy.get('.board-column').first().find('.board-card-list').should(($list) => {
+          expect($list[0].scrollHeight).to.be.greaterThan($list[0].clientHeight);
+          expect(getComputedStyle($list[0]).overflowY).to.equal('auto');
+        }).scrollTo('bottom', { duration: 0 }).then(($list) => {
+          expect($list[0].scrollTop).to.be.greaterThan(0);
+        });
+        cy.get('.board-columns').scrollTo('right', { duration: 0, ensureScrollable: false });
+        cy.get('.board-column').last().find('.board-add-card').focus().should('be.visible').and('be.focused')
+          .then(($button) => {
+            const bounds = $button[0].getBoundingClientRect();
+            expect(bounds.left).to.be.at.least(0);
+            expect(bounds.right).to.be.at.most(width);
+            expect(bounds.bottom).to.be.at.most(height);
+          });
+        cy.get('.board-column').last().find<HTMLButtonElement>('.board-add-card')
+          .then(($button) => activateButtonWithChromiumEnter($button[0]));
+        cy.findByRole('dialog', { name: locale === 'en' ? 'Add work item' : '添加工作项' }).should('be.visible');
+        cy.findByRole('button', { name: locale === 'en' ? 'Close' : '关闭' }).click();
+        cy.get('.board-column').last().find('.board-add-card').should('be.focused');
+        cy.get('.board-columns').scrollTo('left', { duration: 0, ensureScrollable: false });
+        cy.get('.board-toolbar').then(($toolbar) => {
+          const firstColumn = $toolbar[0].ownerDocument.querySelector('.board-column')!;
+          expect(firstColumn.getBoundingClientRect().left).to.be.closeTo($toolbar[0].getBoundingClientRect().left + 20, 1);
+        });
+        cy.get('.board-column').first().find('.board-column__actions .icon-action').eq(2)
+          .focus().should('be.visible').and('be.focused').and(($button) => {
+            const bounds = $button[0].getBoundingClientRect();
+            expect(bounds.width).to.be.at.least(32);
+            expect(bounds.height).to.be.at.least(32);
+          });
+        cy.get('.board-toolbar__actions button, .board-project-settings').should(($buttons) => {
+          for (const button of $buttons) {
+            const bounds = button.getBoundingClientRect();
+            expect(bounds.width).to.be.at.least(32);
+            expect(bounds.height).to.be.at.least(32);
+            expect(bounds.right).to.be.at.most(width);
+          }
+        });
+        cy.document().then((document) => {
+          expect(document.documentElement.scrollWidth).to.be.at.most(width);
+          expect(document.documentElement.scrollHeight, 'only Column content scrolls vertically').to.be.at.most(height);
+        });
+      });
+    }
+  }
+
+  it('bounds Card height by title lines and keeps summary and assignee slots stable', () => {
+    const longTitle = 'Prepare enterprise workspace invitations and validate customer acceptance before release';
+    const historicalDescription = '核对权限与失效邀请。\nPreserve the original customer description.\n'.repeat(150);
+    const variants = [
+      { title: 'Review feedback', description: '', assignee: null },
+      { title: 'Review feedback', description: historicalDescription, assignee: assigneeTarget },
+      { title: longTitle, description: '', assignee: null },
+      { title: longTitle, description: historicalDescription, assignee: assigneeTarget },
+      { title: 'ValidateEnterpriseWorkspaceInvitationPermissionsAndExpiredLinks'.repeat(4), description: 'Check long unbroken English text.', assignee: null },
+      { title: '核对企业客户工作区邀请权限并验证失效链接与回滚操作'.repeat(5), description: '核对中文历史内容。', assignee: null },
+    ];
+    const stableBoard: BoardView = {
       ...initialBoard,
-      columns: initialBoard.columns.map((column, columnIndex) =>
-        columnIndex === 0
-          ? {
-              ...column,
-              cards: [
-                {
-                  ...column.cards[0],
-                  workItemId: compactWorkItemId,
-                  title: 'Short task',
-                  description: '',
-                },
-                {
-                  ...column.cards[0],
-                  workItemId,
-                  title:
-                    'Prepare a release candidate with a deliberately long user-authored title',
-                  description:
-                    'Verify the upgrade steps, rollback notes, release checklist, and customer communication before shipping.',
-                  assignee: assigneeTarget,
-                  position: 1,
-                },
-              ],
-            }
-          : column,
-      ),
+      columns: initialBoard.columns.map((column, columnIndex) => columnIndex === 0
+        ? { ...column, cards: variants.map((variant, position) => ({
+          ...column.cards[0], ...variant, position,
+          workItemId: `cccccccc-cccc-4ccc-8ccc-${String(position + 1).padStart(12, '0')}`,
+        })) }
+        : column),
     };
-    const api = apiFor('success', stableCardBoard);
+    const api = apiFor('success', stableBoard);
+    const original = stableBoard.columns[0].cards[3];
+    api.boards.openWorkItem = cy.stub().resolves({ key: key(), value: {
+      ...item(stableBoard), workItemId: original.workItemId,
+      title: original.title, description: original.description, assignee: original.assignee,
+    } });
     mountBoard(api, 'en');
-    cy.findByRole('button', { name: 'New board' }).should('be.visible');
-    cy.findByRole('heading', { name: project.name }).should('be.visible');
-    cy.contains(stableCardBoard.columns[0].name).should('be.visible');
-
-    cy.get(
-      `[data-work-item-id="${compactWorkItemId}"], [data-work-item-id="${workItemId}"]`,
-    ).should(($cards) => {
-      expect($cards).to.have.length(2);
-      const [unassignedCard, assignedCard] = [...$cards] as HTMLElement[];
-      const unassignedBounds = unassignedCard.getBoundingClientRect();
-      const assignedBounds = assignedCard.getBoundingClientRect();
-      expect(unassignedBounds.height).to.be.closeTo(110, 0.5);
-      expect(assignedBounds.height).to.be.closeTo(110, 0.5);
-      expect(assignedBounds.height).to.be.closeTo(unassignedBounds.height, 0.5);
-      expect(unassignedCard.querySelector('.board-card__assignee')).to.equal(null);
-
-      const assignee = assignedCard.querySelector<HTMLElement>('.board-card__assignee');
-      expect(assignee).not.to.equal(null);
-      const assigneeBounds = assignee!.getBoundingClientRect();
-      const titleBounds = assignedCard
-        .querySelector<HTMLElement>('.board-card__title')!
-        .getBoundingClientRect();
-      expect(assigneeBounds.top).to.be.closeTo(titleBounds.top, 0.5);
-      expect(assigneeBounds.top - assignedBounds.top).to.be.closeTo(15, 0.5);
-      expect(assignedBounds.right - assigneeBounds.right).to.be.closeTo(15, 0.5);
-    });
-    cy.get(`[data-work-item-id="${workItemId}"]`).within(() => {
-      cy.get('.board-card__title').should(($title) => {
-        const style = getComputedStyle($title[0]);
-        expect(style.overflow).to.equal('hidden');
-        expect(style.webkitLineClamp).to.equal('2');
+    cy.get('[data-cy-root]').invoke('css', 'height', '640px');
+    cy.document().then((document) => document.fonts.ready);
+    cy.get('.board-column').first().find('.board-card').should(($cards) => {
+      expect($cards).to.have.length(6);
+      const metrics = [...$cards].map((card) => {
+        const bounds = card.getBoundingClientRect();
+        const title = card.querySelector<HTMLElement>('.board-card__title')!;
+        const description = card.querySelector<HTMLElement>('.board-card__description')!;
+        const meta = card.querySelector<HTMLElement>('.board-card__meta')!;
+        const titleBounds = title.getBoundingClientRect();
+        const descriptionBounds = description.getBoundingClientRect();
+        const titleStyle = getComputedStyle(title);
+        const descriptionStyle = getComputedStyle(description);
+        expect(titleStyle.fontSize, 'readable title').to.equal('14px');
+        expect(titleStyle.lineHeight).to.equal('20px');
+        expect(titleStyle.webkitLineClamp).to.equal('2');
+        expect(titleBounds.height).to.be.at.most(40.5);
+        expect(titleBounds.width, 'title stays inside the Card').to.be.at.most(bounds.width);
+        expect(descriptionStyle.fontSize).to.equal('12px');
+        expect(descriptionStyle.lineHeight).to.equal('18px');
+        expect(descriptionStyle.overflow).to.equal('hidden');
+        expect(descriptionBounds.height, 'one summary line including empty summary').to.be.closeTo(18, 1);
+        expect(meta.getBoundingClientRect().height, 'reserved responsibility footer').to.be.closeTo(24, 1);
+        expect(meta.getBoundingClientRect().top).to.be.greaterThan(descriptionBounds.bottom);
+        const avatar = card.querySelector<HTMLElement>('.board-card__assignee');
+        if (avatar) {
+          const avatarBounds = avatar.getBoundingClientRect();
+          expect(meta.contains(avatar)).to.equal(true);
+          expect(avatarBounds.left).to.be.closeTo(titleBounds.left, 1);
+          expect(avatarBounds.width).to.be.closeTo(24, 1);
+          expect(avatarBounds.height).to.be.closeTo(24, 1);
+          expect(avatar.title).to.equal(assigneeUser.displayName);
+          expect(card.querySelector('button')!.getAttribute('aria-label')).to.contain(assigneeUser.displayName);
+        }
+        return { height: bounds.height, titleHeight: titleBounds.height,
+          titleWidth: titleBounds.width, summaryTop: descriptionBounds.top - bounds.top };
       });
-      cy.get('.board-card__description').should(($description) => {
-        const style = getComputedStyle($description[0]);
-        expect(style.overflow).to.equal('hidden');
-        expect(style.webkitLineClamp).to.equal('2');
-      });
+      expect(metrics[0].titleHeight, 'short title uses one line').to.be.closeTo(20, 1);
+      expect(metrics[2].titleHeight, 'long title uses two lines').to.be.closeTo(40, 1);
+      expect(metrics[2].height - metrics[0].height, 'only the extra title line adds height').to.be.closeTo(20, 1);
+      for (const [empty, assigned] of [[0, 1], [2, 3]]) {
+        for (const axis of ['height', 'titleWidth', 'summaryTop'] as const) {
+          expect(metrics[assigned][axis], `same title ${axis}`).to.be.closeTo(metrics[empty][axis], 1);
+        }
+        expect($cards[empty].querySelector('.board-card__assignee')).to.equal(null);
+      }
+      expect(metrics[4].height, 'unbroken historical title is bounded').to.be.closeTo(metrics[2].height, 1);
+      expect(metrics[5].height, 'Chinese historical title is bounded').to.be.closeTo(metrics[2].height, 1);
     });
-    cy.get(`[data-work-item-id="${compactWorkItemId}"] .board-card__description`)
-      .should('exist')
-      .and('have.text', '');
+    cy.get(`[data-work-item-id="${original.workItemId}"] button`).scrollIntoView().click();
+    cy.findByRole('heading', { name: original.title }).should('be.focused');
+    cy.findByRole('button', { name: 'Edit description' }).should(($description) => {
+      expect($description[0].textContent).to.contain(historicalDescription);
+    });
+    cy.wrap(api.boards.openWorkItem).should('have.been.calledOnceWith', {
+      workspaceId, projectId, boardId, workItemId: original.workItemId,
+    });
+    cy.wrap(api.boards.editWorkItem).should('not.have.been.called');
+  });
 
-    cy.get('.board-columns').then(($columns) => {
-      expect($columns[0].scrollWidth).to.be.greaterThan(
-        $columns[0].clientWidth,
-      );
-      expect(getComputedStyle($columns[0]).overflowX).to.equal('auto');
-    });
-    cy.get('.board-columns')
-      .scrollTo('right', { duration: 0 })
-      .scrollTo('left', { duration: 0 })
-      .wait(160)
-      .should(($columns) => {
-        const columns = $columns[0];
-        const firstColumn = columns.querySelector<HTMLElement>('.board-column');
-        expect(columns.scrollLeft).to.equal(0);
-        expect(firstColumn).not.to.equal(null);
-        expect(firstColumn?.getBoundingClientRect().left).to.be.closeTo(
-          columns.getBoundingClientRect().left + 20,
-          1,
-        );
+  it('keeps Card geometry stable through authoritative assignee set, replace and clear', () => {
+    const replacementMember = { ...projectMember,
+      projectMemberId: '40404040-4040-4040-8040-404040404040',
+      user: { ...assigneeUser, userId: '50505050-5050-4050-8050-505050505050', displayName: '林交付 Delivery owner with a long name' },
+    };
+    const assigned = withAssignee(initialBoard);
+    const replaced: BoardView = { ...assigned, columns: assigned.columns.map((column) => ({
+      ...column, cards: column.cards.map((card) => ({ ...card, workItemVersion: 2,
+        assignee: { ...assigneeTarget, projectMemberId: replacementMember.projectMemberId, user: replacementMember.user },
+      })),
+    })) };
+    const cleared: BoardView = { ...replaced, columns: replaced.columns.map((column) => ({
+      ...column, cards: column.cards.map((card) => ({ ...card, workItemVersion: 3, assignee: null })),
+    })) };
+    const api = apiFor();
+    api.boards.listProjectMembers = cy.stub().resolves({ key: key(), value: [projectMember, replacementMember] });
+    api.boards.editWorkItem = cy.stub()
+      .onCall(0).resolves({ key: key(1), value: { workItem: item(assigned), board: assigned } })
+      .onCall(1).resolves({ key: key(2), value: { workItem: item(replaced), board: replaced } })
+      .onCall(2).resolves({ key: key(3), value: { workItem: item(cleared), board: cleared } });
+    mountBoard(api, 'en');
+    let baseline: ReturnType<typeof cardLayoutMetrics>;
+    cy.get(`[data-work-item-id="${workItemId}"]`).then(($card) => { baseline = cardLayoutMetrics($card[0]); });
+    cy.findByRole('button', { name: initialBoard.columns[0].cards[0].title }).click();
+    for (const [current, next] of [
+      ['Unassigned', assigneeUser.displayName],
+      [assigneeUser.displayName, replacementMember.user.displayName],
+      [replacementMember.user.displayName, 'Unassigned'],
+    ]) {
+      cy.findByRole('button', { name: `Change assignee. Current: ${current}` }).click();
+      cy.findByRole('option', { name: new RegExp(next) }).click();
+      cy.findByRole('button', { name: `Change assignee. Current: ${next}` }).should('be.visible');
+      cy.get(`[data-work-item-id="${workItemId}"]`).should(($card) => {
+        const actual = cardLayoutMetrics($card[0]);
+        for (const axis of ['height', 'titleWidth', 'summaryTop'] as const) {
+          expect(actual[axis], `authoritative ${next} ${axis}`).to.be.closeTo(baseline[axis], 1);
+        }
+        const avatar = $card[0].querySelector<HTMLElement>('.board-card__assignee');
+        if (next === 'Unassigned') expect(avatar).to.equal(null);
+        else expect(avatar?.title).to.equal(next);
       });
-    cy.document().then((document) => {
-      expect(document.documentElement.scrollWidth).to.be.at.most(
-        document.documentElement.clientWidth,
-      );
+    }
+    cy.wrap(api.boards.editWorkItem).should('have.been.calledThrice');
+    cy.wrap(api.boards.editWorkItem).its('lastCall.args.0').should((input) => {
+      expect(input).to.deep.include({ expectedVersion: 2, assigneePatch: { action: 'CLEAR' } });
     });
   });
 
@@ -965,6 +1488,138 @@ describe('Project Board experience', () => {
   });
 
 
+  for (const tall of [false, true]) {
+    for (const placement of ['upper', 'lower', 'end', 'empty'] as const) {
+      it(`uses a measured ${tall ? 'two-line' : 'one-line'} slot for ${placement} target insertion`, () => {
+        const board = dragGeometryBoard(tall);
+        const emptyId = board.columns[2].columnId;
+        const destination = placement === 'empty' ? emptyId : doingId;
+        const order = placement === 'upper' ? [workItemId, targetWorkItemId, lastTargetWorkItemId]
+          : placement === 'lower' ? [targetWorkItemId, workItemId, lastTargetWorkItemId]
+            : placement === 'end' ? [targetWorkItemId, lastTargetWorkItemId, workItemId] : [workItemId];
+        const anchor = placement === 'upper' ? targetWorkItemId : placement === 'lower' ? lastTargetWorkItemId : undefined;
+        const authoritative = dragAuthority(board, order, destination);
+        const api = apiFor('success', board);
+        api.boards.moveCard = cy.stub().resolves({ key: key(1), value: authoritative });
+        mountBoard(api, 'en');
+        cy.get('[data-cy-root]').invoke('css', 'height', '640px');
+        cy.document().then((document) => document.fonts.ready);
+        const transfer = new DataTransfer();
+        let sourceBounds: DOMRect;
+        cy.get(`[data-work-item-id="${workItemId}"]`).then(($source) => {
+          sourceBounds = $source[0].getBoundingClientRect();
+          const titleHeight = $source[0].querySelector('.board-card__title')!.getBoundingClientRect().height;
+          expect(titleHeight, 'fixture has the requested title height').to.be.closeTo(tall ? 40 : 20, 1);
+          cy.spy(transfer, 'setDragImage').as('dragImage');
+        }).trigger('dragstart', { dataTransfer: transfer }).should('have.class', 'is-dragging');
+        cy.get('@dragImage').should('have.been.calledOnce').then((spy) => {
+          const preview = (spy as unknown as { firstCall: { args: HTMLElement[] } }).firstCall.args[0];
+          expect(parseFloat(preview.style.height), 'preview retains source height').to.be.closeTo(sourceBounds.height, 1);
+          expect(parseFloat(preview.style.width), 'preview retains source width').to.be.closeTo(sourceBounds.width, 1);
+        });
+        cy.get('.board-drop-slot').should('have.length', 1).and(($slot) => {
+          expect($slot[0].getBoundingClientRect().height, 'source placeholder').to.be.closeTo(sourceBounds.height, 1);
+        });
+        const targetSelector = placement === 'empty' ? '.board-column:nth-child(3)' : '.board-column:nth-child(2)';
+        const point = () => cy.get(targetSelector).then(($column) => {
+          const target = placement === 'end' ? $column[0].querySelector(`[data-work-item-id="${lastTargetWorkItemId}"]`)
+            : placement === 'empty' ? $column[0] : $column[0].querySelector(`[data-work-item-id="${targetWorkItemId}"]`);
+          const bounds = target!.getBoundingClientRect();
+          return placement === 'end' ? bounds.bottom + 4 : bounds.top + bounds.height * (placement === 'upper' ? 0.25 : 0.75);
+        });
+        point().then((clientY) => cy.get(targetSelector).trigger('dragover', { dataTransfer: transfer, clientY }));
+        cy.get('.board-drop-slot').should('have.length', 1).and('be.visible').and(($slot) => {
+          expect($slot[0].getBoundingClientRect().height, 'target placeholder').to.be.closeTo(sourceBounds.height, 1);
+          expect($slot[0].getBoundingClientRect().width, 'stable column width').to.be.closeTo(sourceBounds.width, 1);
+          if (anchor) expect($slot[0].nextElementSibling).to.have.attr('data-work-item-id', anchor);
+          else expect($slot[0].nextElementSibling).to.equal(null);
+        });
+        point().then((clientY) => cy.get(targetSelector).trigger('drop', { dataTransfer: transfer, clientY }));
+        cy.wrap(api.boards.moveCard).should('have.been.calledOnceWith', {
+          workspaceId, projectId, boardId, workItemId, expectedBoardVersion: 3,
+          expectedPlacementVersion: 0, targetColumnId: destination,
+          ...(anchor ? { beforeWorkItemId: anchor } : {}),
+        });
+        cy.get(targetSelector).find('.board-card').should(($cards) => {
+          expect([...$cards].map((card) => card.dataset.workItemId)).to.deep.equal(order);
+        });
+        cy.get('.board-drop-slot, .board-drag-preview, .is-dragging, .is-drop-target').should('not.exist');
+      });
+    }
+  }
+
+  for (const tall of [false, true]) {
+    it(`reorders a ${tall ? 'two-line' : 'one-line'} Card within its Column with a measured slot`, () => {
+      const original = dragGeometryBoard(tall);
+      const board: BoardView = { ...original, columns: original.columns.map((column, index) =>
+        index === 0 ? { ...column, cards: [column.cards[0], ...original.columns[1].cards] }
+          : index === 1 ? { ...column, cards: [] } : column),
+      };
+      const order = [targetWorkItemId, workItemId, lastTargetWorkItemId];
+      const authoritative = dragAuthority(board, order, todoId);
+      const api = apiFor('success', board);
+      api.boards.moveCard = cy.stub().resolves({ key: key(1), value: authoritative });
+      mountBoard(api, 'en');
+      const transfer = new DataTransfer();
+      let sourceHeight = 0;
+      cy.get(`[data-work-item-id="${workItemId}"]`).then(($source) => {
+        sourceHeight = $source[0].getBoundingClientRect().height;
+      }).trigger('dragstart', { dataTransfer: transfer }).should('have.class', 'is-dragging');
+      const lowerPoint = () => cy.get(`[data-work-item-id="${targetWorkItemId}"]`).then(($target) => {
+        const bounds = $target[0].getBoundingClientRect();
+        return bounds.top + bounds.height * 0.75;
+      });
+      lowerPoint().then((clientY) => cy.get('.board-column').first().trigger('dragover', { dataTransfer: transfer, clientY }));
+      cy.get('.board-drop-slot').should('have.length', 1).and(($slot) => {
+        expect($slot[0].getBoundingClientRect().height).to.be.closeTo(sourceHeight, 1);
+        expect($slot[0].nextElementSibling).to.have.attr('data-work-item-id', lastTargetWorkItemId);
+        expect($slot[0].previousElementSibling).to.have.attr('data-work-item-id', targetWorkItemId);
+      });
+      lowerPoint().then((clientY) => cy.get('.board-column').first().trigger('drop', { dataTransfer: transfer, clientY }));
+      cy.wrap(api.boards.moveCard).should('have.been.calledOnceWith', {
+        workspaceId, projectId, boardId, workItemId, expectedBoardVersion: 3,
+        expectedPlacementVersion: 0, targetColumnId: todoId, beforeWorkItemId: lastTargetWorkItemId,
+      });
+      cy.get('.board-column').first().find('.board-card').should(($cards) => {
+        expect([...$cards].map((card) => card.dataset.workItemId)).to.deep.equal(order);
+      });
+      cy.get('.board-drop-slot, .is-dragging, .is-drop-target').should('not.exist');
+      cy.get('.board-canvas').should(($canvas) => {
+        expect($canvas[0].style.getPropertyValue('--board-drag-height')).to.equal('');
+      });
+    });
+  }
+
+  it('cleans a cancelled drag without mutation and measures a different next source', () => {
+    const board = dragGeometryBoard(true);
+    const api = apiFor('success', board);
+    mountBoard(api, 'en');
+    const transfer = new DataTransfer();
+    let tallHeight = 0;
+    cy.get(`[data-work-item-id="${workItemId}"]`).then(($source) => {
+      tallHeight = $source[0].getBoundingClientRect().height;
+    }).trigger('dragstart', { dataTransfer: transfer }).should('have.class', 'is-dragging');
+    cy.get('.board-column').eq(2).trigger('dragover', { dataTransfer: transfer });
+    cy.get('.board-drop-slot').should('have.length', 1).and(($slot) => {
+      expect($slot[0].getBoundingClientRect().height).to.be.closeTo(tallHeight, 1);
+    });
+    cy.get(`[data-work-item-id="${workItemId}"]`).trigger('dragend', { dataTransfer: transfer, force: true });
+    cy.get('.board-drop-slot, .board-drag-preview, .is-dragging, .is-drop-target').should('not.exist');
+    cy.wrap(api.boards.moveCard).should('not.have.been.called');
+    const next = new DataTransfer();
+    let shortHeight = 0;
+    cy.get(`[data-work-item-id="${targetWorkItemId}"]`).then(($source) => {
+      shortHeight = $source[0].getBoundingClientRect().height;
+      expect(tallHeight - shortHeight).to.be.closeTo(20, 1);
+    }).trigger('dragstart', { dataTransfer: next }).should('have.class', 'is-dragging');
+    cy.get('.board-drop-slot').should('have.length', 1).and(($slot) => {
+      expect($slot[0].getBoundingClientRect().height, 'previous height is discarded').to.be.closeTo(shortHeight, 1);
+    });
+    cy.get(`[data-work-item-id="${targetWorkItemId}"]`).trigger('dragend', { dataTransfer: next, force: true });
+    cy.get('.board-drop-slot, .board-drag-preview, .is-dragging, .is-drop-target').should('not.exist');
+    cy.wrap(api.boards.moveCard).should('not.have.been.called');
+  });
+
   it('moves a Card through a real Chromium mouse drag session', () => {
     if (Cypress.browser.family !== 'chromium') {
       cy.log('Native drag evidence runs only in Chromium');
@@ -1111,41 +1766,73 @@ describe('Project Board experience', () => {
     });
   });
 
-  it('does not animate Card reflow when reduced motion is requested', () => {
+  it('removes CSS and JS spatial motion with real media emulation while preserving a precise move', () => {
+    reducedMediaActive = true;
+    cy.then(() => Cypress.automation('remote:debugger:protocol', {
+      command: 'Emulation.setEmulatedMedia',
+      params: { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] },
+    }));
+    const board = dragGeometryBoard(true);
+    const sourceCard = board.columns[0].cards[0];
+    const authoritative = dragAuthority(board, [targetWorkItemId, workItemId, lastTargetWorkItemId]);
+    const api = apiFor('success', board);
+    api.boards.moveCard = cy.stub().resolves({ key: key(1), value: authoritative });
+    mountBoard(api, 'en');
     cy.window().then((window) => {
-      cy.stub(window, 'matchMedia').callsFake(
-        (query) =>
-          ({
-            matches: query === '(prefers-reduced-motion: reduce)',
-            media: query,
-            onchange: null,
-            addListener: () => undefined,
-            removeListener: () => undefined,
-            addEventListener: () => undefined,
-            removeEventListener: () => undefined,
-            dispatchEvent: () => true,
-          }) as MediaQueryList,
-      );
+      expect(window.matchMedia('(prefers-reduced-motion: reduce)').matches).to.equal(true);
       cy.spy(window.Element.prototype, 'animate').as('layoutAnimation');
     });
-    mountBoard(apiFor('success', boardWithTargetCards), 'en');
+    cy.get('.board-column, .board-card, .board-column__actions').should(($elements) => {
+      for (const element of $elements) {
+        for (const pseudo of [null, '::before', '::after']) {
+          const style = getComputedStyle(element, pseudo);
+          for (const duration of style.transitionDuration.split(',')) {
+            expect(parseFloat(duration), `${element.className} ${pseudo ?? 'element'} transition`).to.equal(0);
+          }
+        }
+      }
+    });
     const transfer = new DataTransfer();
-    cy.findByRole('button', {
-      name: initialBoard.columns[0].cards[0].title,
-    })
-      .closest('.board-card')
-      .trigger('dragstart', { dataTransfer: transfer });
-    cy.get(`[data-work-item-id="${lastTargetWorkItemId}"]`).then(
-      ($targetCard) => {
-        const bounds = $targetCard[0].getBoundingClientRect();
-        cy.findByRole('heading', { name: 'In progress' })
-          .closest('.board-column')
-          .trigger('dragover', {
-            dataTransfer: transfer,
-            clientY: bounds.top + bounds.height * 0.25,
-          });
-      },
-    );
+    let sourceHeight = 0;
+    cy.get(`[data-work-item-id="${workItemId}"]`).then(($source) => {
+      sourceHeight = $source[0].getBoundingClientRect().height;
+    }).trigger('dragstart', { dataTransfer: transfer }).should('have.class', 'is-dragging');
+    cy.get(`[data-work-item-id="${targetWorkItemId}"]`).then(($target) => {
+      const bounds = $target[0].getBoundingClientRect();
+      cy.findByRole('heading', { name: 'In progress' }).closest('.board-column')
+        .trigger('dragover', { dataTransfer: transfer, clientY: bounds.top + bounds.height * 0.75 });
+    });
+    cy.get('.board-drop-slot').should('have.length', 1).and('be.visible').and(($slot) => {
+      const style = getComputedStyle($slot[0]);
+      expect(style.animationName, 'insertion reveal is removed').to.equal('none');
+      expect($slot[0].getBoundingClientRect().height).to.be.closeTo(sourceHeight, 1);
+      expect($slot[0].nextElementSibling).to.have.attr('data-work-item-id', lastTargetWorkItemId);
+    });
+    cy.get('.is-drop-target').should('have.length', 1).and(($column) => {
+      const style = getComputedStyle($column[0]);
+      const marker = getComputedStyle($column[0], '::before');
+      expect(marker.content, 'structural target marker').not.to.equal('none');
+      expect(parseFloat(marker.height), 'marker has physical height').to.be.greaterThan(0);
+      expect(parseFloat(marker.opacity), 'target marker remains visible').to.equal(1);
+      expect(style.transform, 'target does not translate').to.equal('none');
+    });
+    cy.get('@layoutAnimation').should('not.have.been.called');
+    cy.get(`[data-work-item-id="${targetWorkItemId}"]`).then(($target) => {
+      const bounds = $target[0].getBoundingClientRect();
+      cy.findByRole('heading', { name: 'In progress' }).closest('.board-column')
+        .trigger('drop', { dataTransfer: transfer, clientY: bounds.top + bounds.height * 0.75 });
+    });
+    cy.wrap(api.boards.moveCard).should('have.been.calledOnceWith', {
+      workspaceId, projectId, boardId, workItemId, expectedBoardVersion: 3,
+      expectedPlacementVersion: 0, targetColumnId: doingId, beforeWorkItemId: lastTargetWorkItemId,
+    });
+    cy.get(`[data-work-item-id="${workItemId}"].is-settling`).should(($card) => {
+      expect(getComputedStyle($card[0]).animationName, 'settling motion is removed').to.equal('none');
+    });
+    cy.findByRole('heading', { name: 'In progress' }).closest('.board-column').find('.board-card')
+      .should(($cards) => expect([...$cards].map((card) => card.dataset.workItemId)).to.deep.equal([targetWorkItemId, workItemId, lastTargetWorkItemId]));
+    cy.findByRole('button', { name: sourceCard.title }).should('be.focused');
+    cy.get('.board-drop-slot, .board-drag-preview, .is-dragging, .is-drop-target').should('not.exist');
     cy.get('@layoutAnimation').should('not.have.been.called');
   });
 
@@ -2125,6 +2812,7 @@ describe('Project Board experience', () => {
     })
       .closest('.board-column')
       .should('contain.text', initialBoard.columns[0].cards[0].title);
+    cy.get('.board-drop-slot, .board-drag-preview, .is-dragging, .is-drop-target').should('not.exist');
     cy.findByRole('button', { name: '重新加载' }).click();
     cy.wrap(api.boards.resolveHome).should('have.been.calledTwice');
   });

@@ -129,7 +129,8 @@ panel owns one decorative Work Graph background configuration made from fixed Re
 Renderer owns ACTIVE Project
 and Board switching, Project lifecycle actions, Board
 create/edit/permanent-delete, Column create/edit/reorder/delete, Work Item
-creation, fixed-height Card rendering with bounded title/description slots and an avatar-only assignee marker fixed at the top-right, and authoritative Work Item detail. Renderer owns the
+creation, Card rendering from authoritative Work Item/Placement projections,
+and authoritative Work Item detail. Renderer owns the
 Focused Work Sheet's single-line title, editable assignee property row, full-width multiline description, and audit
 footer with immutable creator plus created/updated timestamps, together with flat read surfaces. Its shell is content-adaptive and viewport-bounded,
 with a pinned header/close and footer plus one middle scroll owner when needed.
@@ -161,6 +162,32 @@ fields are rejected), saves against the latest confirmed Work Item baseline,
 preserves confirmed Board/Column Placement context for content saves, and reloads
 authoritative Work Item and Board state after a conflict. Preload exposes only narrow typed
 capabilities; Renderer receives no bearer, URL, `fetch`, or generic IPC.
+
+**Current production (`refine-board-visual-layout`):**
+[`board-workspace.tsx`](../src/renderer/features/board/board-workspace.tsx) owns
+compact Project/Board context and bounded Card presentation; `BoardCanvas`
+owns the source measurement, preview, unique insertion slot, actual target
+midpoint, and drag cleanup. Card title/summary/footer geometry follows the
+[`Board recipe`](design-foundation.md#board-layout-and-card-recipe); the footer
+uses only the authoritative assignee and stays reserved when unassigned.
+The preview uses measured width/height; both slot outlets share measured
+height through the canvas-local `--board-drag-height` and fill the Column's
+Card width. This geometry remains transient and is cleared on
+drop, cancel/dragend, and unmount. This uses the existing measurement and move
+owners, without a new observer, per-frame full measurement, or DnD dependency.
+[`board.css`](../src/renderer/styles/board.css) owns scoped Board layout;
+the existing Board responsive/reduced-motion selectors in
+[`detail.css`](../src/renderer/styles/detail.css) follow that recipe while
+the detail feature retains its sheet, draft, save, and assignee-picker rules.
+No business-model, Main/Preload, API, persistence, or ownership change is made.
+Six Chrome captures, passing focused/full browser regressions, and macOS arm64
+packaged Renderer presentation/menu/focus inspection back the layout recipe.
+The presentation probe uses an isolated test-only Preload with mutations
+refused; production Main/Preload/API end-to-end verification remains a separate
+boundary. Human acceptance, independent code review, Windows release validation,
+and signed platform release certification remain pending. The
+[`testing strategy`](testing-strategy.md#approved-board-visual-layout-verification)
+owns the precise results and evidence limits.
 
 TEAM Workspace behavior and membership management are not exposed. The current
 slice does not start Agent Runtime. Later Target UI may include Workflow/Agent
